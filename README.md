@@ -1,7 +1,7 @@
 # NetProbe 2.0
 
 VPN (WireSock) + DPI (zapret) router with automatic failover, per-app split tunneling and the NetProbe network monitor.
-Interface language: English by default, Russian in Settings.
+
 
 ## Requirements
 - Windows 10/11, .NET Framework 4.8 (built in).
