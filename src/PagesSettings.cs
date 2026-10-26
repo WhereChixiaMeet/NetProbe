@@ -272,7 +272,7 @@ namespace NetProbe
             if (!st.CheckUpdates) return;
             double hours = st.UpdEvery == 1 ? 6 : st.UpdEvery == 2 ? 12 : st.UpdEvery == 3 ? 24 : st.UpdEvery == 4 ? 168 : -1;
             var last = st.LastUpdCheck > 0 ? DateTime.FromOADate(st.LastUpdCheck) : DateTime.MinValue;
-            if (startup || (hours > 0 && (DateTime.Now - last).TotalHours >= hours)) { CheckUpdates(false); CheckAppUpdate(false); }
+            if (startup || (hours > 0 && (DateTime.Now - last).TotalHours >= hours)) CheckUpdates(false); // NetProbe проверяется отдельно (appUpdTimer)
         }
 
         // Установленная и последняя версии zapret / xray (GitHub API)

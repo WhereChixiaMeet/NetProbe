@@ -32,6 +32,7 @@ namespace NetProbe
         readonly System.Windows.Forms.Timer refreshTimer = new System.Windows.Forms.Timer { Interval = 20000 };
         readonly System.Windows.Forms.Timer uiTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         readonly System.Windows.Forms.Timer updTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
+        readonly System.Windows.Forms.Timer appUpdTimer = new System.Windows.Forms.Timer { Interval = 20000 }; // проверка релизов NetProbe: через 20 с после старта, дальше раз в час
         readonly System.Windows.Forms.Timer reapplyTimer = new System.Windows.Forms.Timer { Interval = 700 };
 
         class ChState { public bool? Ok; public string Ip = ""; public DateTime DownSince; public DateTime LastNotify; public Level Lv = Level.Off; public string Val = "—"; }
@@ -167,6 +168,7 @@ namespace NetProbe
             }
             ScheduledUpdateCheck(true);
             updTimer.Tick += (s, e) => ScheduledUpdateCheck(false); updTimer.Start();
+            appUpdTimer.Tick += (s, e) => { appUpdTimer.Stop(); if (st.CheckUpdates) CheckAppUpdate(false); else appUpdTimer.Start(); }; appUpdTimer.Start();
             if (handoff == null && st.XrayAutoConnect && ServerStore.Find(st.ActiveServer) != null) { StartMonitoring(); xm.Connect(st.ActiveServer); }
         }
 
@@ -785,7 +787,7 @@ namespace NetProbe
             if (btnAppUpd == null) return;
             bool show = appRelease != null && SelfUpdate.Newer(appRelease.Tag);
             btnAppUpd.Visible = show;
-            if (show) btnAppUpd.Text = Tx("Обновить до ") + appRelease.Tag;
+            if (show && btnAppUpd.Enabled) btnAppUpd.Text = Tx("Обновить до ") + appRelease.Tag; // во время загрузки там статус
             int y = Theme.S(show ? 112 : 80);
             foreach (var nb in navs) { nb.Top = y; y += nb.Height + Theme.S(1); }
         }
@@ -800,12 +802,16 @@ namespace NetProbe
                 {
                     BeginInvoke((Action)(() =>
                     {
+                        // фоновая проверка: при ошибке (сеть ещё не поднялась, туннель переподключается) повтор через 2 мин, иначе через час
+                        if (!manual) { appUpdTimer.Stop(); appUpdTimer.Interval = err != null ? 2 * 60 * 1000 : 60 * 60 * 1000; appUpdTimer.Start(); }
+                        if (rel == null && appRelease != null) rel = appRelease; // ошибка сети не прячет уже найденную кнопку
                         bool newer = rel != null && rel.AssetUrl != "" && SelfUpdate.Newer(rel.Tag);
+                        bool found = newer && (appRelease == null || appRelease.Tag != rel.Tag);
                         appRelease = newer ? rel : null;
                         LayoutNav();
                         if (lAppVer != null && !lAppVer.IsDisposed) lAppVer.Text = "v" + Version + (newer ? "  →  " + rel.Tag + " " + Tx("доступна") : err != null ? "  ·  " + err : "  ·  " + Tx("последняя"));
-                        if (newer) Logger.Write(LogLevel.Info, Tx("Доступна новая версия NetProbe: ") + rel.Tag);
-                        if (newer && !manual && st.UpdNotify && tray != null) try { tray.ShowBalloonTip(5000, Tx("NetProbe: есть обновления"), "NetProbe " + rel.Tag, ToolTipIcon.Info); } catch { }
+                        if (found) Logger.Write(LogLevel.Info, Tx("Доступна новая версия NetProbe: ") + rel.Tag);
+                        if (found && !manual && st.UpdNotify && tray != null) try { tray.ShowBalloonTip(5000, Tx("NetProbe: есть обновления"), "NetProbe " + rel.Tag, ToolTipIcon.Info); } catch { }
                         if (manual && !newer) MessageBox.Show(this, err != null ? err : Tx("Установлена последняя версия: ") + "v" + Version, "NetProbe");
                     }));
                 }
