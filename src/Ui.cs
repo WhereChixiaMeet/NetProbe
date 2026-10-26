@@ -11,6 +11,25 @@ namespace NetProbe
 {
     public static class Gfx
     {
+        // Фон под контролом. С картинкой фона страницы — рисуем её участок и полупрозрачные карточки-предки,
+        // чтобы карточки просвечивали и углы оставались круглыми; без картинки — обычная заливка цветом родителя.
+        public static void Backdrop(Control c, Graphics g)
+        {
+            Control page = null;
+            for (var x = c.Parent; x != null; x = x.Parent) if (x.BackgroundImage != null) { page = x; break; }
+            if (page == null || !Theme.Translucent) { g.Clear(c.Parent != null ? c.Parent.BackColor : Theme.Bg); return; }
+            Rectangle r;
+            try { r = new Rectangle(page.PointToClient(c.Parent.PointToScreen(c.Location)), c.Size); } catch { g.Clear(Theme.Bg); return; }
+            var img = page.BackgroundImage;
+            float sx = img.Width / (float)Math.Max(1, page.ClientSize.Width), sy = img.Height / (float)Math.Max(1, page.ClientSize.Height);
+            var im = g.InterpolationMode; g.InterpolationMode = InterpolationMode.Bilinear;
+            g.DrawImage(img, new Rectangle(0, 0, c.Width, c.Height), r.X * sx, r.Y * sy, r.Width * sx, r.Height * sy, GraphicsUnit.Pixel);
+            g.InterpolationMode = im;
+            for (var x = c.Parent; x != null && x != page; x = x.Parent)
+                if (x is CardPanel) using (var b = new SolidBrush(Theme.CardFill)) g.FillRectangle(b, 0, 0, c.Width, c.Height);
+                else if (!(x is CardPanel) && x.BackColor.A == 255 && x.BackgroundImage == null && x != page && !(x.Parent == page && x.Dock == DockStyle.Fill)) { using (var b = new SolidBrush(x.BackColor)) g.FillRectangle(b, 0, 0, c.Width, c.Height); }
+        }
+
         public static GraphicsPath Round(RectangleF r, float rad)
         {
             var p = new GraphicsPath();
@@ -62,6 +81,7 @@ namespace NetProbe
                 using (var p = new Pen(Theme.Border)) g.DrawRectangle(p, r.X, r.Y, r.Width - 1, r.Height - 1);
                 return;
             }
+            if (fill == Theme.Card) fill = Theme.CardFill;
             FillRound(g, fill, r, rad);
             DrawRound(g, Theme.Border, r, rad);
         }
@@ -151,7 +171,7 @@ namespace NetProbe
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             Color bg, fg;
             if (Theme.Classic)
             {
@@ -198,7 +218,7 @@ namespace NetProbe
         protected override void OnClick(EventArgs e) { if (Enabled) On = !On; base.OnClick(e); }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = new RectangleF(1, 1, Width - 3, Height - 3);
             Color track = on ? Theme.Accent : Theme.Border, knob = on ? Theme.AccentFg : Theme.Card;
             if (!Enabled) track = Theme.Mix(track, ParentBack, 0.5f);
@@ -240,7 +260,7 @@ namespace NetProbe
         }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); g.SmoothingMode = SmoothingMode.AntiAlias;
+            var g = e.Graphics; Gfx.Backdrop(this, g); g.SmoothingMode = SmoothingMode.AntiAlias;
             int y = (Height - D) / 2;
             bool custom = true;
             for (int i = 0; i <= Theme.Presets.Length; i++)
@@ -276,7 +296,7 @@ namespace NetProbe
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = new RectangleF(Theme.S(10), Theme.S(3), Width - Theme.S(20), Height - Theme.S(6));
             Color fg = selected || hover ? Theme.Text : Theme.Muted;
             if (Theme.Classic)
@@ -334,7 +354,7 @@ namespace NetProbe
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             float cy = Height / 2f, h = Theme.S(4);
             float w = Width - Pad * 2;
             float t = (float)((val - min) / Math.Max(1e-9, max - min));
@@ -363,7 +383,7 @@ namespace NetProbe
         public ProgressLine() { Height = Theme.S(4); }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             Gfx.FillRound(g, Theme.Border, new RectangleF(0, 0, Width, Height), Theme.Classic ? 0 : Height / 2f);
             if (v > 0) Gfx.FillRound(g, Theme.Accent, new RectangleF(0, 0, (float)(Width * v), Height), Theme.Classic ? 0 : Height / 2f);
         }
@@ -379,7 +399,7 @@ namespace NetProbe
         }
         protected override void OnPaintBackground(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(Parent != null ? Parent.BackColor : Theme.Bg); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             if (Theme.Classic) r = new RectangleF(0, 0, Width, Height);
             Gfx.Panel(g, r, Theme.R(10), Theme.Card);
@@ -407,7 +427,7 @@ namespace NetProbe
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = Theme.Classic ? new RectangleF(0, 0, Width, Height) : new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Gfx.Panel(g, r, Theme.R(12), Theme.Card);
             if (!Theme.Classic) Gfx.FillRound(g, Series, new RectangleF(Theme.S(18), 0.5f, Theme.S(36), Theme.S(3)), Theme.S(1.5));
@@ -467,7 +487,7 @@ namespace NetProbe
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var rr = Theme.Classic ? new RectangleF(0, 0, Width, Height) : new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Gfx.Panel(g, rr, Theme.R(12), Theme.Card);
             int pad = Theme.S(18);

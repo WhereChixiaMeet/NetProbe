@@ -79,7 +79,7 @@ namespace NetProbe
         protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             if (Theme.Classic) { using (var b = new SolidBrush(Theme.Input)) g.FillRectangle(b, 0, 0, Width, Height); using (var pn = new Pen(Focused ? Theme.Accent : Theme.Border)) g.DrawRectangle(pn, 0, 0, Width - 1, Height - 1); }
             else { Gfx.FillRound(g, Theme.Input, r, Theme.R(6)); Gfx.DrawRound(g, Focused ? Theme.Accent : Theme.Border, r, Theme.R(6)); }

@@ -56,7 +56,7 @@ namespace NetProbe
         }
 
         public bool Active { get { return State != RouteState.Off; } }
-        public bool NeedsVpnProbe { get { return Active && GetSettings().RMode != RouteMode.DpiOnly; } }
+        public bool NeedsVpnProbe { get { return Active && true; } }
 
         void Post(Action a) { lock (q) q.Enqueue(a); wake.Set(); }
         public void Connect() { Post(DoConnect); }
@@ -134,7 +134,7 @@ namespace NetProbe
         // ---------- списки ----------
         List<string> Excl(Settings st)
         {
-            switch (st.RMode) { case RouteMode.VpnOnly: return AppLists.Get(AppLists.VpnOnlyExcl); case RouteMode.DpiOnly: return AppLists.Get(AppLists.DpiOnlyExcl); default: return AppLists.Get(AppLists.HybridExcl); }
+            switch (st.RunMode) { case RouteMode.VpnOnly: return AppLists.Get(AppLists.VpnOnlyExcl); case RouteMode.DpiOnly: return AppLists.Get(AppLists.DpiOnlyExcl); default: return AppLists.Get(AppLists.HybridExcl); }
         }
 
         string BuildConfig(Settings st, string tunnel, bool strictOnly)
@@ -222,8 +222,8 @@ namespace NetProbe
             DoDisconnect();
             Failovers = 0; dpiRestarts = 0; ConnectedAt = DateTime.Now;
             SetState(RouteState.Connecting, "");
-            Logger.Write(LogLevel.Route, Tx("Подключение · режим: ") + ModeName(st.RMode));
-            if (st.RMode == RouteMode.DpiOnly)
+            Logger.Write(LogLevel.Route, Tx("Подключение · режим: ") + ModeName(st.RunMode));
+            if (st.RunMode == RouteMode.DpiOnly)
             {
                 if (StartDpi()) { SetState(RouteState.DpiOnly, st.DpiStrategy); Kill(st, true); }
                 else SetState(RouteState.Off, Tx("Не удалось запустить DPI"));
@@ -231,7 +231,7 @@ namespace NetProbe
             }
             if (StartTunnel(st, false, false)) { SetState(RouteState.Vpn, st.PrimaryTunnel); return; }
             if (HasBackup(st) && StartTunnel(st, true, false)) { backupSince = DateTime.Now; SetState(RouteState.Backup, st.BackupTunnel); return; }
-            if (st.RMode == RouteMode.Hybrid) { EnterDpi(st, Tx("VPN не запустился")); return; }
+            if (st.RunMode == RouteMode.Hybrid) { EnterDpi(st, Tx("VPN не запустился")); return; }
             SetState(RouteState.VpnDown, Tx("VPN не запустился")); Kill(st, true);
         }
 
@@ -296,7 +296,7 @@ namespace NetProbe
                             Logger.Write(LogLevel.Route, Tx("Основной VPN: ") + why + Tx(" → резервный VPN «") + st.BackupTunnel + "»");
                             if (StartTunnel(st, true, false)) { backupSince = now; SetState(RouteState.Backup, st.BackupTunnel); return; }
                         }
-                        if (st.RMode == RouteMode.Hybrid) { EnterDpi(st, why); return; }
+                        if (st.RunMode == RouteMode.Hybrid) { EnterDpi(st, why); return; }
                         Failovers++;
                         Logger.Write(LogLevel.Route, Tx("VPN недоступен: ") + why + (st.KillSwitch ? Tx(" · kill switch для «строго VPN»") : ""));
                         lastCycle = now;

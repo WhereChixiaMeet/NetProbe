@@ -20,9 +20,10 @@ namespace NetProbe
         protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = Theme.Classic ? new RectangleF(0, 0, Width, Height) : new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Color fill = sel ? Theme.CardHi : hover ? Theme.Mix(Theme.Card, Theme.CardHi, 0.5) : Theme.Card;
+            if (Theme.Translucent) fill = Color.FromArgb(Theme.CardFill.A, fill);
             if (Theme.Classic) { using (var b = new SolidBrush(fill)) g.FillRectangle(b, r); Gfx.Bevel(g, Rectangle.Round(r), !sel); if (sel) using (var p = new Pen(Theme.Accent, 2)) g.DrawRectangle(p, 2, 2, Width - 5, Height - 5); }
             else { Gfx.FillRound(g, fill, r, Theme.R(10)); Gfx.DrawRound(g, sel ? Theme.Accent : Theme.Border, r, Theme.R(10), sel ? 1.6f : 1f); }
             int pad = Theme.S(14);
@@ -40,7 +41,7 @@ namespace NetProbe
         public StatusBoard() { Height = Theme.S(84); }
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = Theme.Classic ? new RectangleF(0, 0, Width, Height) : new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Gfx.Panel(g, r, Theme.R(12), Theme.Card);
             int pad = Theme.S(20);
@@ -347,7 +348,7 @@ namespace NetProbe
             // одинаковые кнопки-переключатели: заливка = включено, контур = выключено
             btnConnect.Primary = router.Active; btnConnect.Text = "VPN  ·  " + (router.Active ? Tx("ВКЛ") : Tx("ВЫКЛ")); btnConnect.Glyph = "\uE7E8"; btnConnect.Invalidate();
             btnDpi.Primary = router.ManualDpi || router.Dpi.Running; btnDpi.Text = "DPI  ·  " + (btnDpi.Primary ? Tx("ВКЛ") : Tx("ВЫКЛ")); btnDpi.Glyph = "\uE7E8"; btnDpi.Invalidate();
-            board.State = Router.StateName(s) + (router.Active ? "  ·  " + Router.ModeName(st.RMode) : "");
+            board.State = Router.StateName(s) + (router.Active ? "  ·  " + Router.ModeName(st.RunMode) : "");
             board.Lv = s == RouteState.Off ? Level.Off : s == RouteState.Connecting ? Level.Wait : s == RouteState.Vpn || s == RouteState.DpiOnly ? Level.Good : s == RouteState.VpnDown ? Level.Down : Level.Fair;
             if (!router.Active)
             {

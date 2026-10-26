@@ -115,6 +115,8 @@ namespace NetProbe
             pick(Tx("Фон приложения"), Tx("Картинки") + " (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp", f => { st.BgImage = f; st.Save(); ResetPageBackground(); BeginInvoke((Action)(() => { RebuildUi(); SelectPage(PgSettings); })); });
             var nDim = Ui.Num(0, 95, st.BgDim); nDim.ValueChanged += (s, e) => { st.BgDim = (int)nDim.Value; st.Save(); bgDimTimer.Stop(); bgDimTimer.Start(); };
             row(Tx("Затемнение фона, %"), nDim, null);
+            var nOp = Ui.Num(20, 100, st.CardOpacity); nOp.ValueChanged += (s, e) => { st.CardOpacity = (int)nOp.Value; st.Save(); bgDimTimer.Stop(); bgDimTimer.Start(); };
+            row(Tx("Непрозрачность карточек, %"), nOp, null);
             pick(Tx("Иконка приложения"), Tx("Иконки и картинки") + " (*.ico;*.png;*.jpg;*.exe)|*.ico;*.png;*.jpg;*.jpeg;*.exe", f => { st.AppIconPath = f; st.Save(); ApplyAppIcon(); });
             var cIcons = Ui.Check(Tx("Иконки приложений в списках"), st.ShowAppIcons); check(cIcons);
             cIcons.CheckedChanged += (s, e) => { st.ShowAppIcons = cIcons.Checked; st.Save(); SetupListCards(); };

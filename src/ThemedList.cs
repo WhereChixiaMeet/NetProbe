@@ -106,7 +106,7 @@ namespace NetProbe
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; Color back = Theme.Classic ? Theme.Input : Theme.Card;
-            g.Clear(back);
+            if (Theme.Translucent && !Theme.Classic) Gfx.Backdrop(this, g); else g.Clear(back);
             int rh = RowH, w = Width - BarW - 6;
             for (int i = top; i < Items.Count && (i - top) * rh < Height; i++)
             {

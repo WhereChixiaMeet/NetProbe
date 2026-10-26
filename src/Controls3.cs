@@ -24,7 +24,7 @@ namespace NetProbe
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.Clear(BackColor.A == 0 ? ParentBack : BackColor);
+            if (BackColor.A == 0 || Theme.Translucent) Gfx.Backdrop(this, g); else g.Clear(BackColor);
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
             int s = Theme.S(16), y = (Height - s) / 2;
             var r = new RectangleF(1.5f, y + 0.5f, s - 1, s - 1);
@@ -100,7 +100,7 @@ namespace NetProbe
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            var g = e.Graphics; g.Clear(ParentBack); Gfx.Hq(g);
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Color border = open || Focused ? Theme.Accent : hover ? Theme.Muted : Theme.Border;
             if (Theme.Classic) { using (var b = new SolidBrush(Theme.Input)) g.FillRectangle(b, r); using (var p = new Pen(border)) g.DrawRectangle(p, 0, 0, Width - 1, Height - 1); }

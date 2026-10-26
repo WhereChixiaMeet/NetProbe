@@ -54,6 +54,8 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 - **DPI / VPN** (default): Include apps → WireSock tunnel. Probe `netprobe-vpn.exe` is always in the tunnel; if it gets no answer for N s (FailoverSec, default 7): primary → backup VPN (if the block is on) → DPI. In DPI state the tunnel stays up only for **Strict VPN** apps + probe; when VPN is stable RecoverSec s → back to VPN, DPI stops. Kill switch blocks Strict VPN apps when no VPN is reachable.
 - **VPN Only**: primary → backup → VpnDown (kill switch, retry every 30 s).
 - **DPI Only**: winws only. Lists: Include (DPI apps — mutually exclusive with VPN Include), Domains (`zapret\lists\list-general-user.txt`), Exclude.
+- Mode cards only choose which mode's lists are being edited; they never reconnect. `Settings.Mode` = edited view, `Settings.VpnMode`/`RunMode` = how the VPN button runs (DPI/VPN or VPN Only). Router uses `RunMode`.
+- Custom background: cards become semi-transparent (`Theme.Translucent`, `CardOpacity`); custom controls paint `Gfx.Backdrop` (page image + translucent card ancestors) instead of clearing with the parent colour.
 - **DPI button** next to VPN on the Connection page: winws in parallel with VPN; not stopped by disconnect.
 - Lists per mode: `hybrid-apps` (Include), `vpnonly-apps` (Strict VPN), `hybrid-exclude`, `vpnonly-exclude`, `dpionly-exclude`, `dpi-apps`. Matching = substring of process name/path (WireSock semantics). `netprobe-vpn.exe` is shown as a built-in Include row but not stored.
 - DPI exclusions by process work through current TCP connections → `--ipset-exclude` file (winws cannot filter by process).

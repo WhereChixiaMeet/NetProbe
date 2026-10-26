@@ -7,6 +7,7 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Непрозрачность карточек, %", "Card opacity, %" },
             { "Обновить NetProbe", "Update NetProbe" },
             { "Обновить до ", "Update to " },
             { "Доступна новая версия NetProbe: ", "New NetProbe version available: " },

@@ -24,7 +24,8 @@ namespace NetProbe
         public static string[] RetentionNames { get { return new[] { Tx("1 час"), Tx("1 день"), Tx("1 неделя"), Tx("1 месяц") }; } }
 
         // --- маршрутизация ---
-        public int Mode = 0;                 // RouteMode
+        public int Mode = 0;                 // RouteMode — какой режим открыт для настройки списков
+        public int VpnMode = 0;              // как работает кнопка VPN: 0 DPI/VPN (с переключением на DPI), 1 Только VPN
         public string PrimaryTunnel = "";    // имя .conf в config\tunnels
         public string BackupTunnel = "";
         public bool BackupEnabled = false;
@@ -58,7 +59,7 @@ namespace NetProbe
         public bool TunMode = false;         // TUN через sing-box: приложения из Include → сервер, Exclude → напрямую
         public string SingBoxDir = "";       // пусто = <папка приложения>\singbox
         public bool CheckUpdates = true;     // проверять обновления автоматически
-        public bool UpdNotify = false;       // уведомления о новых версиях (по умолчанию выключены)
+        public bool UpdNotify = true;        // уведомления о новых версиях
         public bool UpdZapret = true;        // следить за zapret
         public bool UpdXray = true;          // следить за xray
         public int UpdEvery = 3;             // 0 только при запуске, 1 каждые 6 ч, 2 каждые 12 ч, 3 раз в день, 4 раз в неделю
@@ -113,7 +114,8 @@ namespace NetProbe
         public string Accent = "79,140,255"; // цвет акцента R,G,B
         public bool ShowAppIcons = true;
         public string BgImage = "";          // своя картинка фона
-        public int BgDim = 70;               // насколько затемнить/осветлить фон под тему, %
+        public int BgDim = 70;
+        public int CardOpacity = 70;         // непрозрачность карточек поверх своего фона, %               // насколько затемнить/осветлить фон под тему, %
         public string AppIconPath = "";      // своя иконка приложения (.ico/.png/.exe)     // иконки приложений в списках
         public string Lang = "en";           // язык интерфейса: en / ru
         public bool MinimizeToTray = true;
@@ -130,6 +132,7 @@ namespace NetProbe
 
         public double MaxPollRate { get { return DirectMode == 1 ? MaxPollRatePs : MaxPollRateCurl; } }
         public RouteMode RMode { get { return (RouteMode)Mode; } }
+        public RouteMode RunMode { get { return VpnMode == 1 ? RouteMode.VpnOnly : RouteMode.Hybrid; } }
 
         public static string Root { get { return Path.GetDirectoryName(Application.ExecutablePath); } }
 

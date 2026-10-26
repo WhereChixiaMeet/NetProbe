@@ -66,7 +66,7 @@ namespace NetProbe
             protected override void OnMouseUp(MouseEventArgs e) { drag = false; base.OnMouseUp(e); }
             protected override void OnPaint(PaintEventArgs e)
             {
-                var g = e.Graphics; g.Clear(ParentBack); var t = Thumb(); if (t.IsEmpty) return;
+                var g = e.Graphics; Gfx.Backdrop(this, g); var t = Thumb(); if (t.IsEmpty) return;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
                 Gfx.FillRound(g, drag || hover ? Theme.Muted : Theme.Dim, t, Width / 2f);
             }

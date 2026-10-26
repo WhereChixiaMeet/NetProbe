@@ -90,6 +90,11 @@ namespace NetProbe
 
         public static float R(double r) { return Classic ? Math.Min(S(r), S(2)) : S(r); }
 
+        // Полупрозрачные карточки, когда задан свой фон (MainForm выставляет Translucent и CardAlpha)
+        public static bool Translucent;
+        public static int CardAlpha = 255;
+        public static Color CardFill { get { return Translucent ? Color.FromArgb(CardAlpha, Card) : Card; } }
+
         public static Color LevelColor(Level l)
         {
             switch (l)

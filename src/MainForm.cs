@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "2.0.2";
+        public const string Version = "2.0.3";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -162,7 +162,7 @@ namespace NetProbe
             // автоподключение: без диалогов, если туннель ещё не настроен (например, чистая установка)
             else if (st.AutoConnect)
             {
-                if (st.RMode == RouteMode.DpiOnly || Tunnels.Exists(st.PrimaryTunnel)) Connect();
+                if (Tunnels.Exists(st.PrimaryTunnel)) Connect();
                 else Logger.Write(LogLevel.Info, Tx("Автоподключение пропущено: основной VPN-туннель не выбран"));
             }
             ScheduledUpdateCheck(true);
@@ -271,7 +271,8 @@ namespace NetProbe
         {
             var p = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Visible = false };
             var bg = PageBackground();
-            if (bg != null) { p.BackgroundImage = bg; p.BackgroundImageLayout = ImageLayout.Stretch; }
+            Theme.Translucent = bg != null; Theme.CardAlpha = (int)(255 * Math.Max(20, Math.Min(100, st.CardOpacity)) / 100.0);
+            if (bg != null) { p.BackgroundImage = bg; p.BackgroundImageLayout = ImageLayout.Stretch; p.ControlAdded += (s2, e2) => MakeSeeThrough(e2.Control); }
             var h = Ui.Label(title, Theme.H1); h.Location = new Point(Theme.S(26), Theme.S(18));
             var sub = Ui.Label(subtitle, Theme.Body, Theme.Muted); sub.Location = new Point(Theme.S(28), Theme.S(50));
             p.Controls.Add(h); p.Controls.Add(sub);
@@ -395,7 +396,7 @@ namespace NetProbe
         void UpdateSide()
         {
             if (sideStatus == null || sideStatus.IsDisposed) return;
-            sideStatus.Text = "● " + Router.StateName(router.State) + "\n" + Router.ModeName(st.RMode) + "\n" + (monVpn.Running ? Tx("Мониторинг: ") + PollText() : Tx("Мониторинг выключен")) + Tx("\nНапрямую: ") + (direct != null ? direct.Ip : Tx("маршрут по умолчанию"));
+            sideStatus.Text = "● " + Router.StateName(router.State) + "\n" + Router.ModeName(st.RunMode) + "\n" + (monVpn.Running ? Tx("Мониторинг: ") + PollText() : Tx("Мониторинг выключен")) + Tx("\nНапрямую: ") + (direct != null ? direct.Ip : Tx("маршрут по умолчанию"));
         }
 
         string PollText()
@@ -510,13 +511,13 @@ namespace NetProbe
         // ================= Route control =================
         void Connect()
         {
-            if (st.RMode != RouteMode.DpiOnly && !Tunnels.Exists(st.PrimaryTunnel))
+            if (!Tunnels.Exists(st.PrimaryTunnel))
             {
                 RestoreFromTray(); SelectPage(PgConfigs); ShowCfgTab(0);
                 MessageBox.Show(this, Tx("Не выбран основной VPN-туннель. Добавьте его в «Конфиги»."), "NetProbe", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            if (st.RMode != RouteMode.DpiOnly) StartMonitoring();
+            StartMonitoring();
             router.Connect();
         }
 
@@ -609,15 +610,18 @@ namespace NetProbe
             OnRouteChanged();
         }
 
+        // Карточки режимов выбирают, чьи списки настраиваются; VPN при этом не переподключается.
+        // DPI/VPN и Только VPN заодно задают поведение кнопки VPN (с переключением на DPI или без).
         void SetMode(RouteMode m)
         {
             if (st.RMode == m) return;
-            bool wasActive = router.Active;
-            st.Mode = (int)m; st.Save();
+            st.Mode = (int)m;
+            bool runChanged = false;
+            if (m != RouteMode.DpiOnly && st.VpnMode != (m == RouteMode.VpnOnly ? 1 : 0)) { st.VpnMode = m == RouteMode.VpnOnly ? 1 : 0; runChanged = true; }
+            st.Save();
             if (miModes != null) for (int i = 0; i < 3; i++) miModes[i].Checked = i == st.Mode;
-            Logger.Write(LogLevel.Info, Tx("Режим: ") + Router.ModeName(m));
             LoadConnectUi();
-            if (wasActive) Connect();
+            if (runChanged && router.Active) router.Reapply();
             UpdateSide();
         }
 
@@ -671,6 +675,14 @@ namespace NetProbe
             catch { pageBg = null; }
             return pageBg;
         }
+        // Подписи с непрозрачным фоном карточки/страницы делаем прозрачными, чтобы фон просвечивал
+        void MakeSeeThrough(Control c)
+        {
+            if (c is Label && (c.BackColor == Theme.Card || c.BackColor == Theme.Bg)) c.BackColor = Color.Transparent;
+            if (c is CardPanel || c is Panel && !(c is ScrollHost)) c.ControlAdded += (s, e) => MakeSeeThrough(e.Control);
+            foreach (Control ch in c.Controls) MakeSeeThrough(ch);
+        }
+
         void ResetPageBackground() { var o = pageBg; pageBg = null; if (o != null) BeginInvoke((Action)(() => o.Dispose())); }
 
         void UpdateTray()
