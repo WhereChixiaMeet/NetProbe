@@ -616,6 +616,7 @@ namespace NetProbe
             { "Подключение · режим: ", "Connecting · mode: " },
             { "Не удалось запустить DPI", "Could not start DPI" },
             { "VPN не запустился", "VPN did not start" },
+            { "WireSock не установлен", "WireSock is not installed" },
             { "Отключено", "Disconnected" },
             { "Списки изменены — перезапуск туннеля с новыми правилами", "Lists changed — restarting the tunnel with the new rules" },
             { "АВАРИЙНОЕ ПЕРЕКЛЮЧЕНИЕ НА DPI: ", "EMERGENCY SWITCH TO DPI: " },

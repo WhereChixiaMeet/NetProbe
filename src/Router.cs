@@ -39,6 +39,7 @@ namespace NetProbe
         volatile bool domainDpi; int learnedVer; volatile bool learning;
         int dpiRestarts;
         volatile bool wgDied, dpiDied;
+        string lastTunnelErr; // одна и та же ошибка запуска туннеля пишется в лог один раз (повторы каждые 30 с молча)
 
         readonly Queue<Action> q = new Queue<Action>();
         readonly AutoResetEvent wake = new AutoResetEvent(false);
@@ -196,7 +197,8 @@ namespace NetProbe
         bool StartTunnel(Settings st, bool backup, bool strictOnly)
         {
             string name = backup ? st.BackupTunnel : st.PrimaryTunnel;
-            if (!Tunnels.Exists(name)) { Logger.Write(LogLevel.Error, (backup ? Tx("Резервный") : Tx("Основной")) + Tx(" туннель не выбран или не найден")); return false; }
+            if (!Tunnels.Exists(name)) { TunnelErr((backup ? Tx("Резервный") : Tx("Основной")) + Tx(" туннель не выбран или не найден")); return false; }
+            if (!File.Exists(st.WiresockPath)) { wgDied = true; TunnelErr(Tx("Не найден wiresock-client.exe: ") + st.WiresockPath + Tx(". Установите WireSock VPN Client (есть в папке TunnlTo\\wiresock_installers) или укажите путь в Настройках.")); return false; }
             if (WiresockRunner.ServiceRunning())
             {
                 bool ok = AskStopService != null && AskStopService(Tx("Служба wiresock-client-service (TunnlTo) уже запущена и займёт драйвер WireSock.\nОстановить её, чтобы NetProbe управлял туннелем?"));
@@ -207,11 +209,14 @@ namespace NetProbe
             wgDied = false;
             okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue;
             string err = Wg.Start(st, name, BuildConfig(st, name, strictOnly));
-            if (err != null) { Logger.Write(LogLevel.Error, err); wgDied = true; return false; }
+            if (err != null) { TunnelErr(err); wgDied = true; return false; }
+            lastTunnelErr = null;
             OnBackup = backup; StrictOnly = strictOnly;
             Logger.Write(LogLevel.Route, Tx("Туннель «") + name + "» (" + Tunnels.Endpoint(name) + Tx(") запущен") + (backup ? Tx(" · резервный") : "") + (strictOnly ? Tx(" · только для приложений «строго VPN»") : ""));
             return true;
         }
+
+        void TunnelErr(string msg) { if (msg == lastTunnelErr) return; lastTunnelErr = msg; Logger.Write(LogLevel.Error, msg); }
 
         void StopTunnel() { if (Wg.Running) { Wg.Stop(); Logger.Write(LogLevel.Route, Tx("Туннель остановлен")); } wgDied = false; }
 
@@ -283,7 +288,7 @@ namespace NetProbe
         {
             var st = GetSettings();
             DoDisconnect();
-            Failovers = 0; dpiRestarts = 0; ConnectedAt = DateTime.Now;
+            Failovers = 0; dpiRestarts = 0; ConnectedAt = DateTime.Now; lastTunnelErr = null;
             SetState(RouteState.Connecting, "");
             Logger.Write(LogLevel.Route, Tx("Подключение · режим: ") + ModeName(st.RunMode));
             if (st.RunMode == RouteMode.DpiOnly)
@@ -294,8 +299,9 @@ namespace NetProbe
             }
             if (StartTunnel(st, false, false)) { SetState(RouteState.Vpn, st.PrimaryTunnel); return; }
             if (HasBackup(st) && StartTunnel(st, true, false)) { backupSince = DateTime.Now; SetState(RouteState.Backup, st.BackupTunnel); return; }
-            if (st.RunMode == RouteMode.Hybrid) { EnterDpi(st, Tx("VPN не запустился")); return; }
-            SetState(RouteState.VpnDown, Tx("VPN не запустился")); Kill(st, true);
+            string why = File.Exists(st.WiresockPath) ? Tx("VPN не запустился") : Tx("WireSock не установлен");
+            if (st.RunMode == RouteMode.Hybrid) { EnterDpi(st, why); return; }
+            SetState(RouteState.VpnDown, why); Kill(st, true);
         }
 
         void DoDisconnect()
