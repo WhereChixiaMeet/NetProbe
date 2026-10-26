@@ -279,6 +279,9 @@ namespace NetProbe
             srvListBox.ContextMenuStrip.Items.Add(new ToolStripSeparator());
             srvListBox.ContextMenuStrip.Items.Add(miRen);
             srvListBox.ContextMenuStrip.Items.Add(miDom);
+            var miRoute = new ToolStripMenuItem(Tx("Проверить маршрут…"));
+            miRoute.Click += (s, e) => ShowRouteFor(srvListBox.SelectedItem);
+            srvListBox.ContextMenuStrip.Items.Add(miRoute);
             card.Controls.AddRange(new Control[] { lTun, tgTun, bPaste, bAdd, bDel, srvListTabs, srvListBox });
             int ip = Theme.S(10), lh = Theme.S(130);
             bDel.Location = new Point(w - ip - bDel.Width, Theme.S(10));

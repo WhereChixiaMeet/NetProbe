@@ -125,6 +125,18 @@ namespace NetProbe
             return res.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        // для окна «Маршрут»: какой домен выучен за этим IP / относится ли IP к домену (с его «семьёй»)
+        public static string LearnedHost(string ip)
+        {
+            lock (lk) { Load(); KeyValuePair<string, DateTime> v; return learned.TryGetValue(ip, out v) ? v.Key : null; }
+        }
+        public static bool IsLearned(IPAddress ip, string domain)
+        {
+            if (ip == null) return false;
+            string h = LearnedHost(ip.ToString());
+            return h != null && Matches(h, Expand(domain));
+        }
+
         static bool Usable(IPAddress a)
         {
             if (IPAddress.IsLoopback(a) || a.Equals(IPAddress.Any) || a.Equals(IPAddress.IPv6Any)) return false;

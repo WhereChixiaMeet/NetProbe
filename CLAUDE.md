@@ -41,6 +41,7 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 | `Xray.cs` | share-link parsing (vless/vmess/trojan/ss/socks; reality/tls/ws/grpc/xhttp/h2), xray config builder, `ServerStore`, `DelayTester` |
 | `XrayManager.cs` | xray connection + **auto-switch** + system proxy + TUN start; port conflict handling |
 | `SingBox.cs` | TUN config: `process_path_regex` rules, Include → xray socks, Exclude → direct, app+domain overrides → direct |
+| `RouteCheck.cs` | «Маршрут» window (Connection page button, right-click → Check route… in lists): app + domain → VPN / DPI / direct / server / blocked with the reason, plus live TCP connections with route; decided from what actually runs (`config\runtime\tunnel.conf` AllowedApps/DisallowedApps/DisallowedIPs, winws hostlists/ipsets of the strategy, xray proxy / TUN lists, kill switch), not from local addresses (WireSock transparent mode keeps the LAN address) |
 | `DomainRoutes.cs` | domains under apps in Include DPI: CDN families, DNS / DNS-cache IP learning for WireSock `DisallowedIPs` |
 | `Updater.cs` | GitHub latest-release download/extract for xray, zapret, sing-box (into `config\runtime`) |
 | `Backup.cs` | export/import all settings as one JSON |

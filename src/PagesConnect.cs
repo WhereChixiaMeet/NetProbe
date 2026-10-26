@@ -115,7 +115,7 @@ namespace NetProbe
 
     public partial class MainForm
     {
-        StatusBoard board; FlatButton btnConnect, btnDpi; ModeCard[] modeCards; ListCard[] listCards;
+        StatusBoard board; FlatButton btnConnect, btnDpi, btnRoute; ModeCard[] modeCards; ListCard[] listCards;
         DarkCombo cbPrimary, cbBackup, cbStrategy, cbGame; Toggle tgBackup; Spin nFailover, nRecover, nRetry;
         ThemedCheck cKill, cDnsTun, cAutoConnect;
         bool loadingConnect;
@@ -127,6 +127,9 @@ namespace NetProbe
             btnConnect.Click += (s, e) => { if (router.Active) Disconnect(); else Connect(); };
             btnDpi = new FlatButton("DPI") { Glyph = "\uE7E8", Width = Theme.S(150), Height = Theme.S(36) };
             btnDpi.Click += (s, e) => router.SetManualDpi(!router.ManualDpi);
+            btnRoute = new FlatButton(Tx("Маршрут")) { Glyph = "\uE721", Height = Theme.S(36) }.AutoW();
+            btnRoute.Click += (s, e) => ShowRoute(null, null);
+            p.Controls.Add(btnRoute);
             p.Controls.Add(btnDpi);
             p.Controls.Add(btnConnect);
 
@@ -177,6 +180,7 @@ namespace NetProbe
             cAutoConnect = Ui.Check(Tx("Автоподключение"), st.AutoConnect); cAutoConnect.BackColor = Theme.Card;
             cAutoConnect.CheckedChanged += (s, e) => { if (loadingConnect) return; st.AutoConnect = cAutoConnect.Checked; st.Save(); };
             var tip = Ui.Tip();
+            tip.SetToolTip(btnRoute, Tx("Куда идёт домен или приложение: VPN, DPI или напрямую"));
             tip.SetToolTip(cKill, Tx("Блокировать приложения «Строго VPN», пока VPN недоступен"));
             tip.SetToolTip(lF, Tx("VPN не отвечает дольше — переключение")); tip.SetToolTip(lR, Tx("VPN стабилен столько — возврат с DPI"));
             cFail.Controls.AddRange(new Control[] { lF, nFailover, lR, nRecover, lT, nRetry, cKill, cDnsTun, cAutoConnect });
@@ -208,6 +212,9 @@ namespace NetProbe
                 miDom.Click += (s, e) => AddDomainsTo(lcRef.Key, lcRef.Box.SelectedItem);
                 lc.Box.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.DomKey(lcRef.Key) != null;
                 lc.Box.ContextMenuStrip.Items.Add(miDom);
+                var miRoute = new ToolStripMenuItem(Tx("Проверить маршрут…"));
+                miRoute.Click += (s, e) => ShowRouteFor(lcRef.Box.SelectedItem);
+                lc.Box.ContextMenuStrip.Items.Add(miRoute);
                 var miIco = new ToolStripMenuItem(Tx("Сменить иконку…"));
                 miIco.Click += (s, e) =>
                 {
@@ -230,6 +237,7 @@ namespace NetProbe
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
                 btnConnect.Location = new Point(p.ClientSize.Width - L - btnConnect.Width, Theme.S(22));
                 btnDpi.Location = new Point(btnConnect.Left - Theme.S(8) - btnDpi.Width, Theme.S(22));
+                btnRoute.Location = new Point(btnDpi.Left - Theme.S(8) - btnRoute.Width, Theme.S(22));
                 int y = Theme.S(80);
                 board.SetBounds(L, y, W, Theme.S(84)); y = board.Bottom + gap;
                 int mw = (W - gap * 2) / 3, lastW = W - 2 * (mw + gap);
@@ -285,6 +293,21 @@ namespace NetProbe
             miCopy.Click += (s, e) => { if (path != null) try { Clipboard.SetText(path); } catch { } };
             miOpen.Click += (s, e) => { if (path != null) System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + path + "\""); };
             list.ContextMenuStrip = cm;
+        }
+
+        // окно «Маршрут»: по тому, что запущено сейчас (WireSock, winws, xray / TUN)
+        void ShowRoute(string app, string domain)
+        {
+            using (var d = new RouteDialog(() => RouteFacts.Take(router, xm, st), app, domain)) d.ShowDialog(this);
+        }
+
+        // из списка: приложение, «приложение|домен» или просто домен
+        void ShowRouteFor(string item)
+        {
+            if (item == null || item == ListCard.BuiltIn) { ShowRoute(null, null); return; }
+            if (AppLists.IsChild(item)) { ShowRoute(AppLists.ParentOf(item), AppLists.ChildOf(item)); return; }
+            bool isApp = item.Contains("\\") || item.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !item.Contains(".");
+            if (isApp) ShowRoute(item, null); else if (!ExclusionSet.IsIp(item)) ShowRoute(null, item); else ShowRoute(null, null);
         }
 
         // ПКМ → «Домены через DPI…»: домены под приложением. Приложение может быть и в Include VPN —
