@@ -224,6 +224,8 @@ namespace NetProbe
         }
 
         public static string PathOf(string entry) { try { return Resolve(entry); } catch { return null; } }
+        // только уже известный путь (без перебора процессов) — для отрисовки
+        public static string KnownPath(string entry) { if (entry.Contains("\\")) return entry; lock (knownLk) { string p; return Known().TryGetValue(entry, out p) ? p : null; } }
 
         // Путь к exe даже для незапущенных программ: запомненные пути, запущенные процессы,
         // App Paths в реестре, ярлыки меню «Пуск», DisplayIcon из списка установленных программ.

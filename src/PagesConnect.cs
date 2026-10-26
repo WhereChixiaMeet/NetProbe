@@ -337,7 +337,7 @@ namespace NetProbe
             if (!AppLists.HasDomains(key)) return null;
             bool srv = key == AppLists.SrvDpiApps;
             var inc = srv ? AppLists.Get(AppLists.SrvApps) : AppLists.Get(AppLists.HybridApps).Concat(AppLists.Get(AppLists.VpnOnlyApps)).ToList();
-            bool viaTunnel = inc.Count == 0 || inc.Contains(item, StringComparer.OrdinalIgnoreCase);
+            bool viaTunnel = inc.Count == 0 || AppLists.InList(inc, item);
             if (!viaTunnel) return null;
             bool hasDom = AppLists.Domains(key).Any(d => d.Key.Equals(item, StringComparison.OrdinalIgnoreCase));
             return srv ? (hasDom ? Tx("сервер, кроме доменов") : Tx("через сервер")) : (hasDom ? Tx("VPN, кроме доменов") : Tx("через VPN"));

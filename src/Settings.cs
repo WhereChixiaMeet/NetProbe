@@ -450,6 +450,19 @@ namespace NetProbe
         public static string ParentOf(string s) { int i = s.IndexOf(Sep); return i > 0 ? s.Substring(0, i) : s; }
         public static string ChildOf(string s) { int i = s.IndexOf(Sep); return i > 0 ? s.Substring(i + 1) : s; }
 
+        // приложение попадает под список так же, как у WireSock: запись — подстрока имени или пути процесса
+        public static bool InList(List<string> list, string app)
+        {
+            string path = null; try { path = AppIcons.KnownPath(app); } catch { }
+            foreach (var x in list)
+            {
+                if (IsChild(x)) continue;
+                if (x.Equals(app, StringComparison.OrdinalIgnoreCase) || app.IndexOf(x, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (path != null && path.IndexOf(x, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            }
+            return false;
+        }
+
         // только приложения, без доменов
         public static List<string> Apps(string key) { return Get(key).Where(x => !IsChild(x)).ToList(); }
 

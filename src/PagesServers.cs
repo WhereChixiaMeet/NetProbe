@@ -39,7 +39,7 @@ namespace NetProbe
             xm.GetTunLists = () =>
             {
                 var inc = AppLists.Get(AppLists.SrvApps);
-                var dpiOnly = AppLists.Apps(AppLists.SrvDpiApps).Where(a => !inc.Contains(a, StringComparer.OrdinalIgnoreCase));
+                var dpiOnly = AppLists.Apps(AppLists.SrvDpiApps).Where(a => !AppLists.InList(inc, a));
                 var exc = AppLists.Get(AppLists.SrvExcl).Concat(dpiOnly).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 return new TunLists { Include = inc, Exclude = exc, Domains = AppLists.Domains(AppLists.SrvDpiApps) };
             };

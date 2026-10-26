@@ -159,9 +159,11 @@ namespace NetProbe
         // Домены под приложениями в Include DPI, чьи приложения идут в туннель (или Include пуст = весь трафик в туннеле)
         public static List<string> TunnelDomains(bool strictOnly)
         {
-            var tun = strictOnly ? AppLists.Get(AppLists.VpnOnlyApps) : AppLists.Get(AppLists.HybridApps).Concat(AppLists.Get(AppLists.VpnOnlyApps)).ToList();
-            bool all = !strictOnly && tun.Count == 0;
-            return AppLists.Domains(AppLists.DpiApps).Where(d => all || tun.Contains(d.Key, StringComparer.OrdinalIgnoreCase)).Select(d => d.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            // приложение в Include может быть записано иначе (подстрока пути: «browser», полный путь), поэтому
+            // при полном туннеле берутся домены всех приложений; при «строго VPN» — только тех, кто совпал с этим списком
+            var doms = AppLists.Domains(AppLists.DpiApps);
+            if (strictOnly) { var strict = AppLists.Get(AppLists.VpnOnlyApps); doms = doms.Where(d => AppLists.InList(strict, d.Key)).ToList(); }
+            return doms.Select(d => d.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         string BuildConfig(Settings st, string tunnel, bool strictOnly)
