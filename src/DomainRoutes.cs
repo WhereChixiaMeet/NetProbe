@@ -32,6 +32,52 @@ namespace NetProbe
             { "facebook.com", new[] { "facebook.com", "fbcdn.net", "fb.com", "facebook.net", "fbsbx.com" } },
             { "twitter.com", new[] { "twitter.com", "x.com", "twimg.com", "t.co" } },
         };
+        // Видео YouTube идёт с rrN---sn-….googlevideo.com — эти имена заранее не известны, а при «безопасном DNS» (DoH)
+        // в браузере не попадают и в кэш DNS Windows. Поэтому для семьи YouTube берём собственные подсети Google
+        // (AS15169, без Google Cloud): так мимо туннеля идёт и YouTube, и другие сервисы Google у приложений в туннеле.
+        static readonly string[] GoogleNets =
+        {
+            "64.233.160.0/19", "66.102.0.0/20", "66.249.64.0/19", "72.14.192.0/18", "74.125.0.0/16", "108.170.192.0/18", "108.177.0.0/17",
+            "142.250.0.0/15", "172.217.0.0/16", "172.253.0.0/16", "173.194.0.0/16", "192.178.0.0/15", "207.223.160.0/20", "208.65.152.0/22",
+            "208.117.224.0/19", "209.85.128.0/17", "216.58.192.0/19", "216.239.32.0/19",
+            "2a00:1450::/32", "2607:f8b0::/32", "2404:6800::/32", "2800:3f0::/32", "2001:4860::/32", "2c0f:fb50::/32"
+        };
+        static readonly Dictionary<string, string[]> Nets = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "youtube.com", GoogleNets }, { "googlevideo.com", GoogleNets }, { "ytimg.com", GoogleNets }, { "ggpht.com", GoogleNets }, { "youtu.be", GoogleNets },
+        };
+
+        // постоянные подсети для доменов (семья YouTube → подсети Google)
+        public static List<string> NetsFor(IEnumerable<string> domains)
+        {
+            var res = new List<string>();
+            foreach (var d in domains.Where(x => !ExclusionSet.IsIp(x)).SelectMany(Expand))
+                foreach (var kv in Nets) if (d.Equals(kv.Key, StringComparison.OrdinalIgnoreCase) || d.EndsWith("." + kv.Key, StringComparison.OrdinalIgnoreCase)) res.AddRange(kv.Value);
+            return res.Distinct().ToList();
+        }
+
+        // IP уже покрыт одной из подсетей
+        public static bool Covered(string ip, List<string> nets)
+        {
+            IPAddress a; if (!IPAddress.TryParse(ip.Split('/')[0], out a)) return false;
+            var ab = a.GetAddressBytes();
+            foreach (var n in nets)
+            {
+                var p = n.Split('/'); IPAddress na; int bits;
+                if (p.Length != 2 || !IPAddress.TryParse(p[0], out na) || !int.TryParse(p[1], out bits)) continue;
+                var nb = na.GetAddressBytes(); if (nb.Length != ab.Length) continue;
+                bool ok = true;
+                for (int i = 0; i < nb.Length && ok; i++)
+                {
+                    int left = bits - i * 8; if (left <= 0) break;
+                    int mask = left >= 8 ? 0xFF : (0xFF << (8 - left)) & 0xFF;
+                    if ((ab[i] & mask) != (nb[i] & mask)) ok = false;
+                }
+                if (ok) return true;
+            }
+            return false;
+        }
+
         static DomainRoutes()
         {
             Families["youtu.be"] = Families["youtube.com"]; Families["googlevideo.com"] = Families["youtube.com"];
@@ -120,7 +166,9 @@ namespace NetProbe
                     foreach (var a in t.Item2.Result) if (Usable(a)) changed |= Remember(a.ToString(), t.Item1);
                 }
                 if (changed) Save();
-                foreach (var kv in learned) if (Matches(kv.Value.Key, doms)) res.Add(kv.Key + (kv.Key.Contains(":") ? "/128" : "/32"));
+                var nets = NetsFor(doms);
+                res.AddRange(nets);
+                foreach (var kv in learned) if (Matches(kv.Value.Key, doms) && !Covered(kv.Key, nets)) res.Add(kv.Key + (kv.Key.Contains(":") ? "/128" : "/32"));
             }
             return res.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
@@ -156,7 +204,8 @@ namespace NetProbe
             lock (lk)
             {
                 Load();
-                foreach (var kv in found) { IPAddress a; if (IPAddress.TryParse(kv.Value, out a) && Usable(a) && Remember(a.ToString(), kv.Key)) n++; }
+                var nets = NetsFor(doms);
+                foreach (var kv in found) { IPAddress a; if (IPAddress.TryParse(kv.Value, out a) && Usable(a) && Remember(a.ToString(), kv.Key) && !Covered(a.ToString(), nets)) n++; } // уже в подсетях — перезапуск туннеля не нужен
                 if (found.Count > 0) Save();
             }
             if (n > 0) Interlocked.Increment(ref Version);
