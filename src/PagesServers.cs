@@ -165,7 +165,7 @@ namespace NetProbe
             srvGrid.ContextMenuStrip = cm;
             srvGrid.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) bDel.PerformClick2(); if (e.KeyCode == Keys.V && e.Control) bImp.PerformClick2(); };
             gridCard.Controls.Add(srvGrid);
-            gridCard.Resize += (s, e) => srvGrid.SetBounds(Theme.S(8), Theme.S(8), gridCard.Width - Theme.S(16), gridCard.Height - Theme.S(16));
+            gridCard.Resize += (s, e) => { srvGrid.SetBounds(Theme.S(8), Theme.S(8), gridCard.Width - Theme.S(16), gridCard.Height - Theme.S(16)); if (string.IsNullOrEmpty(st.SrvCols)) ApplySrvColumns(); };
 
             // справа: списки приложений, автосвитч, прокси
             var asHost = new ScrollHost { BackColor = Theme.Bg };
@@ -749,9 +749,11 @@ namespace NetProbe
         }
 
         // ---------- колонки таблицы серверов: ширина и порядок запоминаются, сброс — в «Прокси» и по ПКМ на заголовке ----------
+        // Все колонки фиксированной ширины (как в Проводнике): тянешь одну — меняется только она, остальные просто сдвигаются,
+        // не хватает места — появляется горизонтальная прокрутка. «Резиновые» колонки (Fill) отбирали ширину у соседей.
         static readonly string[] SrvColNames = { "f", "n", "cc", "t", "a", "p", "g", "d", "sp", "td" };
-        static readonly float[] SrvColFill = { 0, 34, 0, 16, 20, 0, 12, 0, 0, 0 };
-        static readonly int[] SrvColFixed = { 24, 0, 40, 0, 0, 50, 0, 72, 86, 74 };
+        static readonly int[] SrvColWidth = { 24, 220, 40, 120, 140, 50, 100, 72, 86, 74 };
+        const string SrvColsVer = "w|"; // старый формат (веса Fill) не подходит — игнорируется
         bool applyingCols;
 
         void ApplySrvColumns()
@@ -759,23 +761,31 @@ namespace NetProbe
             applyingCols = true;
             try
             {
+                srvGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
                 var saved = new Dictionary<string, string[]>();
-                foreach (var part in (st.SrvCols ?? "").Split(';'))
-                {
-                    var f = part.Split(':');
-                    if (f.Length == 3) saved[f[0]] = f;
-                }
+                string raw = st.SrvCols ?? "";
+                if (raw.StartsWith(SrvColsVer))
+                    foreach (var part in raw.Substring(SrvColsVer.Length).Split(';'))
+                    {
+                        var f = part.Split(':');
+                        if (f.Length == 3) saved[f[0]] = f;
+                    }
                 for (int i = 0; i < SrvColNames.Length; i++)
                 {
                     var col = srvGrid.Columns[SrvColNames[i]];
-                    bool fix = SrvColFixed[i] > 0;
+                    col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
                     // без минимальной ширины колонку можно сжать до невидимой
-                    col.MinimumWidth = Theme.S(fix ? Math.Min(SrvColFixed[i], 36) : 48);
-                    string[] sv; float fv;
-                    bool has = saved.TryGetValue(SrvColNames[i], out sv) && float.TryParse(sv[1], System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out fv) && fv > 0;
-                    float val = has ? float.Parse(sv[1], CultureInfo.InvariantCulture) : (fix ? SrvColFixed[i] : SrvColFill[i]);
-                    if (fix) { col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None; col.Width = Math.Max(col.MinimumWidth, has ? (int)val : Theme.S((int)val)); }
-                    else { col.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; col.FillWeight = Math.Max(1f, Math.Min(1000f, val)); }
+                    col.MinimumWidth = Theme.S(Math.Min(SrvColWidth[i], 36));
+                    string[] sv; int w;
+                    bool has = saved.TryGetValue(SrvColNames[i], out sv) && int.TryParse(sv[1], out w) && w > 0;
+                    col.Width = Math.Max(col.MinimumWidth, has ? int.Parse(sv[1]) : Theme.S(SrvColWidth[i]));
+                }
+                // пока вид не настраивали — имя забирает свободное место, чтобы таблица была во всю ширину
+                if (saved.Count == 0 && srvGrid.ClientSize.Width > 0)
+                {
+                    var name = srvGrid.Columns["n"];
+                    int others = srvGrid.Columns.Cast<DataGridViewColumn>().Where(c => c.Visible && c != name).Sum(c => c.Width);
+                    name.Width = Math.Max(Theme.S(160), srvGrid.ClientSize.Width - others - SystemInformation.VerticalScrollBarWidth - 2);
                 }
                 // порядок колонок
                 var order = SrvColNames.Select((n, i) => { string[] sv; int d; return Tuple.Create(n, saved.TryGetValue(n, out sv) && int.TryParse(sv[2], out d) ? d : i); }).OrderBy(t => t.Item2).ToList();
@@ -787,13 +797,8 @@ namespace NetProbe
         void SaveSrvColumns()
         {
             if (applyingCols || srvGrid == null) return;
-            string v0 = string.Join(";", SrvColNames.Select((n, i) =>
-            {
-                var c = srvGrid.Columns[n];
-                string v = SrvColFixed[i] > 0 ? c.Width.ToString(CultureInfo.InvariantCulture) : c.FillWeight.ToString("0.##", CultureInfo.InvariantCulture);
-                return n + ":" + v + ":" + c.DisplayIndex;
-            }));
-            if (v0 == st.SrvCols) return; // при растягивании окна ширины «резиновых» колонок меняются, а веса — нет
+            string v0 = SrvColsVer + string.Join(";", SrvColNames.Select(n => { var c = srvGrid.Columns[n]; return n + ":" + c.Width + ":" + c.DisplayIndex; }));
+            if (v0 == st.SrvCols) return;
             st.SrvCols = v0; st.Save();
         }
 
