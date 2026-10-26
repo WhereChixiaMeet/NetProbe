@@ -1,0 +1,379 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using Microsoft.Win32;
+
+using static NetProbe.Tr;
+
+namespace NetProbe
+{
+    public enum XState { Off, Connecting, Connected, Switching, AllDown }
+
+    // Подключение через xray + автосвитч серверов.
+    //  Каждые AsInterval с активный сервер проверяется запросом TestUrl через локальный socks.
+    //  AsFails сбоев подряд (или AsSlowCount проверок медленнее AsMaxLatency) → переключение:
+    //  кандидаты из пула (все / группа / избранные), без недавно упавших, по стратегии (самый быстрый /
+    //  следующий / случайный из лучших), с паузой AsCooldown и лимитом AsMaxPerHour.
+    //  Если ничего не работает — состояние AllDown (опционально включается DPI), повтор раз в минуту.
+    //  Можно возвращаться на выбранный вручную сервер, когда он снова отвечает.
+    public class XrayManager
+    {
+        public Func<Settings> GetSettings;
+        public Func<string> GetCurl;
+        public event Action Changed;
+        public Action<bool> DpiFallback;   // true = включить DPI, false = выключить
+
+        public volatile XState State = XState.Off;
+        public string Detail = "";
+        public int LastDelay = -1, Switches;
+        public DateTime ConnectedAt, LastOk = DateTime.MinValue;
+        readonly XrayProcess x = new XrayProcess();
+        readonly SingBoxProcess sb = new SingBoxProcess();
+        public Func<Tuple<List<string>, List<string>>> GetTunLists; // (include, exclude)
+        public Func<string> TunBlocked;                            // причина, по которой TUN нельзя включить (например, работает WireSock)
+        DateTime lastTunTry = DateTime.MinValue;
+        public bool TunRunning { get { return sb.Running; } }
+        readonly Queue<Action> q = new Queue<Action>();
+        readonly AutoResetEvent wake = new AutoResetEvent(false);
+        readonly Dictionary<string, DateTime> failedAt = new Dictionary<string, DateTime>();
+        readonly List<DateTime> switchTimes = new List<DateTime>();
+        DateTime lastCheck = DateTime.MinValue, lastSwitch = DateTime.MinValue, lastBgTest = DateTime.Now, lastReturn = DateTime.Now, lastAllDownTry = DateTime.MinValue;
+        int fails, slows; bool dpiOn; volatile bool died;
+
+        public bool Active { get { return State != XState.Off; } }
+        public bool Testing;
+
+        public XrayManager()
+        {
+            x.Exited += c => { died = true; Logger.Write(LogLevel.Warn, "xray " + Tx("завершился (код ") + c + ")"); wake.Set(); };
+            sb.Exited += c => Logger.Write(LogLevel.Warn, "sing-box (TUN) " + Tx("завершился (код ") + c + ")");
+            sb.Output += s => { if (s.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("FATAL", StringComparison.OrdinalIgnoreCase) >= 0) Logger.Write(LogLevel.Warn, "[sing-box] " + s); };
+            x.Output += s => { if (s.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0) Logger.Write(LogLevel.Poll, "[xray] " + s); };
+            new Thread(Loop) { IsBackground = true, Name = "xray" }.Start();
+        }
+
+        void Post(Action a) { lock (q) q.Enqueue(a); wake.Set(); }
+        void Fire() { var h = Changed; if (h != null) try { h(); } catch { } }
+        void Set(XState s, string d) { State = s; Detail = d; Fire(); }
+
+        public void Connect(string id) { Post(() => DoConnect(id, true)); }
+        public void Disconnect() { Post(DoDisconnect); }
+        public void Reapply() { Post(() => { if (Active) { var st = GetSettings(); StartOn(ServerStore.Find(st.ActiveServer)); } }); }
+        public void ShutdownSync() { DoDisconnect(); }
+
+        public void Adopt(bool wasActive)
+        {
+            Post(() =>
+            {
+                var st = GetSettings();
+                var xp = SelfUpdate.FindChild("xray", st.XrayPath);
+                if (!wasActive || xp == null) return;
+                x.Attach(xp);
+                var sp = SelfUpdate.FindChild("sing-box", st.SingBoxPath);
+                if (sp != null) sb.Attach(sp);
+                ConnectedAt = DateTime.Now; lastCheck = DateTime.Now;
+                var cur = ServerStore.Find(st.ActiveServer);
+                Set(XState.Connected, cur != null ? cur.Name : "");
+            });
+        }
+        public void ReapplyTun() { Post(() => { if (Active) { sb.Stop(); EnsureTun(); } }); }
+
+        // TUN поднимается один раз и указывает на локальный socks xray — при смене сервера его не трогаем
+        void EnsureTun()
+        {
+            var st = GetSettings();
+            if (!st.TunMode) { if (sb.Running) { sb.Stop(); Logger.Write(LogLevel.Route, "TUN " + Tx("выключен")); } return; }
+            if (sb.Running) return;
+            string why = TunBlocked != null ? TunBlocked() : null;
+            if (why != null) { Detail = why; return; }
+            lastTunTry = DateTime.Now;
+            var l = GetTunLists();
+            string err = sb.Start(st, SingBoxConfig.Build(st, l.Item1, l.Item2));
+            if (err != null) Logger.Write(LogLevel.Error, err);
+            else Logger.Write(LogLevel.Route, "TUN (sing-box) " + Tx("запущен") + " · " + (l.Item1.Count == 0 ? Tx("весь трафик через сервер") : Tx("приложений через сервер: ") + l.Item1.Count) + (l.Item2.Count > 0 ? " · " + Tx("исключений: ") + l.Item2.Count : ""));
+        }
+
+        void Loop()
+        {
+            while (true)
+            {
+                wake.WaitOne(1000);
+                while (true) { Action a; lock (q) { if (q.Count == 0) break; a = q.Dequeue(); } try { a(); } catch (Exception ex) { Logger.Write(LogLevel.Error, "xray: " + ex.Message); } }
+                try { if (State != XState.Off) Tick(); } catch (Exception ex) { Logger.Write(LogLevel.Error, "xray: " + ex.Message); }
+            }
+        }
+
+        // Чужие xray / v2rayN / sing-box (не из папки NetProbe): предупреждаем, порты при занятости подбираем свободные
+        public static string ForeignCores(Settings st)
+        {
+            var l = new List<string>();
+            foreach (var name in new[] { "xray", "v2rayN", "v2ray", "sing-box", "nekoray", "nekobox", "hiddify", "clash", "mihomo" })
+                try
+                {
+                    foreach (var p in System.Diagnostics.Process.GetProcessesByName(name))
+                    {
+                        string path = ProcInfo.ImagePath(p.Id);
+                        if (path == "" || (!path.StartsWith(st.XrayPath, StringComparison.OrdinalIgnoreCase) && !path.StartsWith(st.SingBoxPath, StringComparison.OrdinalIgnoreCase)))
+                            if (!l.Contains(name)) l.Add(name);
+                        p.Dispose();
+                    }
+                }
+                catch { }
+            return l.Count == 0 ? null : string.Join(", ", l);
+        }
+
+        static bool PortBusy(int port)
+        {
+            try { return System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Any(e => e.Port == port); } catch { return false; }
+        }
+
+        void EnsurePorts(Settings st)
+        {
+            if (x.Running) return; // наш xray сам держит эти порты
+            int s0 = st.SocksPort, h0 = st.HttpPort;
+            while (PortBusy(st.SocksPort) || PortBusy(st.HttpPort) || st.SocksPort == st.HttpPort) { st.SocksPort += 10; st.HttpPort += 10; if (st.SocksPort > 64000) { st.SocksPort = 20808; st.HttpPort = 20809; } }
+            if (s0 != st.SocksPort || h0 != st.HttpPort) { st.Save(); Logger.Write(LogLevel.Warn, Tx("Порты ") + s0 + "/" + h0 + Tx(" заняты другой программой — NetProbe использует ") + st.SocksPort + "/" + st.HttpPort); }
+        }
+
+        bool StartOn(ServerEntry s)
+        {
+            var st = GetSettings();
+            if (s == null) { Logger.Write(LogLevel.Error, Tx("Сервер не выбран")); return false; }
+            x.Stop();
+            EnsurePorts(st);
+            died = false; fails = 0; slows = 0;
+            string err = x.Start(st, XrayConfig.Build(st, s), Path.Combine(Settings.Sub("runtime"), "xray.json"));
+            if (err != null) { Logger.Write(LogLevel.Error, err); return false; }
+            st.ActiveServer = s.Id; st.Save();
+            if (st.SysProxy && !st.TunMode) SysProxy.Set("127.0.0.1:" + st.HttpPort);
+            EnsureTun();
+            lastCheck = DateTime.Now.AddSeconds(-st.AsInterval + 2); // первая проверка через ~2 с
+            Logger.Write(LogLevel.Route, "xray → «" + s.Name + "» (" + s.Transport + ", " + s.Endpoint + ")");
+            return true;
+        }
+
+        void DoConnect(string id, bool manual)
+        {
+            var st = GetSettings();
+            var s = ServerStore.Find(id) ?? ServerStore.Find(st.ActiveServer);
+            if (manual && s != null) { st.PreferredServer = s.Id; st.Save(); }
+            Switches = 0; ConnectedAt = DateTime.Now; switchTimes.Clear(); failedAt.Clear();
+            string foreign = ForeignCores(st);
+            if (foreign != null) Logger.Write(LogLevel.Warn, Tx("Запущен другой клиент: ") + foreign + Tx(" — системный прокси и TUN могут конфликтовать, лучше закрыть его"));
+            Set(XState.Connecting, s != null ? s.Name : "");
+            if (StartOn(s)) Set(XState.Connected, s.Name);
+            else { x.Stop(); Set(XState.Off, Tx("Не удалось запустить")); }
+        }
+
+        void DoDisconnect()
+        {
+            bool was = State != XState.Off;
+            sb.Stop();
+            x.Stop();
+            if (GetSettings().SysProxy || SysProxy.IsOurs()) SysProxy.Clear();
+            if (dpiOn) { dpiOn = false; if (DpiFallback != null) DpiFallback(false); }
+            if (was) Logger.Write(LogLevel.Route, "xray " + Tx("отключён"));
+            Set(XState.Off, "");
+        }
+
+        int Check(Settings st) { return DelayTester.ViaProxy(GetCurl(), st.SocksPort, st.TestUrl, st.AsTimeout); }
+
+        List<ServerEntry> Pool(Settings st, ServerEntry cur)
+        {
+            var all = ServerStore.Snapshot();
+            var now = DateTime.Now;
+            IEnumerable<ServerEntry> p = all;
+            if (st.AsPool == 1 && cur != null) p = p.Where(s => s.Group == cur.Group);
+            else if (st.AsPool == 2) p = p.Where(s => s.Favorite);
+            return p.Where(s => cur == null || s.Id != cur.Id)
+                    .Where(s => { DateTime f; return !failedAt.TryGetValue(s.Id, out f) || (now - f).TotalMinutes >= st.AsSkipFailedMin; })
+                    .ToList();
+        }
+
+        ServerEntry Choose(Settings st, ServerEntry cur)
+        {
+            var pool = Pool(st, cur);
+            if (pool.Count == 0) return null;
+            if (st.AsStrategy == 1)
+            {
+                var all = ServerStore.Snapshot();
+                int ci = cur != null ? all.FindIndex(s => s.Id == cur.Id) : -1;
+                for (int k = 1; k <= all.Count; k++) { var c = all[(ci + k + all.Count) % all.Count]; if (pool.Any(p => p.Id == c.Id)) return c; }
+                return pool[0];
+            }
+            if (st.AsPreTest)
+            {
+                Set(XState.Switching, Tx("замер кандидатов: ") + pool.Count);
+                Testing = true;
+                try { DelayTester.TestMany(st, GetCurl(), pool.Take(60).ToList(), s => { }, null); } finally { Testing = false; }
+                ServerStore.Save();
+            }
+            var alive = pool.Where(s => s.Delay > 0 && (st.AsMaxLatency == 0 || s.Delay <= st.AsMaxLatency)).OrderBy(s => s.Delay).ToList();
+            if (alive.Count == 0) alive = pool.Where(s => s.Delay > 0).OrderBy(s => s.Delay).ToList();
+            if (alive.Count == 0) return st.AsPreTest ? null : pool[0];
+            if (st.AsStrategy == 2) return alive[new Random().Next(Math.Min(3, alive.Count))];
+            return alive[0];
+        }
+
+        bool CanSwitch(Settings st)
+        {
+            var now = DateTime.Now;
+            switchTimes.RemoveAll(t => (now - t).TotalHours >= 1);
+            if (switchTimes.Count >= st.AsMaxPerHour) { Detail = Tx("лимит переключений в час"); return false; }
+            return (now - lastSwitch).TotalSeconds >= st.AsCooldown;
+        }
+
+        void SwitchAway(Settings st, ServerEntry cur, string why)
+        {
+            if (cur != null) failedAt[cur.Id] = DateTime.Now;
+            if (!st.AsEnabled) { Set(XState.AllDown, why); return; }
+            if (!CanSwitch(st)) { Set(XState.AllDown, why + " · " + Detail); return; }
+            var next = Choose(st, cur);
+            if (next == null)
+            {
+                Logger.Write(LogLevel.Route, Tx("Автосвитч: рабочих серверов нет") + " (" + why + ")");
+                Set(XState.AllDown, why);
+                if (st.AsDpiFallback && !dpiOn && DpiFallback != null) { dpiOn = true; DpiFallback(true); }
+                lastAllDownTry = DateTime.Now;
+                return;
+            }
+            lastSwitch = DateTime.Now; switchTimes.Add(lastSwitch); Switches++;
+            Logger.Write(LogLevel.Route, Tx("Автосвитч: ") + (cur != null ? "«" + cur.Name + "» " : "") + "(" + why + ") → «" + next.Name + "»" + (next.Delay > 0 ? " · " + next.Delay + Tx(" мс") : ""));
+            if (StartOn(next)) Set(XState.Connected, next.Name);
+        }
+
+        void Tick()
+        {
+            var st = GetSettings();
+            var now = DateTime.Now;
+            var cur = ServerStore.Find(st.ActiveServer);
+            if (State == XState.Connecting || Testing) return;
+            if (st.TunMode && !sb.Running && (now - lastTunTry).TotalSeconds >= 10) EnsureTun();
+
+            if (died) { died = false; SwitchAway(st, cur, Tx("процесс xray остановился")); return; }
+
+            if (State == XState.AllDown)
+            {
+                if ((now - lastAllDownTry).TotalSeconds < 60) return;
+                lastAllDownTry = now;
+                failedAt.Clear();
+                if (cur != null && x.Running && Check(st) > 0) { Recovered(st, cur); return; }
+                var next = Choose(st, null);
+                if (next != null && StartOn(next)) { Thread.Sleep(1500); if (Check(st) > 0) Recovered(st, next); }
+                return;
+            }
+
+            if ((now - lastCheck).TotalSeconds >= st.AsInterval)
+            {
+                lastCheck = now;
+                int d = Check(st);
+                LastDelay = d;
+                if (d > 0)
+                {
+                    LastOk = now; fails = 0;
+                    if (cur != null) { cur.Delay = d; cur.Tested = now; }
+                    slows = st.AsMaxLatency > 0 && d > st.AsMaxLatency ? slows + 1 : 0;
+                    if (slows >= st.AsSlowCount) { SwitchAway(st, cur, Tx("медленно: ") + d + Tx(" мс")); return; }
+                    if (State != XState.Connected) Set(XState.Connected, cur != null ? cur.Name : "");
+                    else Fire();
+                }
+                else
+                {
+                    fails++;
+                    Fire();
+                    if (fails >= st.AsFails) { SwitchAway(st, cur, Tx("нет ответа ") + fails + Tx(" раз")); return; }
+                }
+            }
+
+            // возврат на выбранный вручную сервер
+            if (st.AsEnabled && st.AsReturnPreferred && st.PreferredServer != "" && st.PreferredServer != st.ActiveServer && (now - lastReturn).TotalMinutes >= st.AsReturnMin && CanSwitch(st))
+            {
+                lastReturn = now;
+                var pref = ServerStore.Find(st.PreferredServer);
+                if (pref != null)
+                {
+                    DelayTester.TestMany(st, GetCurl(), new List<ServerEntry> { pref }, s => { }, null);
+                    if (pref.Delay > 0 && (st.AsMaxLatency == 0 || pref.Delay <= st.AsMaxLatency))
+                    {
+                        Logger.Write(LogLevel.Route, Tx("Возврат на выбранный сервер «") + pref.Name + "» · " + pref.Delay + Tx(" мс"));
+                        lastSwitch = now; switchTimes.Add(now);
+                        if (StartOn(pref)) Set(XState.Connected, pref.Name);
+                    }
+                }
+            }
+
+            // фоновые замеры кандидатов, чтобы при сбое сразу знать лучший
+            if (st.AsEnabled && st.AsBgTestMin > 0 && (now - lastBgTest).TotalMinutes >= st.AsBgTestMin)
+            {
+                lastBgTest = now;
+                var pool = Pool(st, cur).Take(60).ToList();
+                if (pool.Count > 0) { Testing = true; try { DelayTester.TestMany(st, GetCurl(), pool, s => { }, null); } finally { Testing = false; } ServerStore.Save(); }
+            }
+        }
+
+        void Recovered(Settings st, ServerEntry s)
+        {
+            Logger.Write(LogLevel.Route, Tx("Сервер снова работает: «") + s.Name + "»");
+            if (dpiOn) { dpiOn = false; if (DpiFallback != null) DpiFallback(false); }
+            fails = 0; Set(XState.Connected, s.Name);
+        }
+
+        public static string StateName(XState s)
+        {
+            switch (s) { case XState.Connecting: return Tx("Подключение…"); case XState.Connected: return Tx("Подключено"); case XState.Switching: return Tx("Переключение…"); case XState.AllDown: return Tx("Нет рабочих серверов"); default: return Tx("Отключено"); }
+        }
+    }
+
+    // Системный прокси Windows (WinINET) на время подключения
+    public static class SysProxy
+    {
+        const string Key = @"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+        [DllImport("wininet.dll")] static extern bool InternetSetOption(IntPtr h, int opt, IntPtr buf, int len);
+        static string ours;
+        static void Refresh() { InternetSetOption(IntPtr.Zero, 39, IntPtr.Zero, 0); InternetSetOption(IntPtr.Zero, 37, IntPtr.Zero, 0); }
+
+        public static void ClearIfStale(int httpPort)
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(Key, true))
+                    if (Convert.ToInt32(k.GetValue("ProxyEnable", 0)) == 1 && Convert.ToString(k.GetValue("ProxyServer")) == "127.0.0.1:" + httpPort) { k.SetValue("ProxyEnable", 0, RegistryValueKind.DWord); Refresh(); }
+            }
+            catch { }
+        }
+
+        public static void Set(string hostPort)
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(Key, true))
+                {
+                    k.SetValue("ProxyEnable", 1, RegistryValueKind.DWord);
+                    k.SetValue("ProxyServer", hostPort);
+                    k.SetValue("ProxyOverride", "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.2*;172.30.*;172.31.*;192.168.*;<local>");
+                }
+                ours = hostPort; Refresh();
+            }
+            catch (Exception ex) { Logger.Write(LogLevel.Error, "System proxy: " + ex.Message); }
+        }
+
+        public static bool IsOurs()
+        {
+            try { using (var k = Registry.CurrentUser.OpenSubKey(Key)) return ours != null && Convert.ToString(k.GetValue("ProxyServer")) == ours; } catch { return false; }
+        }
+
+        public static void Clear()
+        {
+            try
+            {
+                using (var k = Registry.CurrentUser.OpenSubKey(Key, true))
+                    if (ours == null || Convert.ToString(k.GetValue("ProxyServer")) == ours) k.SetValue("ProxyEnable", 0, RegistryValueKind.DWord);
+                ours = null; Refresh();
+            }
+            catch { }
+        }
+    }
+}

@@ -1,0 +1,13 @@
+# Build output
+NetProbe.exe
+*.obj
+*.pdb
+
+# Runtime data (created by the app next to the exe)
+config/
+log/
+history.csv
+
+# System / editor junk
+Thumbs.db
+.DS_Store

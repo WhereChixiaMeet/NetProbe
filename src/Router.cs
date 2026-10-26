@@ -1,0 +1,383 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+
+using static NetProbe.Tr;
+
+namespace NetProbe
+{
+    public enum RouteState { Off, Connecting, Vpn, Backup, DpiFailover, VpnDown, DpiOnly }
+
+    // Маршрутизатор: держит WireSock (VPN) и winws (DPI) в нужном состоянии и делает аварийное переключение.
+    //
+    //  DPI/VPN:  основной VPN ─(молчит > N с)─> резервный VPN (если блок включён) ─(молчит > N с)─> DPI.
+    //            В режиме DPI туннель остаётся поднятым только для «строго VPN» приложений и пробника,
+    //            по нему же определяется восстановление: VPN стабилен M секунд → обратно на VPN, DPI выключается.
+    //  Только VPN: основной → резервный → «VPN недоступен» (kill switch), повторные попытки каждые 30 с.
+    //  Только DPI: только winws, туннель не запускается.
+    public class Router
+    {
+        public Func<Settings> GetSettings;
+        public readonly WiresockRunner Wg = new WiresockRunner();
+        public readonly ZapretRunner Dpi = new ZapretRunner();
+        public event Action Changed;
+        public Func<string, bool> AskStopService; // спросить пользователя перед остановкой чужой службы WireSock
+
+        public volatile RouteState State = RouteState.Off;
+        public string Detail = "";
+        public bool OnBackup;            // туннель сейчас поднят на резервном конфиге
+        public bool StrictOnly;          // туннель поднят только для «строго VPN» приложений (режим DPI)
+        public int Failovers;
+        public DateTime ConnectedAt, StateSince;
+        public DateTime LastVpnOk = DateTime.MinValue;
+
+        DateTime okSince = DateTime.MinValue, tunnelAt = DateTime.MinValue, lastCycle = DateTime.MinValue, lastExcl = DateTime.MinValue, lastKill = DateTime.MinValue;
+        DateTime backupSince = DateTime.MinValue;
+        int dpiRestarts;
+        volatile bool wgDied, dpiDied;
+
+        readonly Queue<Action> q = new Queue<Action>();
+        readonly AutoResetEvent wake = new AutoResetEvent(false);
+        Thread th;
+
+        public static string VpnProbe { get { return Path.Combine(CurlProber.WorkDir, "bin", "netprobe-vpn.exe"); } }
+        public const string DirectProbe = "netprobe-direct.exe";
+
+        public Router()
+        {
+            Wg.Exited += code => { wgDied = true; Logger.Write(LogLevel.Warn, Tx("WireSock завершился (код ") + code + ")"); wake.Set(); };
+            Dpi.Exited += code => { dpiDied = true; Logger.Write(LogLevel.Warn, Tx("winws.exe завершился (код ") + code + ")"); wake.Set(); };
+            Wg.Output += s => { if (GetSettings != null && GetSettings().LogPolls) Logger.Write(LogLevel.Poll, "[WireSock] " + s); else if (s.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0) Logger.Write(LogLevel.Warn, "[WireSock] " + s); };
+            Dpi.Output += s => Logger.Write(LogLevel.Poll, "[winws] " + s);
+            th = new Thread(Loop) { IsBackground = true, Name = "router" };
+            th.Start();
+        }
+
+        public bool Active { get { return State != RouteState.Off; } }
+        public bool NeedsVpnProbe { get { return Active && GetSettings().RMode != RouteMode.DpiOnly; } }
+
+        void Post(Action a) { lock (q) q.Enqueue(a); wake.Set(); }
+        public void Connect() { Post(DoConnect); }
+        public void Disconnect() { Post(DoDisconnect); }
+        public void Reapply() { Post(DoReapply); }
+        public void RestartDpi() { Post(() => { if (Dpi.Running) StartDpi(); }); }
+        public void ShutdownSync() { DoDisconnect(); }
+        // DPI без маршрутизатора (запасной вариант автосвитча серверов)
+        // DPI отдельной кнопкой: работает параллельно с VPN и не выключается вместе с ним
+        public volatile bool ManualDpi;
+        public void SetManualDpi(bool on)
+        {
+            Post(() =>
+            {
+                ManualDpi = on;
+                if (on) { Logger.Write(LogLevel.Route, Tr.Tx("DPI включён вручную")); if (!Dpi.Running) StartDpi(); }
+                else if (State != RouteState.DpiFailover && State != RouteState.DpiOnly) StopDpi(true);
+                SetState(State, Detail);
+            });
+        }
+        // После самообновления: подхватить уже работающие wiresock-client / winws вместо повторного запуска
+        public void Adopt(Dictionary<string, string> h)
+        {
+            Post(() =>
+            {
+                var st = GetSettings();
+                Func<string, string> g = k => h.ContainsKey(k) ? h[k] : "";
+                var wg = SelfUpdate.FindChild("wiresock-client", null);
+                if (wg != null) { Wg.Attach(wg, g("tunnel")); tunnelAt = DateTime.Now; OnBackup = g("backup") == "1"; StrictOnly = g("strict") == "1"; }
+                var dpi = SelfUpdate.FindChild("winws", st.ZapretPath);
+                if (dpi != null) Dpi.Attach(dpi, g("strategy"));
+                ManualDpi = g("manualdpi") == "1";
+                RouteState rs; if (!Enum.TryParse(g("state"), out rs)) rs = RouteState.Off;
+                if (rs != RouteState.Off && (wg != null || dpi != null)) { ConnectedAt = DateTime.Now; SetState(rs, g("detail")); Logger.Write(LogLevel.Route, Tr.Tx("Обновление: подключение сохранено")); }
+                else SetState(State, Detail);
+            });
+        }
+
+        public Dictionary<string, string> Handoff()
+        {
+            return new Dictionary<string, string> { { "state", State.ToString() }, { "detail", Detail }, { "tunnel", Wg.TunnelName }, { "backup", OnBackup ? "1" : "0" }, { "strict", StrictOnly ? "1" : "0" }, { "strategy", Dpi.Strategy }, { "manualdpi", ManualDpi ? "1" : "0" } };
+        }
+
+        public void StandaloneDpi(bool on) { Post(() => { if (State != RouteState.Off) return; if (on) { Logger.Write(LogLevel.Route, Tr.Tx("Запасной DPI включён")); StartDpi(); } else StopDpi(); }); }
+
+        // результат каждого опроса VPN-канала (пробник netprobe-vpn.exe идёт через туннель)
+        public void VpnSample(bool ok, DateTime t)
+        {
+            if (t < tunnelAt.AddMilliseconds(500)) return; // опрос начался до перезапуска туннеля
+            if (ok) { LastVpnOk = t; if (okSince == DateTime.MinValue) okSince = t; }
+            else okSince = DateTime.MinValue;
+        }
+
+        void SetState(RouteState s, string detail)
+        {
+            if (State != s) StateSince = DateTime.Now;
+            State = s; Detail = detail;
+            var h = Changed; if (h != null) try { h(); } catch { }
+        }
+
+        void Loop()
+        {
+            while (true)
+            {
+                wake.WaitOne(1000);
+                while (true)
+                {
+                    Action a; lock (q) { if (q.Count == 0) break; a = q.Dequeue(); }
+                    try { a(); } catch (Exception ex) { Logger.Write(LogLevel.Error, Tx("Маршрутизатор: ") + ex.Message); }
+                }
+                try { if (State != RouteState.Off) Tick(); } catch (Exception ex) { Logger.Write(LogLevel.Error, Tx("Маршрутизатор: ") + ex.Message); }
+            }
+        }
+
+        // ---------- списки ----------
+        List<string> Excl(Settings st)
+        {
+            switch (st.RMode) { case RouteMode.VpnOnly: return AppLists.Get(AppLists.VpnOnlyExcl); case RouteMode.DpiOnly: return AppLists.Get(AppLists.DpiOnlyExcl); default: return AppLists.Get(AppLists.HybridExcl); }
+        }
+
+        string BuildConfig(Settings st, string tunnel, bool strictOnly)
+        {
+            var strict = AppLists.Get(AppLists.VpnOnlyApps);
+            var allow = new List<string>(); var deny = new List<string>();
+            if (strictOnly)
+            {
+                allow.AddRange(strict); allow.Add(VpnProbe);
+            }
+            else
+            {
+                allow.AddRange(AppLists.Get(AppLists.HybridApps)); allow.AddRange(strict);
+                var ex = ExclusionSet.From(Excl(st));
+                deny.AddRange(ex.Processes);
+                if (allow.Count > 0) allow.Add(VpnProbe); else deny.Add(DirectProbe); // пусто = весь трафик через VPN, кроме пробника «напрямую»
+            }
+            allow = allow.Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            deny = deny.Where(a => a.Length > 0 && !allow.Contains(a, StringComparer.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return Tunnels.Runtime(tunnel, allow, deny, st.DnsViaTunnel);
+        }
+
+        bool HasBackup(Settings st) { return st.BackupEnabled && Tunnels.Exists(st.BackupTunnel) && st.BackupTunnel != st.PrimaryTunnel; }
+
+        bool StartTunnel(Settings st, bool backup, bool strictOnly)
+        {
+            string name = backup ? st.BackupTunnel : st.PrimaryTunnel;
+            if (!Tunnels.Exists(name)) { Logger.Write(LogLevel.Error, (backup ? Tx("Резервный") : Tx("Основной")) + Tx(" туннель не выбран или не найден")); return false; }
+            if (WiresockRunner.ServiceRunning())
+            {
+                bool ok = AskStopService != null && AskStopService(Tx("Служба wiresock-client-service (TunnlTo) уже запущена и займёт драйвер WireSock.\nОстановить её, чтобы NetProbe управлял туннелем?"));
+                if (!ok) { Logger.Write(LogLevel.Error, Tx("Служба WireSock запущена — туннель NetProbe не стартовал")); return false; }
+                Logger.Write(LogLevel.Info, Tx("Останавливаю службу wiresock-client-service…"));
+                WiresockRunner.StopService();
+            }
+            wgDied = false;
+            okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue;
+            string err = Wg.Start(st, name, BuildConfig(st, name, strictOnly));
+            if (err != null) { Logger.Write(LogLevel.Error, err); wgDied = true; return false; }
+            OnBackup = backup; StrictOnly = strictOnly;
+            Logger.Write(LogLevel.Route, Tx("Туннель «") + name + "» (" + Tunnels.Endpoint(name) + Tx(") запущен") + (backup ? Tx(" · резервный") : "") + (strictOnly ? Tx(" · только для приложений «строго VPN»") : ""));
+            return true;
+        }
+
+        void StopTunnel() { if (Wg.Running) { Wg.Stop(); Logger.Write(LogLevel.Route, Tx("Туннель остановлен")); } wgDied = false; }
+
+        bool StartDpi()
+        {
+            var st = GetSettings();
+            string c = ZapretRunner.Conflicts(-1);
+            if (c != null) { Logger.Write(LogLevel.Warn, Tx("Конфликт DPI: ") + c + Tx(" — останавливаю")); ZapretRunner.StopConflicts(-1); }
+            RefreshExclusions(st, true);
+            dpiDied = false;
+            string err = Dpi.Start(st, st.DpiStrategy);
+            if (err != null) { Logger.Write(LogLevel.Error, err); dpiDied = true; return false; }
+            Logger.Write(LogLevel.Route, Tx("DPI (winws) запущен · стратегия «") + st.DpiStrategy + "»");
+            return true;
+        }
+
+        void StopDpi(bool force = false) { if (ManualDpi && !force) return; if (Dpi.Running) { Dpi.Stop(); Logger.Write(LogLevel.Route, Tx("DPI (winws) остановлен")); } dpiDied = false; }
+
+        void RefreshExclusions(Settings st, bool force)
+        {
+            if (!force && (DateTime.Now - lastExcl).TotalSeconds < st.ExclRefreshSec) return;
+            lastExcl = DateTime.Now;
+            var ex = ExclusionSet.From(Excl(st));
+            ZapretRunner.WriteExclusions(ex, ProcInfo.RemoteIpsOf(ex.Processes));
+        }
+
+        void Kill(Settings st, bool on)
+        {
+            if (!on || !st.KillSwitch) { if (KillSwitch.Active) { KillSwitch.Clear(); Logger.Write(LogLevel.Route, Tx("Kill switch снят")); } return; }
+            if ((DateTime.Now - lastKill).TotalSeconds < 5) return;
+            lastKill = DateTime.Now;
+            var strict = AppLists.Get(AppLists.VpnOnlyApps);
+            if (strict.Count == 0) return;
+            int n = KillSwitch.Block(ProcInfo.PathsOf(strict));
+            if (n > 0) Logger.Write(LogLevel.Route, Tx("Kill switch: заблокировано приложений «строго VPN»: ") + KillSwitch.Count);
+        }
+
+        // ---------- команды ----------
+        void DoConnect()
+        {
+            var st = GetSettings();
+            DoDisconnect();
+            Failovers = 0; dpiRestarts = 0; ConnectedAt = DateTime.Now;
+            SetState(RouteState.Connecting, "");
+            Logger.Write(LogLevel.Route, Tx("Подключение · режим: ") + ModeName(st.RMode));
+            if (st.RMode == RouteMode.DpiOnly)
+            {
+                if (StartDpi()) { SetState(RouteState.DpiOnly, st.DpiStrategy); Kill(st, true); }
+                else SetState(RouteState.Off, Tx("Не удалось запустить DPI"));
+                return;
+            }
+            if (StartTunnel(st, false, false)) { SetState(RouteState.Vpn, st.PrimaryTunnel); return; }
+            if (HasBackup(st) && StartTunnel(st, true, false)) { backupSince = DateTime.Now; SetState(RouteState.Backup, st.BackupTunnel); return; }
+            if (st.RMode == RouteMode.Hybrid) { EnterDpi(st, Tx("VPN не запустился")); return; }
+            SetState(RouteState.VpnDown, Tx("VPN не запустился")); Kill(st, true);
+        }
+
+        void DoDisconnect()
+        {
+            bool was = State != RouteState.Off || Wg.Running || Dpi.Running;
+            StopTunnel(); StopDpi();
+            if (KillSwitch.Active) KillSwitch.Clear();
+            if (was) Logger.Write(LogLevel.Route, Tx("Отключено"));
+            SetState(RouteState.Off, "");
+        }
+
+        void DoReapply()
+        {
+            var st = GetSettings();
+            if (State == RouteState.Off) return;
+            if (Wg.Running) { Logger.Write(LogLevel.Route, Tx("Списки изменены — перезапуск туннеля с новыми правилами")); StartTunnel(st, OnBackup, StrictOnly); }
+            if (Dpi.Running) RefreshExclusions(st, true);
+            if (KillSwitch.Active) { KillSwitch.Clear(); lastKill = DateTime.MinValue; }
+            SetState(State, Detail);
+        }
+
+        void EnterDpi(Settings st, string why)
+        {
+            Failovers++;
+            Logger.Write(LogLevel.Route, Tx("АВАРИЙНОЕ ПЕРЕКЛЮЧЕНИЕ НА DPI: ") + why);
+            StartDpi();
+            // туннель оставляем только для «строго VPN» приложений и пробника — по нему ловим восстановление
+            if (!StartTunnel(st, OnBackup && HasBackup(st), true)) Kill(st, true);
+            lastCycle = DateTime.Now;
+            SetState(RouteState.DpiFailover, why);
+        }
+
+        double Grace(Settings st) { return st.FailoverSec + st.TimeoutSec + 3; }
+
+        // VPN «молчит» дольше порога?
+        bool VpnSilent(Settings st)
+        {
+            if (wgDied || !Wg.Running) return true;
+            var now = DateTime.Now;
+            if ((now - tunnelAt).TotalSeconds < Grace(st)) return false;
+            var last = LastVpnOk > tunnelAt ? LastVpnOk : tunnelAt.AddSeconds(Grace(st) - st.FailoverSec);
+            return (now - last).TotalSeconds > st.FailoverSec;
+        }
+
+        bool VpnStable(Settings st) { return Wg.Running && okSince != DateTime.MinValue && (DateTime.Now - okSince).TotalSeconds >= st.RecoverSec; }
+
+        void Tick()
+        {
+            var st = GetSettings();
+            var now = DateTime.Now;
+            switch (State)
+            {
+                case RouteState.Vpn:
+                case RouteState.Backup:
+                    if (VpnSilent(st))
+                    {
+                        string why = wgDied ? Tx("процесс WireSock остановился") : Tx("VPN не отвечает ") + st.FailoverSec + Tx(" с");
+                        if (!OnBackup && HasBackup(st))
+                        {
+                            Failovers++;
+                            Logger.Write(LogLevel.Route, Tx("Основной VPN: ") + why + Tx(" → резервный VPN «") + st.BackupTunnel + "»");
+                            if (StartTunnel(st, true, false)) { backupSince = now; SetState(RouteState.Backup, st.BackupTunnel); return; }
+                        }
+                        if (st.RMode == RouteMode.Hybrid) { EnterDpi(st, why); return; }
+                        Failovers++;
+                        Logger.Write(LogLevel.Route, Tx("VPN недоступен: ") + why + (st.KillSwitch ? Tx(" · kill switch для «строго VPN»") : ""));
+                        lastCycle = now;
+                        SetState(RouteState.VpnDown, why);
+                        Kill(st, true);
+                        return;
+                    }
+                    if (State == RouteState.Backup && st.RetryPrimaryMin > 0 && (now - backupSince).TotalMinutes >= st.RetryPrimaryMin && Tunnels.Exists(st.PrimaryTunnel))
+                    {
+                        Logger.Write(LogLevel.Route, Tx("Пробую вернуться на основной VPN «") + st.PrimaryTunnel + "»");
+                        if (StartTunnel(st, false, false)) SetState(RouteState.Vpn, st.PrimaryTunnel);
+                        else { backupSince = now; StartTunnel(st, true, false); }
+                    }
+                    break;
+
+                case RouteState.DpiFailover:
+                    if (dpiDied && dpiRestarts < 5) { dpiRestarts++; Logger.Write(LogLevel.Warn, Tx("Перезапуск winws (") + dpiRestarts + ")"); StartDpi(); }
+                    RefreshExclusions(st, false);
+                    if (VpnStable(st))
+                    {
+                        Logger.Write(LogLevel.Route, Tx("VPN снова стабилен ") + st.RecoverSec + Tx(" с → возврат с DPI на VPN"));
+                        bool b = OnBackup;
+                        if (StartTunnel(st, b, false)) { StopDpi(); Kill(st, false); if (b) backupSince = now; SetState(b ? RouteState.Backup : RouteState.Vpn, b ? st.BackupTunnel : st.PrimaryTunnel); }
+                        return;
+                    }
+                    if (VpnSilent(st))
+                    {
+                        Kill(st, true);
+                        if ((now - lastCycle).TotalSeconds >= 30)
+                        {
+                            lastCycle = now;
+                            bool nb = HasBackup(st) && !OnBackup;
+                            StartTunnel(st, nb, true);
+                        }
+                    }
+                    else if (LastVpnOk > tunnelAt) Kill(st, false);
+                    break;
+
+                case RouteState.VpnDown:
+                    if (VpnStable(st) || (Wg.Running && LastVpnOk > tunnelAt && (now - LastVpnOk).TotalSeconds < 3))
+                    {
+                        Logger.Write(LogLevel.Route, Tx("VPN восстановлен"));
+                        Kill(st, false);
+                        if (OnBackup) backupSince = now;
+                        SetState(OnBackup ? RouteState.Backup : RouteState.Vpn, OnBackup ? st.BackupTunnel : st.PrimaryTunnel);
+                        return;
+                    }
+                    Kill(st, true);
+                    if ((now - lastCycle).TotalSeconds >= 30)
+                    {
+                        lastCycle = now;
+                        bool nb = HasBackup(st) && !OnBackup;
+                        if (!StartTunnel(st, nb, false) && nb) StartTunnel(st, false, false);
+                    }
+                    break;
+
+                case RouteState.DpiOnly:
+                    RefreshExclusions(st, false);
+                    Kill(st, true);
+                    if (dpiDied && dpiRestarts < 5) { dpiRestarts++; Logger.Write(LogLevel.Warn, Tx("Перезапуск winws (") + dpiRestarts + ")"); StartDpi(); }
+                    break;
+            }
+        }
+
+        public static string ModeName(RouteMode m)
+        {
+            switch (m) { case RouteMode.VpnOnly: return Tx("Только VPN"); case RouteMode.DpiOnly: return Tx("Только DPI"); default: return Tx("DPI/VPN (авто)"); }
+        }
+
+        public static string StateName(RouteState s)
+        {
+            switch (s)
+            {
+                case RouteState.Connecting: return Tx("Подключение…");
+                case RouteState.Vpn: return Tx("VPN · основной");
+                case RouteState.Backup: return Tx("VPN · резервный");
+                case RouteState.DpiFailover: return Tx("DPI · аварийный режим");
+                case RouteState.VpnDown: return Tx("VPN недоступен");
+                case RouteState.DpiOnly: return "DPI";
+                default: return Tx("Отключено");
+            }
+        }
+    }
+}
