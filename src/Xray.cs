@@ -22,6 +22,7 @@ namespace NetProbe
         public DateTime Tested = DateTime.MinValue;
         public string Country = "";       // код страны (флаг в имени или выход через сервер, cloudflare trace)
         public string Error = "";         // почему последний замер не удался (для подсказки)
+        public string SpeedErr = "";      // почему не удался замер скорости
         public double Speed = -1;         // Мбит/с; -1 = не замерялась, -2 = ошибка
         public long TotalDown, TotalUp;   // байт через этот сервер за всё время (статистика xray)
 
@@ -483,15 +484,36 @@ namespace NetProbe
             return "";
         }
 
-        // Скорость загрузки через сервер, Мбит/с; -2 = не удалось
-        public static double Speed(string curl, int port, string url, int seconds)
+        // Скорость загрузки через сервер, Мбит/с; -2 = не удалось (причина в err).
+        //  Качаем seconds секунд и делим принятое на время самой передачи (без рукопожатия через прокси),
+        //  обрыв по --max-time — нормальный конец замера. Медленный сервер даёт малую скорость, а не «ошибку».
+        public static double Speed(string curl, int port, string url, int seconds, CancelFlag cf, out string err)
         {
-            var r = Proc.Run(curl, "-s -o NUL --ssl-no-revoke -x socks5h://127.0.0.1:" + port + " --connect-timeout 8 --max-time " + seconds + " -w \"%{speed_download} %{size_download}\" \"" + url + "\"", (seconds + 14) * 1000);
+            err = "";
+            var r = Proc.Run(curl, "-sS -o NUL --ssl-no-revoke -A \"Mozilla/5.0\" -x socks5h://127.0.0.1:" + port + " --connect-timeout 10 --max-time " + seconds + " -w \"%{http_code} %{size_download} %{time_total} %{time_starttransfer}\" \"" + url + "\"", (seconds + 16) * 1000, null, cf);
+            if (r.Cancelled) { err = Tr.Tx("остановлено"); return -1; }
+            if (r.StartError != null) { err = "curl: " + r.StartError; return -2; }
             var parts = (r.Out ?? "").Trim().Split(' ');
-            double bps, size;
-            if (parts.Length == 2 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out bps) && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out size) && size >= 65536)
-                return Math.Round(bps * 8 / 1e6, 1);
-            return -2;
+            int code; double size, total, start;
+            if (parts.Length != 4 || !int.TryParse(parts[0], out code) || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out size)
+                || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out total) || !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out start))
+            { err = CurlErr(r); return -2; }
+            if (code >= 400) { err = "HTTP " + code + Tr.Tx(" от тестового URL — смените его в настройках"); return -2; }
+            if (code == 0 || size <= 0) { err = CurlErr(r); return -2; }
+            double t = total - start;
+            if (t < 0.2 || size < 32768) t = total; // файл слишком мал — считаем по полному времени
+            if (t <= 0) { err = CurlErr(r); return -2; }
+            double mbit = size * 8 / t / 1e6;
+            return Math.Round(mbit, mbit < 10 ? 2 : 1);
+        }
+
+        static string CurlErr(Proc.Res r)
+        {
+            string e = (r.Err ?? "").Trim();
+            int i = e.LastIndexOf('\n'); if (i >= 0) e = e.Substring(i + 1);
+            if (e.StartsWith("curl: ")) e = e.Substring(6);
+            if (e == "") e = r.TimedOut ? Tr.Tx("curl завис") : Tr.Tx("нет данных через сервер") + " (curl " + r.Exit + ")";
+            return e;
         }
 
         static readonly object portLk = new object();
@@ -581,17 +603,41 @@ namespace NetProbe
                 }, s => { s.Delay = -2; s.Tested = DateTime.Now; done(s); }, cf);
         }
 
-        // Скорость: по одному серверу за раз, чтобы замеры не делили канал
-        public static void SpeedMany(Settings st, string curl, List<ServerEntry> list, Action<ServerEntry> done, CancelFlag cf)
+        // Запасные URL для замера, если основной недоступен через сервер
+        public static readonly string[] SpareSpeedUrls = { "https://proof.ovh.net/files/100Mb.dat", "https://speedtest.selectel.ru/100MB" };
+        static IEnumerable<string> SpeedUrls(Settings st)
+        {
+            var l = new List<string>();
+            if (!string.IsNullOrWhiteSpace(st.SpeedUrl)) l.Add(st.SpeedUrl.Trim());
+            foreach (var u in SpareSpeedUrls) if (!l.Contains(u)) l.Add(u);
+            return l;
+        }
+
+        // Скорость: по одному серверу за раз, чтобы замеры не делили канал. start — перед замером сервера (для прогресса).
+        public static void SpeedMany(Settings st, string curl, List<ServerEntry> list, Action<ServerEntry> start, Action<ServerEntry> done, CancelFlag cf)
         {
             const int chunk = 20;
             for (int off = 0; off < list.Count; off += chunk)
                 RunChunk(st, list.Skip(off).Take(chunk).ToList(), 1, (s, port) =>
                 {
-                    s.Speed = Speed(curl, port, st.SpeedUrl, st.SpeedSec);
-                    if (s.Speed > 0 && s.Country == "") { string cc = ExitCountry(curl, port, st.AsTimeout); if (cc != "") s.Country = cc; }
+                    if (start != null) start(s);
+                    string err = "";
+                    double v = -2;
+                    // многие серверы режут сайты спидтестов (geosite:category-speedtest) — тогда пробуем запасные URL
+                    foreach (var url in SpeedUrls(st))
+                    {
+                        string e;
+                        v = Speed(curl, port, url, st.SpeedSec, cf, out e);
+                        if (cf != null && cf.Cancelled) return;
+                        if (v > 0) break;
+                        if (err == "") err = e;
+                        if (e.StartsWith("HTTP ") == false && v == -2 && e.Contains(Tr.Tx("curl завис"))) break;
+                    }
+                    s.Speed = v; s.SpeedErr = err;
+                    if (v > 0 && s.Country == "") { string cc = ExitCountry(curl, port, st.AsTimeout); if (cc != "") s.Country = cc; }
+                    if (v <= 0) Logger.Write(LogLevel.Warn, "speed «" + s.Name + "»: " + err);
                     done(s);
-                }, s => { s.Speed = -2; done(s); }, cf);
+                }, s => { s.Speed = -2; s.SpeedErr = s.Error; done(s); }, cf);
         }
     }
 }

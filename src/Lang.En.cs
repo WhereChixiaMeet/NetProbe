@@ -773,6 +773,13 @@ namespace NetProbe
             { "Скачать и установить новую версию?", "Download and install the new version?" },
             { "Вид таблицы серверов сброшен", "Servers table layout reset" },
             { "Таблица серверов", "Servers table" },
+            { "остановлено", "stopped" },
+            { " от тестового URL — смените его в настройках", " from the test URL, change it in settings" },
+            { "curl завис", "curl hung" },
+            { "нет данных через сервер", "no data through the server" },
+            { "замер…", "testing…" },
+            { "Замер остановлен: работают ", "Test stopped: working " },
+            { "Скорость остановлена", "Speed test stopped" },
         };
     }
 }

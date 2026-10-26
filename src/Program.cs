@@ -44,6 +44,8 @@ namespace NetProbe
                 MainForm.Updated = Array.Exists(args, a => a == "--updated");
                 int ti = Array.FindIndex(args, a => a == "--selftest");
                 if (ti >= 0 && ti + 1 < args.Length) { SelfTest.Run(args[ti + 1]); return; }
+                int sp = Array.FindIndex(args, a => a == "--speedtest");
+                if (sp >= 0 && sp + 1 < args.Length) { SelfTest.Speed(args[sp + 1], sp + 2 < args.Length && !args[sp + 2].StartsWith("--") ? args[sp + 2] : null); return; }
                 int si = Array.FindIndex(args, a => a == "--shots");
                 if (si >= 0 && si + 1 < args.Length) MainForm.ShotsDir = args[si + 1];
                 try { Application.Run(new MainForm(min)); }

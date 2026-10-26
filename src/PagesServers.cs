@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -16,7 +16,7 @@ namespace NetProbe
         readonly XrayManager xm = new XrayManager();
         StatusBoard xBoard; FlatButton btnXConnect, btnXDpi, btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
         TabStrip srvTabs, srvListTabs; ThemedList srvListBox; Toggle tgTun; ToolTip srvTip;
-        bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb;
+        bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb, btnTest, btnSpeed; ServerEntry speedNow;
         readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
         static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
 
@@ -85,10 +85,12 @@ namespace NetProbe
             bSubs.Click += (s, e) => { using (var d = new SubsDialog(CurSub() != null ? CurSub().Id : null)) d.ShowDialog(this); FillServers(); };
             btnUpdSub = IconBtn("", Tx("Обновить подписки"), tt);
             btnUpdSub.Click += (s, e) => { var sub = CurSub(); UpdateSubs(sub != null ? new List<Subscription> { sub } : null); };
-            var bTest = new FlatButton(Tx("Замер")) { Glyph = "" }.AutoW();
+            var bTest = btnTest = new FlatButton(Tx("Замер")) { Glyph = "" };
+            bTest.Width = Math.Max(bTest.PreferredW, StopW(bTest));
             bTest.Click += (s, e) => TestServers(SelServers().Count > 1 ? SelServers() : TabServers());
             tt.SetToolTip(bTest, Tx("Задержка: выбранные или все на вкладке"));
-            var bSpeed = new FlatButton(Tx("Скорость")) { Glyph = "" }.AutoW();
+            var bSpeed = btnSpeed = new FlatButton(Tx("Скорость")) { Glyph = "" };
+            bSpeed.Width = Math.Max(bSpeed.PreferredW, StopW(bSpeed));
             bSpeed.Click += (s, e) => SpeedServers(SelServers().Count > 0 ? SelServers() : null);
             tt.SetToolTip(bSpeed, Tx("Скорость загрузки: выбранные или рабочие на вкладке"));
             var bFav = IconBtn("", Tx("Избранное"), tt);
@@ -500,7 +502,17 @@ namespace NetProbe
         }
 
         static string DelayText(ServerEntry x) { return x.Delay == -2 ? (x.Error != "" && x.Error != Tx("нет ответа через сервер") ? Tx("ошибка") : Tx("таймаут")) : x.Delay < 0 ? "" : x.Delay + Tx(" мс"); }
-        static string SpeedText(ServerEntry x) { return x.Speed == -2 ? Tx("ошибка") : x.Speed < 0 ? "" : x.Speed.ToString(x.Speed < 10 ? "0.0" : "0", CultureInfo.InvariantCulture) + " Mbit/s"; }
+        static string SpeedText(ServerEntry x) { return x.Speed == -2 ? Tx("ошибка") : x.Speed < 0 ? "" : x.Speed.ToString(x.Speed < 1 ? "0.00" : x.Speed < 10 ? "0.0" : "0", CultureInfo.InvariantCulture) + " Mbit/s"; }
+
+        // кнопка замера на время работы превращается в «Стоп»
+        static int StopW(FlatButton b) { string t = b.Text; b.Text = Tx("Стоп"); int w = b.PreferredW; b.Text = t; return w; }
+        void SetBusy(FlatButton b, bool busy)
+        {
+            if (b == null || b.IsDisposed) return;
+            if (b.Tag == null) b.Tag = new[] { b.Text, b.Glyph };
+            var n = (string[])b.Tag;
+            b.Text = busy ? Tx("Стоп") : n[0]; b.Glyph = busy ? "\uE71A" : n[1]; b.Invalidate();
+        }
         static string Bytes(long b)
         {
             if (b <= 0) return "";
@@ -515,8 +527,9 @@ namespace NetProbe
         {
             var c = row.Cells;
             c["f"].Value = x.Favorite ? "★" : ""; c["n"].Value = x.Name; c["cc"].Value = x.Country; c["t"].Value = x.Transport; c["a"].Value = x.Address; c["p"].Value = x.Port.ToString();
-            c["g"].Value = ServerStore.GroupName(x.Group); c["d"].Value = DelayText(x); c["sp"].Value = SpeedText(x); c["td"].Value = Bytes(x.TotalDown);
-            c["d"].Style.ForeColor = DelayColor(x); c["sp"].Style.ForeColor = SpeedColor(x);
+            c["g"].Value = ServerStore.GroupName(x.Group); c["d"].Value = DelayText(x); c["sp"].Value = x == speedNow ? Tx("замер…") : SpeedText(x); c["td"].Value = Bytes(x.TotalDown);
+            c["d"].Style.ForeColor = DelayColor(x); c["sp"].Style.ForeColor = x == speedNow ? Theme.Accent : SpeedColor(x);
+            c["sp"].ToolTipText = x.Speed == -2 && x.SpeedErr != "" ? x.SpeedErr : "";
             c["d"].ToolTipText = x.Delay == -2 && x.Error != "" ? x.Error : x.Tested != DateTime.MinValue ? x.Tested.ToString("dd.MM HH:mm") : "";
             c["td"].ToolTipText = x.TotalUp > 0 ? "↑ " + Bytes(x.TotalUp) : "";
             c["cc"].ToolTipText = x.Country;
@@ -585,7 +598,7 @@ namespace NetProbe
             if (xTesting) { if (xTestCf != null) xTestCf.Cancelled = true; return; }
             if (list.Count == 0) return;
             if (!File.Exists(XrayProcess.Exe(st))) { UpdateCore(true); return; }
-            xTesting = true; xTestCf = new CancelFlag();
+            xTesting = true; xTestCf = new CancelFlag(); SetBusy(btnTest, true);
             int done = 0, total = list.Count;
             lSrvInfo.Text = Tx("Замер: ") + "0/" + total + "…";
             var cf = xTestCf;
@@ -603,7 +616,7 @@ namespace NetProbe
                 ServerStore.Save();
                 int ok = list.Count(x => x.Delay > 0);
                 if (ok == 0 && total > 0) Logger.Write(LogLevel.Warn, Tx("Замер: ни один сервер не ответил. Проверьте, открывается ли ") + st.TestUrl + Tx(" и не блокирует ли xray антивирус/брандмауэр"));
-                try { BeginInvoke((Action)(() => { xTesting = false; lSrvInfo.Text = Tx("Замер готов: работают ") + ok + "/" + total; })); } catch { }
+                try { BeginInvoke((Action)(() => { xTesting = false; SetBusy(btnTest, false); lSrvInfo.Text = (cf.Cancelled ? Tx("Замер остановлен: работают ") : Tx("Замер готов: работают ")) + ok + "/" + total; })); } catch { }
             });
         }
 
@@ -618,25 +631,34 @@ namespace NetProbe
             }
             if (list.Count == 0) return;
             if (!File.Exists(XrayProcess.Exe(st))) { UpdateCore(true); return; }
-            if (list.Count > 5 && MessageBox.Show(this, Tx("Замер скорости серверов: ") + list.Count + Tx(", примерно ") + Math.Max(1, list.Count * (st.SpeedSec + 2) / 60) + Tx(" мин. Продолжить?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
-            xTesting = true; xTestCf = new CancelFlag();
+            xTesting = true; xTestCf = new CancelFlag(); SetBusy(btnSpeed, true);
             int done = 0, total = list.Count;
-            lSrvInfo.Text = Tx("Скорость: ") + "0/" + total + "…";
             var cf = xTestCf;
+            Func<int, string> left = d => { int m = (total - d) * (st.SpeedSec + 2); return m >= 60 ? "  ·  ≈" + ((m + 59) / 60) + Tx(" мин") : ""; };
+            lSrvInfo.Text = Tx("Скорость: ") + "0/" + total + left(0);
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
                     DelayTester.SpeedMany(st, curlPath, list, x =>
                     {
-                        int d = Interlocked.Increment(ref done);
-                        try { BeginInvoke((Action)(() => { lSrvInfo.Text = Tx("Скорость: ") + d + "/" + total + "…  " + Tx("(нажмите ещё раз — стоп)"); RefreshRow(x); })); } catch { }
+                        int d = done;
+                        try { BeginInvoke((Action)(() => { speedNow = x; RefreshRow(x); lSrvInfo.Text = Tx("Скорость: ") + (d + 1) + "/" + total + "  ·  " + x.Name + left(d); })); } catch { }
+                    }, x =>
+                    {
+                        Interlocked.Increment(ref done);
+                        try { BeginInvoke((Action)(() => { if (speedNow == x) speedNow = null; RefreshRow(x); })); } catch { }
                     }, cf);
                 }
                 catch (Exception ex) { Logger.Write(LogLevel.Error, "xray speed: " + ex.Message); }
                 ServerStore.Save();
                 var best = list.Where(x => x.Speed > 0).OrderByDescending(x => x.Speed).FirstOrDefault();
-                try { BeginInvoke((Action)(() => { xTesting = false; lSrvInfo.Text = Tx("Скорость готова") + (best != null ? " · " + Tx("лучший: ") + best.Name + " " + SpeedText(best) : ""); })); } catch { }
+                int ok = list.Count(x => x.Speed > 0);
+                var why = list.Where(x => x.Speed == -2 && x.SpeedErr != "").GroupBy(x => x.SpeedErr).OrderByDescending(g => g.Count()).FirstOrDefault();
+                string res = (cf.Cancelled ? Tx("Скорость остановлена") : Tx("Скорость готова")) + ": " + ok + "/" + total
+                    + (best != null ? "  ·  " + Tx("лучший: ") + best.Name + " " + SpeedText(best) : "")
+                    + (ok == 0 && why != null ? "  ·  " + why.Key : "");
+                try { BeginInvoke((Action)(() => { var was = speedNow; speedNow = null; if (was != null) RefreshRow(was); xTesting = false; SetBusy(btnSpeed, false); lSrvInfo.Text = res; })); } catch { }
             });
         }
 
@@ -756,7 +778,8 @@ namespace NetProbe
         // Все колонки фиксированной ширины (как в Проводнике): тянешь одну — меняется только она, остальные просто сдвигаются,
         // не хватает места — появляется горизонтальная прокрутка. «Резиновые» колонки (Fill) отбирали ширину у соседей.
         static readonly string[] SrvColNames = { "f", "n", "cc", "t", "a", "p", "g", "d", "sp", "td" };
-        static readonly int[] SrvColWidth = { 24, 220, 40, 120, 140, 50, 100, 72, 86, 74 };
+        static readonly int[] SrvColWidth = { 24, 220, 52, 120, 140, 64, 100, 72, 86, 74 };
+        static readonly int[] SrvColMin = { 24, 36, 52, 36, 36, 64, 36, 36, 36, 36 }; // GEO и PORT уже не сжать — иначе «GEC», «308…»
         const string SrvColsVer = "w|"; // старый формат (веса Fill) не подходит — игнорируется
         bool applyingCols;
 
@@ -779,7 +802,7 @@ namespace NetProbe
                     var col = srvGrid.Columns[SrvColNames[i]];
                     col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
                     // без минимальной ширины колонку можно сжать до невидимой
-                    col.MinimumWidth = Theme.S(Math.Min(SrvColWidth[i], 36));
+                    col.MinimumWidth = Theme.S(SrvColMin[i]);
                     string[] sv; int w;
                     bool has = saved.TryGetValue(SrvColNames[i], out sv) && int.TryParse(sv[1], out w) && w > 0;
                     col.Width = Math.Max(col.MinimumWidth, has ? int.Parse(sv[1]) : Theme.S(SrvColWidth[i]));
