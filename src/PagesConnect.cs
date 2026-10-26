@@ -59,14 +59,15 @@ namespace NetProbe
         public string Key;
         public ThemedList Box;
         public const string BuiltIn = "netprobe-vpn.exe";
-        public FlatButton BAdd, BDel;
+        public FlatButton BAdd, BDel, BPaste;
         public ListCard()
         {
             Box = new ThemedList { MultiSelect = true, RightText = n => n == BuiltIn ? Tr.Tx("встроено") : null };
             BAdd = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
             BDel = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
-            Controls.AddRange(new Control[] { Box, BAdd, BDel });
-            Box.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) BDel.PerformClick2(); };
+            BPaste = new FlatButton("") { Glyph = "\uE77F", Width = Theme.S(30), Height = Theme.S(26) };
+            Controls.AddRange(new Control[] { Box, BPaste, BAdd, BDel });
+            Box.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) BDel.PerformClick2(); if (e.KeyCode == Keys.V && e.Control) BPaste.PerformClick2(); };
         }
         public void Fill()
         {
@@ -82,6 +83,7 @@ namespace NetProbe
             int ip = Theme.S(10);
             BDel.Location = new Point(Width - ip - BDel.Width, Theme.S(10));
             BAdd.Location = new Point(BDel.Left - Theme.S(4) - BAdd.Width, Theme.S(10));
+            BPaste.Location = new Point(BAdd.Left - Theme.S(4) - BPaste.Width, Theme.S(10));
             Box.SetBounds(ip, Theme.S(46), Width - ip * 2, Math.Max(10, Height - Theme.S(54)));
         }
     }
@@ -196,6 +198,7 @@ namespace NetProbe
                         if (d.ShowDialog(this) == DialogResult.OK) foreach (var x in d.Result) AddToList(lc.Key, x);
                 };
                 lc.Box.DoubleClick += (s, e) => lc.BAdd.PerformClick2();
+                lc.BPaste.Click += (s, e) => PasteToList(lc.Key, lc.Box);
                 AttachPathMenu(lc.Box, this);
                 var lcRef = lc;
                 var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
@@ -218,7 +221,7 @@ namespace NetProbe
                 lc.Box.ContextMenuStrip.Items.Add(new ToolStripSeparator());
                 lc.Box.ContextMenuStrip.Items.AddRange(new ToolStripItem[] { miRen, miIco, miIcoReset });
                 lc.BDel.Click += (s, e) => { var sel = lc.Box.SelectedItems.Where(x => x != ListCard.BuiltIn).ToList(); if (sel.Count > 0) { AppLists.Remove(lc.Key, sel); Logger.Write(LogLevel.Info, AppLists.Title(lc.Key) + Tx(": удалено ") + string.Join(", ", sel)); } };
-                tip.SetToolTip(lc.BAdd, Tx("Добавить")); tip.SetToolTip(lc.BDel, Tx("Удалить"));
+                tip.SetToolTip(lc.BAdd, Tx("Добавить")); tip.SetToolTip(lc.BDel, Tx("Удалить")); tip.SetToolTip(lc.BPaste, Tx("Добавить список из буфера (по строкам или через запятую)"));
                 p.Controls.Add(lc);
             }
 

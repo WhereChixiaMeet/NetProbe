@@ -45,7 +45,7 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 | `Backup.cs` | export/import all settings as one JSON |
 | `Settings.cs` | `settings.ini` (reflection over public fields), `AppLists` (per-mode lists, recent apps) |
 | `Pages*.cs` | Connection, Servers, Configs (VPN tunnels + DPI strategies/lists), Monitor/Tests/Sites, Log, Settings |
-| `Ui.cs`, `Controls2.cs`, `Controls3.cs`, `ThemedList.cs`, `ScrollHost.cs` | custom-drawn controls (no native look): buttons, toggle, combo, checkbox, spin, text box frame, list with icons + thin scrollbar, scroll host |
+| `Ui.cs`, `Controls2.cs`, `Controls3.cs`, `ThemedList.cs`, `ScrollHost.cs`, `TabStrip.cs` | custom-drawn controls (no native look): buttons, toggle, combo, checkbox, spin, text box frame, list with icons + thin scrollbar, scroll host |
 | `Theme.cs` | palettes Dark (NetProbe 1.x navy), Light, Classic (light, thin borders); accent colour |
 | `Lang.cs`, `Lang.En.cs` | i18n: code strings are Russian, wrapped in `Tx("...")`; English in `Lang.En.cs` keyed by the Russian literal |
 | `Net.cs`, `Monitor.cs`, `Tests.cs` | monitoring probes (curl), channel stats, tests, Logger (per-day files, retention) |
@@ -59,7 +59,10 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 - **DPI button** next to VPN on the Connection page: winws in parallel with VPN; not stopped by disconnect.
 - Lists per mode: `hybrid-apps` (Include), `vpnonly-apps` (Strict VPN), `hybrid-exclude`, `vpnonly-exclude`, `dpionly-exclude`, `dpi-apps`. Matching = substring of process name/path (WireSock semantics). `netprobe-vpn.exe` is shown as a built-in Include row but not stored.
 - DPI exclusions by process work through current TCP connections → `--ipset-exclude` file (winws cannot filter by process).
-- Servers TUN uses Include + Strict VPN → xray, Exclude of current mode → direct; blocked while the WireSock tunnel runs.
+- **Servers are independent of the VPN button**: own lists `servers-apps` (Include → xray), `servers-exclude` (direct), `servers-dpi-apps` (direct + winws started while xray is connected), `servers-dpi-exclude` (DPI exclusions). Seeded once from the Connection lists. Lists apply in TUN mode (sing-box); TUN is blocked while the WireSock tunnel runs. Router keeps winws running while `Router.DpiHold` (= `xm.DpiWanted`) is true.
+- Servers page: tabs All / Active (answered last test) / Favorite / Manual / one per subscription (⟳ updates only the open subscription). Columns GEO (flag in name, else exit country via cloudflare trace during the test), PORT, SPEED (curl download through the server, `SpeedUrl`), TOTAL ↓ (xray stats via `api.listen` on `ApiPort`, polled every 10 s with `xray api statsquery -reset`).
+- Delay/speed tests: servers run in chunks in one test xray; if xray refuses the config, the chunk is split in halves until the bad server is isolated (before, one bad server made the whole chunk "none").
+- "+" lists have a clipboard button (Ctrl+V): one app per line / comma / semicolon.
 
 ## Behaviour defaults
 Auto-connect on start and Windows autostart (Task Scheduler, highest privileges, `--minimized`; task name per copy) are ON by default. Everything autosaves (no Save buttons). Update checks for zapret/xray/sing-box are configurable (interval, per component) with tray notification and a sidebar badge.

@@ -72,7 +72,7 @@ namespace NetProbe
             router.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)OnRouteChanged); } catch { } };
             // несколько правок подряд (добавить + убрать из соседнего списка) = один перезапуск туннеля
             reapplyTimer.Tick += (s, e) => { reapplyTimer.Stop(); if (router.Active) router.Reapply(); };
-            AppLists.Changed += key => { if (IsHandleCreated) try { BeginInvoke((Action)(() => { reapplyTimer.Stop(); reapplyTimer.Start(); RefreshListsUi(); })); } catch { } };
+            AppLists.Changed += key => { if (IsHandleCreated) try { BeginInvoke((Action)(() => { if (AppLists.IsServers(key)) { FillSrvLists(); return; } reapplyTimer.Stop(); reapplyTimer.Start(); RefreshListsUi(); })); } catch { } }; // списки «Серверов» не трогают туннель WireSock
 
             InitXray();
             BuildUi();
@@ -541,6 +541,7 @@ namespace NetProbe
             }
             if (miConnect != null) miConnect.Text = router.Active ? Tx("Отключить") : Tx("Подключить");
             UpdateConnectUi();
+            UpdateServersUi();
             UpdateSide();
             UpdateTray();
             if (widget != null) { widget.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : ""; widget.Invalidate(); }

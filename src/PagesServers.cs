@@ -14,28 +14,41 @@ namespace NetProbe
     public partial class MainForm
     {
         readonly XrayManager xm = new XrayManager();
-        StatusBoard xBoard; FlatButton btnXConnect, btnCore; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
+        StatusBoard xBoard; FlatButton btnXConnect, btnXDpi, btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
+        TabStrip srvTabs, srvListTabs; ThemedList srvListBox; Toggle tgTun; ToolTip srvTip;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb;
         readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 };
+        static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
 
         void InitXray()
         {
             ServerStore.Load();
+            AppLists.SeedServers();
             SysProxy.ClearIfStale(st.HttpPort);
             xm.GetSettings = () => st;
             xm.GetCurl = () => curlPath;
             XState lastX = XState.Off;
             xm.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if ((xm.State == XState.Off) != (lastX == XState.Off)) RebuildProbers(); lastX = xm.State; UpdateServersUi(); UpdateSide(); })); } catch { } };
+            // DPI «Серверов» не зависит от кнопки VPN: запасной вариант автосвитча и приложения «через DPI»
             xm.DpiFallback = on => router.StandaloneDpi(on);
-            // TUN берёт списки текущего режима с вкладки «Подключение»: Include + Strict VPN → сервер, Exclude → напрямую
+            xm.NeedDpi = () => AppLists.Get(AppLists.SrvDpiApps).Count > 0;
+            router.DpiHold = () => xm.DpiWanted;
+            router.ExtraDpiExcl = () => xm.Active ? AppLists.Get(AppLists.SrvDpiExcl) : new List<string>();
+            // TUN берёт свои списки вкладки «Серверы»: Include → сервер, Exclude и «через DPI» → напрямую
             xm.GetTunLists = () =>
             {
-                var inc = AppLists.Get(AppLists.HybridApps).Concat(AppLists.Get(AppLists.VpnOnlyApps)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                var exc = st.RMode == RouteMode.Hybrid ? AppLists.Get(AppLists.HybridExcl) : AppLists.Get(AppLists.VpnOnlyExcl);
+                var inc = AppLists.Get(AppLists.SrvApps);
+                var exc = AppLists.Get(AppLists.SrvExcl).Concat(AppLists.Get(AppLists.SrvDpiApps)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 return Tuple.Create(inc, exc);
             };
             xm.TunBlocked = () => router.Wg.Running ? Tx("TUN не запущен: работает туннель WireSock (вкладка «Подключение»)") : null;
-            AppLists.Changed += key => { if (xm.Active && st.TunMode) { tunReapply.Stop(); tunReapply.Start(); } };
+            AppLists.Changed += key =>
+            {
+                if (!AppLists.IsServers(key)) return;
+                if (key != AppLists.SrvDpiExcl && xm.Active && st.TunMode) { tunReapply.Stop(); tunReapply.Start(); }
+                if (key == AppLists.SrvDpiApps) xm.ReapplyDpi();
+                if (key == AppLists.SrvDpiApps || key == AppLists.SrvDpiExcl) router.RefreshDpiExclusions();
+            };
             tunReapply.Tick += (s, e) => { tunReapply.Stop(); xm.ReapplyTun(); };
             ServerStore.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => FillServers())); } catch { } };
         }
@@ -43,17 +56,13 @@ namespace NetProbe
         void BuildServersPage()
         {
             var p = NewPage(Tx("Серверы"), Tx("xray · подписки · автосвитч"));
-            var tt = new ToolTip();
+            var tt = new ToolTip(); srvTip = tt;
+            // отдельно от VPN на «Подключении»: xray работает и при выключенном VPN
             btnXConnect = new FlatButton(Tx("Подключить"), true) { Glyph = "", Width = Theme.S(170), Height = Theme.S(36) };
-            btnXConnect.Click += (s, e) =>
-            {
-                if (xm.Active) { xm.Disconnect(); return; }
-                var sel = SelServers().FirstOrDefault();
-                string id = sel != null ? sel.Id : st.ActiveServer;
-                if (ServerStore.Find(id) == null) { lSrvInfo.Text = Tx("Сервер не выбран"); return; }
-                StartMonitoringIfProxy();
-                xm.Connect(id);
-            };
+            btnXConnect.Click += (s, e) => XConnectClick();
+            btnXDpi = new FlatButton("DPI") { Glyph = "", Width = Theme.S(150), Height = Theme.S(36) };
+            btnXDpi.Click += (s, e) => router.SetManualDpi(!router.ManualDpi);
+            tt.SetToolTip(btnXDpi, Tx("DPI (zapret) — тот же, что на «Подключении»"));
             xBoard = new StatusBoard();
 
             // панель кнопок
@@ -64,48 +73,78 @@ namespace NetProbe
                 var list = ServerStore.ParseMany(t);
                 int n = ServerStore.AddMany(list, "");
                 lSrvInfo.Text = Tx("Добавлено серверов: ") + n + (list.Count == 0 ? " · " + Tx("в буфере нет ссылок vless/vmess/trojan/ss") : "");
+                if (n > 0 && srvTabs.SelectedKey != "all") srvTabs.Select("manual");
             };
             var bSubs = new FlatButton(Tx("Подписки")) { Glyph = "" }.AutoW();
-            bSubs.Click += (s, e) => { using (var d = new SubsDialog()) d.ShowDialog(this); FillServers(); };
-            var bUpd = IconBtn("\uE72C", Tx("Обновить подписки"), tt);
-            bUpd.Click += (s, e) => UpdateSubs();
+            bSubs.Click += (s, e) => { using (var d = new SubsDialog(CurSub() != null ? CurSub().Id : null)) d.ShowDialog(this); FillServers(); };
+            btnUpdSub = IconBtn("", Tx("Обновить подписки"), tt);
+            btnUpdSub.Click += (s, e) => { var sub = CurSub(); UpdateSubs(sub != null ? new List<Subscription> { sub } : null); };
             var bTest = new FlatButton(Tx("Замер")) { Glyph = "" }.AutoW();
-            bTest.Click += (s, e) => TestServers(SelServers().Count > 1 ? SelServers() : ServerStore.Snapshot());
+            bTest.Click += (s, e) => TestServers(SelServers().Count > 1 ? SelServers() : TabServers());
+            tt.SetToolTip(bTest, Tx("Задержка: выбранные или все на вкладке"));
+            var bSpeed = new FlatButton(Tx("Скорость")) { Glyph = "" }.AutoW();
+            bSpeed.Click += (s, e) => SpeedServers(SelServers().Count > 0 ? SelServers() : null);
+            tt.SetToolTip(bSpeed, Tx("Скорость загрузки: выбранные или рабочие на вкладке"));
             var bFav = IconBtn("", Tx("Избранное"), tt);
-            bFav.Click += (s, e) => { foreach (var x in SelServers()) x.Favorite = !x.Favorite; ServerStore.Save(); };
+            bFav.Click += (s, e) => ToggleFav();
             var bDel = IconBtn("", Tx("Удалить"), tt);
             bDel.Click += (s, e) => { var sel = SelServers(); if (sel.Count > 0 && MessageBox.Show(this, Tx("Удалить серверов: ") + sel.Count + "?", "NetProbe", MessageBoxButtons.YesNo) == DialogResult.Yes) ServerStore.Remove(sel.Select(x => x.Id)); };
             tbSrvSearch = Ui.TextBox(); tbSrvSearch.Width = Theme.S(180); ((ThemedTextBox)tbSrvSearch).Cue = Tx("Поиск");
             tbSrvSearch.TextChanged += (s, e) => FillServers();
             btnCore = new FlatButton(Tx("Ядро xray")) { Glyph = "" }.AutoW();
             btnCore.Click += (s, e) => UpdateCore(true);
-            btnSb = new FlatButton("sing-box") { Glyph = "\uE896" }.AutoW();
+            btnSb = new FlatButton("sing-box") { Glyph = "" }.AutoW();
             btnSb.Click += (s, e) => UpdateSingBoxUi(true);
             tt.SetToolTip(btnSb, Tx("Ядро TUN-режима (sing-box)"));
             lSrvInfo = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Bg, UseMnemonic = false, AutoEllipsis = true };
 
+            // вкладки: все · рабочие · избранные · вручную · по одной на подписку
+            srvTabs = new TabStrip { SelectedKey = st.SrvTab };
+            srvTabs.Selected += k => { st.SrvTab = k; st.Save(); srvGrid.ClearSelection(); FillServers(); };
+            srvTabs.RightClicked += (k, pt) => SrvTabMenu(k).Show(srvTabs, pt);
+
             // таблица серверов
             var gridCard = new CardPanel();
             srvGrid = new DataGridView(); Ui.StyleGrid(srvGrid);
-            srvGrid.Columns.Add("f", "★"); srvGrid.Columns.Add("n", Tx("ИМЯ")); srvGrid.Columns.Add("t", Tx("ТИП")); srvGrid.Columns.Add("a", Tx("АДРЕС")); srvGrid.Columns.Add("g", Tx("ГРУППА")); srvGrid.Columns.Add("d", Tx("ЗАДЕРЖКА"));
-            float[] fw = { 4, 32, 15, 23, 12, 14 };
-            for (int i = 0; i < fw.Length; i++) srvGrid.Columns[i].FillWeight = fw[i];
-            srvGrid.Columns[0].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter; srvGrid.Columns[0].DefaultCellStyle.ForeColor = Theme.Yellow;
-            srvGrid.Columns[5].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
-            srvGrid.Columns[2].DefaultCellStyle.ForeColor = Theme.Muted; srvGrid.Columns[3].DefaultCellStyle.ForeColor = Theme.Muted; srvGrid.Columns[4].DefaultCellStyle.ForeColor = Theme.Muted;
-            srvGrid.CellDoubleClick += (s, e) => { if (e.RowIndex < 0) return; var x = srvGrid.Rows[e.RowIndex].Tag as ServerEntry; if (x == null) return; StartMonitoringIfProxy(); xm.Connect(x.Id); };
+            srvGrid.ShowCellToolTips = true;
+            string[][] cols = { new[] { "f", "★" }, new[] { "n", Tx("ИМЯ") }, new[] { "cc", Tx("ГЕО") }, new[] { "t", Tx("ТИП") }, new[] { "a", Tx("АДРЕС") }, new[] { "p", Tx("ПОРТ") },
+                                new[] { "g", Tx("ГРУППА") }, new[] { "d", Tx("ЗАДЕРЖКА") }, new[] { "sp", Tx("СКОРОСТЬ") }, new[] { "td", Tx("ВСЕГО ↓") } };
+            // имя/тип/адрес/группа тянутся, числовые колонки фиксированной ширины — чтобы «120 ms» не обрезалось
+            float[] fw = { 0, 34, 0, 16, 20, 0, 12, 0, 0, 0 };
+            int[] fixedW = { 24, 0, 40, 0, 0, 50, 0, 72, 86, 74 };
+            for (int i = 0; i < cols.Length; i++)
+            {
+                srvGrid.Columns.Add(cols[i][0], cols[i][1]);
+                var col = srvGrid.Columns[i];
+                if (fixedW[i] > 0) { col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None; col.Width = Theme.S(fixedW[i]); }
+                else { col.FillWeight = fw[i]; col.MinimumWidth = Theme.S(40); }
+            }
+            srvGrid.Columns["f"].DefaultCellStyle.Padding = srvGrid.Columns["cc"].DefaultCellStyle.Padding = new Padding(Theme.S(2), 0, Theme.S(2), 0);
+            srvGrid.Columns["f"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter; srvGrid.Columns["f"].DefaultCellStyle.ForeColor = Theme.Yellow;
+            foreach (var c in new[] { "p", "d", "sp", "td" }) srvGrid.Columns[c].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            foreach (var c in new[] { "t", "a", "p", "g", "td" }) srvGrid.Columns[c].DefaultCellStyle.ForeColor = Theme.Muted;
+            srvGrid.Columns["cc"].DefaultCellStyle.ForeColor = Theme.Text;
+            srvGrid.CellDoubleClick += (s, e) => { if (e.RowIndex < 0) return; var x = srvGrid.Rows[e.RowIndex].Tag as ServerEntry; if (x != null) XConnect(x.Id); };
             srvGrid.SortCompare += (s, e) =>
             {
-                if (e.Column.Index != 5) return;
-                var a = (srvGrid.Rows[e.RowIndex1].Tag as ServerEntry); var b = (srvGrid.Rows[e.RowIndex2].Tag as ServerEntry);
-                Func<ServerEntry, int> k = x => x == null || x.Delay < 0 ? int.MaxValue - (x != null && x.Delay == -2 ? 0 : 1) : x.Delay;
-                e.SortResult = k(a).CompareTo(k(b)); e.Handled = true;
+                string c = e.Column.Name;
+                if (c != "d" && c != "sp" && c != "td" && c != "p") return;
+                var a = srvGrid.Rows[e.RowIndex1].Tag as ServerEntry; var b = srvGrid.Rows[e.RowIndex2].Tag as ServerEntry;
+                if (a == null || b == null) return;
+                if (c == "d") { Func<ServerEntry, int> k = x => x.Delay < 0 ? int.MaxValue - (x.Delay == -2 ? 0 : 1) : x.Delay; e.SortResult = k(a).CompareTo(k(b)); }
+                else if (c == "sp") e.SortResult = b.Speed.CompareTo(a.Speed); // по убыванию — быстрые сверху
+                else if (c == "td") e.SortResult = b.TotalDown.CompareTo(a.TotalDown);
+                else e.SortResult = a.Port.CompareTo(b.Port);
+                e.Handled = true;
             };
+            srvGrid.CellMouseDown += (s, e) => { if (e.Button == MouseButtons.Right && e.RowIndex >= 0 && !srvGrid.Rows[e.RowIndex].Selected) { srvGrid.ClearSelection(); srvGrid.Rows[e.RowIndex].Selected = true; } };
             var cm = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body };
-            cm.Items.Add(Tx("Подключить"), null, (s, e) => { var x = SelServers().FirstOrDefault(); if (x != null) { StartMonitoringIfProxy(); xm.Connect(x.Id); } });
+            cm.Items.Add(Tx("Подключить"), null, (s, e) => { var x = SelServers().FirstOrDefault(); if (x != null) XConnect(x.Id); });
             cm.Items.Add(Tx("Замер выбранных"), null, (s, e) => TestServers(SelServers()));
-            cm.Items.Add(Tx("Избранное"), null, (s, e) => { foreach (var x in SelServers()) x.Favorite = !x.Favorite; ServerStore.Save(); });
+            cm.Items.Add(Tx("Скорость выбранных"), null, (s, e) => SpeedServers(SelServers()));
+            cm.Items.Add(Tx("Избранное"), null, (s, e) => ToggleFav());
             cm.Items.Add(Tx("Копировать ссылку"), null, (s, e) => { var l = string.Join("\r\n", SelServers().Select(x => x.Link)); if (l != "") Clipboard.SetText(l); });
+            cm.Items.Add(Tx("Сбросить счётчик трафика"), null, (s, e) => { foreach (var x in SelServers()) { x.TotalDown = 0; x.TotalUp = 0; } ServerStore.Save(); });
             cm.Items.Add(new ToolStripSeparator());
             cm.Items.Add(Tx("Удалить"), null, (s, e) => bDel.PerformClick2());
             srvGrid.ContextMenuStrip = cm;
@@ -113,28 +152,32 @@ namespace NetProbe
             gridCard.Controls.Add(srvGrid);
             gridCard.Resize += (s, e) => srvGrid.SetBounds(Theme.S(8), Theme.S(8), gridCard.Width - Theme.S(16), gridCard.Height - Theme.S(16));
 
-            // автосвитч и прокси
+            // справа: списки приложений, автосвитч, прокси
             var asHost = new ScrollHost { BackColor = Theme.Bg };
             var asBody = asHost.Content;
-            BuildAutoSwitch(asBody);
+            int ry = BuildSrvLists(asBody);
+            BuildAutoSwitch(asBody, ry);
 
-            p.Controls.AddRange(new Control[] { btnXConnect, xBoard, bImp, bSubs, bUpd, bTest, bFav, bDel, tbSrvSearch, btnCore, btnSb, lSrvInfo, gridCard, asHost });
+            p.Controls.AddRange(new Control[] { btnXDpi, btnXConnect, xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, bFav, bDel, tbSrvSearch, btnCore, btnSb, srvTabs, lSrvInfo, gridCard, asHost });
             Action lay = () =>
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
                 btnXConnect.Location = new Point(p.ClientSize.Width - L - btnXConnect.Width, Theme.S(22));
+                btnXDpi.Location = new Point(btnXConnect.Left - Theme.S(8) - btnXDpi.Width, Theme.S(22));
                 int y = Theme.S(80);
                 xBoard.SetBounds(L, y, W, Theme.S(84)); y = xBoard.Bottom + gap;
                 int x = L;
-                foreach (var b in new Control[] { bImp, bSubs, bUpd, bTest, bFav, bDel }) { b.Location = new Point(x, y); x = b.Right + Theme.S(6); }
+                foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, bFav, bDel }) { b.Location = new Point(x, y); x = b.Right + Theme.S(6); }
                 btnCore.Location = new Point(L + W - btnCore.Width, y);
                 btnSb.Location = new Point(btnCore.Left - Theme.S(6) - btnSb.Width, y);
                 tbSrvSearch.SetBounds(x + Theme.S(6), y + (bImp.Height - tbSrvSearch.Height) / 2, Math.Max(Theme.S(60), btnSb.Left - x - Theme.S(18)), tbSrvSearch.Height);
                 y += bImp.Height + Theme.S(6);
-                lSrvInfo.SetBounds(L, y, W, Theme.S(18)); y += Theme.S(22);
-                int rw = Theme.S(360), h = p.ClientSize.Height - Theme.S(18) - y;
-                gridCard.SetBounds(L, y, W - rw - gap, h);
-                asHost.SetBounds(L + W - rw, y, rw, h); asHost.Relayout();
+                int rw = Theme.S(360), lw = W - rw - gap;
+                srvTabs.SetBounds(L, y, lw, Theme.S(32));
+                lSrvInfo.SetBounds(L + W - rw, y + Theme.S(8), rw, Theme.S(18)); y += Theme.S(36);
+                int h = p.ClientSize.Height - Theme.S(18) - y;
+                gridCard.SetBounds(L, y, lw, h);
+                asHost.SetBounds(L + W - rw, srvTabs.Top + Theme.S(36), rw, p.ClientSize.Height - Theme.S(18) - srvTabs.Top - Theme.S(36)); asHost.Relayout();
             };
             relayServers = lay;
             p.Resize += (s, e) => lay(); lay();
@@ -142,9 +185,149 @@ namespace NetProbe
             UpdateServersUi();
         }
 
-        void BuildAutoSwitch(Panel body)
+        // ---------- подключение ----------
+        void XConnectClick()
         {
-            int y = 0, w = Theme.S(344);
+            if (xm.Active) { xm.Disconnect(); return; }
+            var sel = SelServers().FirstOrDefault();
+            ServerEntry pick = sel ?? ServerStore.Find(st.ActiveServer);
+            if (pick == null)
+            {
+                // ничего не выбрано: самый быстрый рабочий на вкладке, иначе первый
+                var tab = TabServers();
+                pick = tab.Where(x => x.Delay > 0).OrderBy(x => x.Delay).FirstOrDefault() ?? tab.FirstOrDefault() ?? ServerStore.Snapshot().FirstOrDefault();
+            }
+            if (pick == null) { lSrvInfo.Text = Tx("Нет серверов — добавьте ссылку (Ctrl+V) или подписку"); return; }
+            XConnect(pick.Id);
+        }
+
+        void XConnect(string id)
+        {
+            if (!File.Exists(XrayProcess.Exe(st)))
+            {
+                // без ядра кнопка раньше «ничего не делала» — ставим xray и подключаемся
+                pendingXConnect = id;
+                UpdateCore(true);
+                return;
+            }
+            StartMonitoringIfProxy();
+            xm.Connect(id);
+        }
+        string pendingXConnect;
+
+        // ---------- списки приложений «Серверов» (компактно, по аналогии с «Подключением») ----------
+        int BuildSrvLists(Panel body)
+        {
+            int w = Theme.S(344);
+            var card = new CardPanel { Title = Tx("Приложения") };
+            var lTun = new Label { Text = "TUN", AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false };
+            tgTun = new Toggle { On = st.TunMode };
+            tgTun.Changed += (s, e) => SetTun(tgTun.On);
+            srvTip.SetToolTip(tgTun, Tx("TUN: списки работают для всех программ (sing-box). Выкл — только системный прокси"));
+            srvTip.SetToolTip(lTun, Tx("TUN: списки работают для всех программ (sing-box). Выкл — только системный прокси"));
+            var bPaste = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
+            var bAdd = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
+            var bDel = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
+            srvTip.SetToolTip(bPaste, Tx("Добавить список из буфера (по строкам или через запятую)")); srvTip.SetToolTip(bAdd, Tx("Добавить")); srvTip.SetToolTip(bDel, Tx("Удалить"));
+            srvListTabs = new TabStrip { Segmented = true, Font = Theme.Small, Height = Theme.S(26) };
+            srvListBox = new ThemedList { MultiSelect = true, ShowIcons = st.ShowAppIcons };
+            srvListTabs.Selected += k => { st.SrvListTab = Math.Max(0, Array.IndexOf(SrvListKeys, k)); st.Save(); FillSrvLists(); };
+            bAdd.Click += (s, e) =>
+            {
+                string key = SrvListKey();
+                using (var d = new ProcPicker(AppLists.Title(key), AppLists.Recent().Where(r => !AppLists.Get(key).Contains(r, StringComparer.OrdinalIgnoreCase)).ToList()))
+                    if (d.ShowDialog(this) == DialogResult.OK) foreach (var x in d.Result) AddToSrvList(key, x);
+            };
+            bPaste.Click += (s, e) => PasteToList(SrvListKey(), srvListBox);
+            bDel.Click += (s, e) => { var sel = srvListBox.SelectedItems; if (sel.Count > 0) { AppLists.Remove(SrvListKey(), sel); Logger.Write(LogLevel.Info, AppLists.Title(SrvListKey()) + Tx(": удалено ") + string.Join(", ", sel)); } };
+            srvListBox.DoubleClick += (s, e) => bAdd.PerformClick2();
+            srvListBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) bDel.PerformClick2(); if (e.KeyCode == Keys.V && e.Control) bPaste.PerformClick2(); };
+            AttachPathMenu(srvListBox, this);
+            var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
+            miRen.Click += (s, e) =>
+            {
+                var old = srvListBox.SelectedItem; if (old == null) return;
+                string v = Prompt(Tx("Переименовать"), Tx("Имя процесса, путь, домен или IP:"), old);
+                if (string.IsNullOrWhiteSpace(v) || v == old) return;
+                string key = SrvListKey();
+                AppLists.Set(key, AppLists.Get(key).Select(x => x.Equals(old, StringComparison.OrdinalIgnoreCase) ? v.Trim() : x));
+            };
+            srvListBox.ContextMenuStrip.Items.Add(new ToolStripSeparator());
+            srvListBox.ContextMenuStrip.Items.Add(miRen);
+            card.Controls.AddRange(new Control[] { lTun, tgTun, bPaste, bAdd, bDel, srvListTabs, srvListBox });
+            int ip = Theme.S(10), lh = Theme.S(130);
+            bDel.Location = new Point(w - ip - bDel.Width, Theme.S(10));
+            bAdd.Location = new Point(bDel.Left - Theme.S(4) - bAdd.Width, Theme.S(10));
+            bPaste.Location = new Point(bAdd.Left - Theme.S(4) - bPaste.Width, Theme.S(10));
+            tgTun.Location = new Point(bPaste.Left - Theme.S(10) - tgTun.Width, Theme.S(11));
+            lTun.Location = new Point(tgTun.Left - Theme.S(4) - lTun.PreferredWidth, Theme.S(15));
+            srvListTabs.SetBounds(ip, Theme.S(46), w - ip * 2, Theme.S(26));
+            srvListBox.SetBounds(ip, Theme.S(78), w - ip * 2, lh);
+            card.SetBounds(0, 0, w, srvListBox.Bottom + Theme.S(10));
+            body.Controls.Add(card);
+            FillSrvLists();
+            return card.Bottom + Theme.S(12);
+        }
+
+        string SrvListKey() { return SrvListKeys[Math.Max(0, Math.Min(SrvListKeys.Length - 1, st.SrvListTab))]; }
+
+        void FillSrvLists()
+        {
+            if (srvListTabs == null || srvListTabs.IsDisposed) return;
+            string[] names = { "Include", "Exclude", "Include DPI", "Exclude DPI" };
+            string[] tips = { Tx("Через сервер · пусто = весь трафик"), Tx("Мимо сервера, напрямую"), Tx("Мимо сервера, под DPI — zapret включается сам"), Tx("Мимо DPI") };
+            srvListTabs.SelectedKey = SrvListKey();
+            srvListTabs.SetTabs(SrvListKeys.Select((k, i) => { int n = AppLists.Get(k).Count; return new TabStrip.Tab { Key = k, Text = names[i], Badge = n > 0 ? n.ToString() : null, Tip = tips[i] }; }));
+            var items = AppLists.Get(SrvListKey());
+            srvListBox.BeginUpdate(); srvListBox.Items.Clear(); srvListBox.Items.AddRange(items); srvListBox.EndUpdate();
+        }
+
+        // Include / Exclude / «через DPI» взаимоисключающие; «через DPI» и «мимо DPI» — тоже
+        void AddToSrvList(string key, string item)
+        {
+            if (string.IsNullOrWhiteSpace(item)) return;
+            item = item.Trim();
+            var one = new[] { item };
+            var excl = new[] { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps };
+            if (excl.Contains(key)) foreach (var k in excl) if (k != key) AppLists.Remove(k, one);
+            if (key == AppLists.SrvDpiApps) AppLists.Remove(AppLists.SrvDpiExcl, one);
+            if (key == AppLists.SrvDpiExcl) AppLists.Remove(AppLists.SrvDpiApps, one);
+            AppLists.PushRecent(item);
+            if (AppLists.Add(key, item)) Logger.Write(LogLevel.Info, AppLists.Title(key) + Tx(": добавлено ") + item);
+        }
+
+        // Список приложений из буфера: в любой список «Подключения» или «Серверов»
+        void PasteToList(string key, Control near)
+        {
+            string t = ""; try { t = Clipboard.GetText(); } catch { }
+            var items = AppLists.ParseClipboard(t);
+            var before = AppLists.Get(key);
+            int added = 0;
+            foreach (var x in items)
+            {
+                if (x.Equals(ListCard.BuiltIn, StringComparison.OrdinalIgnoreCase) || before.Contains(x, StringComparer.OrdinalIgnoreCase)) continue;
+                if (key == AppLists.DpiDomains) AppLists.Add(key, x);
+                else if (AppLists.IsServers(key)) AddToSrvList(key, x);
+                else AddToList(key, x);
+                added++;
+            }
+            string msg = items.Count == 0 ? Tx("В буфере нет списка приложений") : Tx("Добавлено из буфера: ") + added + (added < items.Count ? " · " + Tx("уже были: ") + (items.Count - added) : "");
+            if (added > 0) Logger.Write(LogLevel.Info, AppLists.Title(key) + ": " + msg);
+            if (near != null && !near.IsDisposed) listTip.Show(msg, near, Theme.S(10), Theme.S(10), 2500);
+        }
+
+        void SetTun(bool on)
+        {
+            if (st.TunMode == on) return;
+            st.TunMode = on; st.Save();
+            if (st.TunMode && !File.Exists(SingBoxProcess.Exe(st))) UpdateSingBoxUi(true);
+            if (xm.Active) { if (st.TunMode) SysProxy.Clear(); else if (st.SysProxy) SysProxy.Set("127.0.0.1:" + st.HttpPort); xm.ReapplyTun(); }
+            UpdateServersUi();
+        }
+
+        void BuildAutoSwitch(Panel body, int y)
+        {
+            int w = Theme.S(344);
             var card = new CardPanel { Title = Tx("Автосвитч серверов") };
             var tg = new Toggle { On = st.AsEnabled };
             tg.Changed += (s, e) => { st.AsEnabled = tg.On; st.Save(); };
@@ -188,19 +371,12 @@ namespace NetProbe
 
             var pc = new CardPanel { Title = Tx("Прокси") };
             cy = Theme.S(46);
-            var cTun = Ui.Check(Tx("TUN: приложения из Include через сервер"), st.TunMode);
-            cTun.CheckedChanged += (s, e) =>
-            {
-                st.TunMode = cTun.Checked; st.Save();
-                if (st.TunMode && !File.Exists(SingBoxProcess.Exe(st))) UpdateSingBoxUi(true);
-                if (xm.Active) { if (st.TunMode) SysProxy.Clear(); else if (st.SysProxy) SysProxy.Set("127.0.0.1:" + st.HttpPort); xm.ReapplyTun(); }
-            };
             var cSys = Ui.Check(Tx("Системный прокси Windows"), st.SysProxy); cSys.CheckedChanged += (s, e) => { st.SysProxy = cSys.Checked; st.Save(); if (xm.Active && !st.TunMode) { if (st.SysProxy) SysProxy.Set("127.0.0.1:" + st.HttpPort); else SysProxy.Clear(); } };
             var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu); cRu.CheckedChanged += (s, e) => { st.BypassRu = cRu.Checked; st.Save(); xm.Reapply(); };
             var cAds = Ui.Check(Tx("Блокировать рекламу"), st.BlockAds); cAds.CheckedChanged += (s, e) => { st.BlockAds = cAds.Checked; st.Save(); xm.Reapply(); };
             var cLan = Ui.Check(Tx("Разрешить подключения из LAN"), st.AllowLan); cLan.CheckedChanged += (s, e) => { st.AllowLan = cLan.Checked; st.Save(); xm.Reapply(); };
             var cAuto = Ui.Check(Tx("Подключаться при запуске"), st.XrayAutoConnect); cAuto.CheckedChanged += (s, e) => { st.XrayAutoConnect = cAuto.Checked; st.Save(); };
-            foreach (var c in new[] { cTun, cSys, cRu, cAds, cLan, cAuto }) { c.BackColor = Theme.Card; c.Font = Theme.Small; c.Location = new Point(lx, cy); pc.Controls.Add(c); cy += Theme.S(28); }
+            foreach (var c in new[] { cSys, cRu, cAds, cLan, cAuto }) { c.BackColor = Theme.Card; c.Font = Theme.Small; c.Location = new Point(lx, cy); pc.Controls.Add(c); cy += Theme.S(28); }
             Action<string, Control> prow = (label, c) =>
             {
                 var l = new Label { Text = label, AutoSize = false, ForeColor = Theme.Text, BackColor = Theme.Card, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft };
@@ -210,7 +386,13 @@ namespace NetProbe
             var nS = Ui.Num(1024, 65000, st.SocksPort); nS.ValueChanged += (s, e) => { st.SocksPort = (int)nS.Value; st.Save(); xm.Reapply(); };
             var nH = Ui.Num(1024, 65000, st.HttpPort); nH.ValueChanged += (s, e) => { st.HttpPort = (int)nH.Value; st.Save(); xm.Reapply(); };
             var tbUrl = Ui.TextBox(st.TestUrl); tbUrl.TextChanged += (s, e) => { st.TestUrl = tbUrl.Text.Trim(); st.Save(); };
-            prow("SOCKS", nS); prow("HTTP", nH); prow(Tx("URL проверки"), tbUrl);
+            var tbSpd = Ui.TextBox(st.SpeedUrl); tbSpd.TextChanged += (s, e) => { st.SpeedUrl = tbSpd.Text.Trim(); st.Save(); };
+            prow("SOCKS", nS); prow("HTTP", nH); prow(Tx("URL проверки"), tbUrl); prow(Tx("URL скорости"), tbSpd);
+            var lSec = new Label { Text = Tx("Замер скорости, с"), AutoSize = false, ForeColor = Theme.Text, BackColor = Theme.Card, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft };
+            lSec.SetBounds(lx, cy, Theme.S(200), Theme.S(26));
+            var nSec = Ui.Num(3, 60, st.SpeedSec); nSec.Width = Theme.S(84); nSec.Location = new Point(nx, cy);
+            nSec.ValueChanged += (s, e) => { st.SpeedSec = (int)nSec.Value; st.Save(); };
+            pc.Controls.Add(lSec); pc.Controls.Add(nSec); cy += Theme.S(32);
             pc.SetBounds(0, y, w, cy + Theme.S(8));
             body.Controls.Add(pc);
             body.Height = pc.Bottom + Theme.S(10);
@@ -227,29 +409,119 @@ namespace NetProbe
             return l;
         }
 
-        static string DelayText(ServerEntry x) { return x.Delay == -2 ? Tx("нет") : x.Delay < 0 ? "" : x.Delay + Tx(" мс"); }
+        void ToggleFav() { foreach (var x in SelServers()) x.Favorite = !x.Favorite; ServerStore.Save(); }
+
+        Subscription CurSub() { return srvTabs == null ? null : ServerStore.Subs.FirstOrDefault(x => x.Id == srvTabs.SelectedKey); }
+
+        // серверы открытой вкладки (без учёта поиска)
+        List<ServerEntry> TabServers(string key = null)
+        {
+            key = key ?? (srvTabs != null ? srvTabs.SelectedKey : "all");
+            var all = ServerStore.Snapshot();
+            switch (key)
+            {
+                case "all": return all;
+                case "active": return all.Where(x => x.Delay > 0).ToList();
+                case "fav": return all.Where(x => x.Favorite).ToList();
+                case "manual": return all.Where(x => x.Group == "" || !ServerStore.Subs.Any(sb => sb.Id == x.Group)).ToList();
+                default: return all.Where(x => x.Group == key).ToList();
+            }
+        }
+
+        ContextMenuStrip SrvTabMenu(string key)
+        {
+            var cm = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body };
+            var sub = ServerStore.Subs.FirstOrDefault(x => x.Id == key);
+            if (sub != null)
+            {
+                cm.Items.Add(Tx("Обновить подписку"), null, (s, e) => UpdateSubs(new List<Subscription> { sub }));
+                cm.Items.Add(sub.Enabled ? Tx("Не обновлять со всеми") : Tx("Обновлять со всеми"), null, (s, e) => { sub.Enabled = !sub.Enabled; ServerStore.Save(); });
+            }
+            cm.Items.Add(Tx("Замер"), null, (s, e) => TestServers(TabServers(key)));
+            cm.Items.Add(Tx("Скорость"), null, (s, e) => SpeedServers(TabServers(key).Where(x => x.Delay > 0).ToList()));
+            cm.Items.Add(new ToolStripSeparator());
+            cm.Items.Add(Tx("Подписки…"), null, (s, e) => { using (var d = new SubsDialog(sub != null ? sub.Id : null)) d.ShowDialog(this); FillServers(); });
+            if (sub != null)
+                cm.Items.Add(Tx("Удалить подписку"), null, (s, e) =>
+                {
+                    if (MessageBox.Show(this, Tx("Удалить подписку «") + sub.Name + Tx("» и её серверы?"), "NetProbe", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+                    ServerStore.Subs.Remove(sub); ServerStore.Remove(ServerStore.OfGroup(sub.Id).Select(x => x.Id));
+                });
+            return cm;
+        }
+
+        void FillSrvTabs()
+        {
+            var all = ServerStore.Snapshot();
+            Func<int, string> n = c => c > 0 ? c.ToString() : null;
+            var tabs = new List<TabStrip.Tab>
+            {
+                new TabStrip.Tab { Key = "all", Text = Tx("Все"), Badge = n(all.Count) },
+                new TabStrip.Tab { Key = "active", Text = Tx("Рабочие"), Badge = n(all.Count(x => x.Delay > 0)), Tip = Tx("Ответили на последний замер") },
+                new TabStrip.Tab { Key = "fav", Text = Tx("Избранные"), Badge = n(all.Count(x => x.Favorite)) }
+            };
+            int manual = all.Count(x => x.Group == "" || !ServerStore.Subs.Any(sb => sb.Id == x.Group));
+            if (manual > 0 || st.SrvTab == "manual") tabs.Add(new TabStrip.Tab { Key = "manual", Text = Tx("Вручную"), Badge = n(manual), Tip = Tx("Добавлены из буфера") });
+            foreach (var sb in ServerStore.Subs)
+                tabs.Add(new TabStrip.Tab
+                {
+                    Key = sb.Id, Text = sb.Name, Badge = n(all.Count(x => x.Group == sb.Id)), Dim = !sb.Enabled,
+                    Tip = (sb.Updated == DateTime.MinValue ? Tx("ещё не обновлялась") : Tx("обновлена ") + sb.Updated.ToString("dd.MM HH:mm")) + (sb.Enabled ? "" : " · " + Tx("не обновляется со всеми")) + " · " + Tx("ПКМ — меню")
+                });
+            srvTabs.SelectedKey = st.SrvTab;
+            srvTabs.SetTabs(tabs);
+            if (srvTabs.SelectedKey != st.SrvTab) { st.SrvTab = srvTabs.SelectedKey; st.Save(); }
+            var cur = CurSub();
+            srvTip.SetToolTip(btnUpdSub, cur != null ? Tx("Обновить подписку «") + cur.Name + "»" : Tx("Обновить подписки"));
+        }
+
+        static string DelayText(ServerEntry x) { return x.Delay == -2 ? (x.Error != "" && x.Error != Tx("нет ответа через сервер") ? Tx("ошибка") : Tx("таймаут")) : x.Delay < 0 ? "" : x.Delay + Tx(" мс"); }
+        static string SpeedText(ServerEntry x) { return x.Speed == -2 ? Tx("ошибка") : x.Speed < 0 ? "" : x.Speed.ToString(x.Speed < 10 ? "0.0" : "0", CultureInfo.InvariantCulture) + " Mbit/s"; }
+        static string Bytes(long b)
+        {
+            if (b <= 0) return "";
+            if (b < 1048576) return (b / 1024.0).ToString("0", CultureInfo.InvariantCulture) + " KB";
+            if (b < 1073741824L) return (b / 1048576.0).ToString(b < 10485760 ? "0.0" : "0", CultureInfo.InvariantCulture) + " MB";
+            return (b / 1073741824.0).ToString("0.00", CultureInfo.InvariantCulture) + " GB";
+        }
+        Color DelayColor(ServerEntry x) { return x.Delay == -2 ? Theme.Red : x.Delay < 0 ? Theme.Muted : x.Delay < st.GoodMs * 3 ? Theme.Green : x.Delay < st.WarnMs * 3 ? Theme.Yellow : Theme.Orange; }
+        static Color SpeedColor(ServerEntry x) { return x.Speed == -2 ? Theme.Red : x.Speed < 0 ? Theme.Muted : x.Speed >= 50 ? Theme.Green : x.Speed >= 10 ? Theme.Yellow : Theme.Orange; }
+
+        void PaintRow(DataGridViewRow row, ServerEntry x)
+        {
+            var c = row.Cells;
+            c["f"].Value = x.Favorite ? "★" : ""; c["n"].Value = x.Name; c["cc"].Value = x.Country; c["t"].Value = x.Transport; c["a"].Value = x.Address; c["p"].Value = x.Port.ToString();
+            c["g"].Value = ServerStore.GroupName(x.Group); c["d"].Value = DelayText(x); c["sp"].Value = SpeedText(x); c["td"].Value = Bytes(x.TotalDown);
+            c["d"].Style.ForeColor = DelayColor(x); c["sp"].Style.ForeColor = SpeedColor(x);
+            c["d"].ToolTipText = x.Delay == -2 && x.Error != "" ? x.Error : x.Tested != DateTime.MinValue ? x.Tested.ToString("dd.MM HH:mm") : "";
+            c["td"].ToolTipText = x.TotalUp > 0 ? "↑ " + Bytes(x.TotalUp) : "";
+            bool act = x.Id == st.ActiveServer && xm.Active;
+            c["n"].Style.ForeColor = act ? Theme.Accent : Color.Empty; c["n"].Style.Font = act ? Theme.Bold : null;
+        }
 
         void FillServers()
         {
             if (srvGrid == null || srvGrid.IsDisposed) return;
+            FillSrvTabs();
             var sel = new HashSet<string>(SelServers().Select(x => x.Id));
             int first = srvGrid.FirstDisplayedScrollingRowIndex;
             string q = tbSrvSearch.Text.Trim();
-            var list = ServerStore.Snapshot().Where(x => q == "" || x.Name.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || x.Address.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || ServerStore.GroupName(x.Group).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            Func<string, bool> has = v => (v ?? "").IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0;
+            var list = TabServers().Where(x => q == "" || has(x.Name) || has(x.Address) || has(x.Country) || has(ServerStore.GroupName(x.Group))).ToList();
             var sc = srvGrid.SortedColumn; var so = srvGrid.SortOrder;
+            srvGrid.Columns["g"].Visible = CurSub() == null; // на вкладке подписки группа одна и та же
             srvGrid.Rows.Clear();
             foreach (var x in list)
             {
-                int i = srvGrid.Rows.Add(x.Favorite ? "★" : "", x.Name, x.Transport, x.Endpoint, ServerStore.GroupName(x.Group), DelayText(x));
+                int i = srvGrid.Rows.Add();
                 var row = srvGrid.Rows[i]; row.Tag = x;
-                if (x.Id == st.ActiveServer && xm.Active) { row.Cells[1].Style.ForeColor = Theme.Accent; row.Cells[1].Style.Font = Theme.Bold; }
-                row.Cells[5].Style.ForeColor = x.Delay == -2 ? Theme.Red : x.Delay < 0 ? Theme.Muted : x.Delay < st.GoodMs * 3 ? Theme.Green : x.Delay < st.WarnMs * 3 ? Theme.Yellow : Theme.Orange;
+                PaintRow(row, x);
                 if (sel.Contains(x.Id)) row.Selected = true;
             }
             if (sc != null && so != SortOrder.None) srvGrid.Sort(sc, so == SortOrder.Ascending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending);
             if (first >= 0 && first < srvGrid.Rows.Count) try { srvGrid.FirstDisplayedScrollingRowIndex = first; } catch { }
             if (sel.Count == 0) srvGrid.ClearSelection();
-            if (!xTesting) lSrvInfo.Text = Tx("Серверов: ") + list.Count + (ServerStore.Subs.Count > 0 ? "  ·  " + Tx("подписок: ") + ServerStore.Subs.Count : "") + "  ·  " + Tx("двойной клик — подключить, Ctrl+V — импорт");
+            if (!xTesting) lSrvInfo.Text = Tx("Серверов: ") + list.Count + "  ·  " + Tx("двойной клик — подключить, Ctrl+V — импорт");
         }
 
         void UpdateServersUi()
@@ -258,14 +530,29 @@ namespace NetProbe
             var s = xm.State;
             var cur = ServerStore.Find(st.ActiveServer);
             btnXConnect.Text = xm.Active ? Tx("Отключить") : Tx("Подключить"); btnXConnect.Primary = !xm.Active; btnXConnect.Glyph = xm.Active ? "" : ""; btnXConnect.Invalidate();
+            bool dpi = router.ManualDpi || router.Dpi.Running;
+            btnXDpi.Primary = dpi; btnXDpi.Text = "DPI  ·  " + (dpi ? Tx("ВКЛ") : Tx("ВЫКЛ")); btnXDpi.Invalidate();
+            if (tgTun != null && tgTun.On != st.TunMode) tgTun.On = st.TunMode;
             xBoard.State = XrayManager.StateName(s) + (cur != null && xm.Active ? "  ·  " + cur.Name : "");
             xBoard.Lv = s == XState.Off ? Level.Off : s == XState.Connected ? (xm.LastDelay == -2 ? Level.Slow : Level.Good) : s == XState.AllDown ? Level.Down : Level.Wait;
+            string traffic = xm.SessionDown + xm.SessionUp > 0 ? "  ·  ↓ " + Bytes(xm.SessionDown) + " ↑ " + Bytes(xm.SessionUp) : "";
             xBoard.Line1 = xm.Active
-                ? (cur != null ? cur.Transport + " · " + cur.Endpoint : "") + "  ·  " + Tx("задержка ") + (xm.LastDelay > 0 ? xm.LastDelay + Tx(" мс") : xm.LastDelay == -2 ? Tx("нет ответа") : "…") + "  ·  " + Tx("переключений: ") + xm.Switches + (st.AsEnabled ? "" : "  ·  " + Tx("автосвитч выкл"))
-                : Tx("Выберите сервер и нажмите «Подключить» (или двойной клик)");
-            xBoard.Line2 = "SOCKS 127.0.0.1:" + st.SocksPort + "  ·  HTTP 127.0.0.1:" + st.HttpPort + (st.TunMode ? "  ·  TUN" + (xm.Active ? (xm.TunRunning ? " ✓" : " ✗") : "") : st.SysProxy ? "  ·  " + Tx("системный прокси") : "") + (xm.Detail != "" && s != XState.Connected ? "  ·  " + xm.Detail : "");
+                ? (cur != null ? (cur.Country != "" ? cur.Country + " · " : "") + cur.Transport + " · " + cur.Endpoint : "") + "  ·  " + Tx("задержка ") + (xm.LastDelay > 0 ? xm.LastDelay + Tx(" мс") : xm.LastDelay == -2 ? Tx("нет ответа") : "…") + traffic + "  ·  " + Tx("переключений: ") + xm.Switches + (st.AsEnabled ? "" : "  ·  " + Tx("автосвитч выкл"))
+                : xm.Detail != "" ? xm.Detail : Tx("Выберите сервер и нажмите «Подключить» (или двойной клик) — работает и без VPN");
+            string tun = st.TunMode ? "  ·  TUN" + (xm.Active ? (xm.TunRunning ? " ✓" : " ✗") : "") : st.SysProxy ? "  ·  " + Tx("системный прокси") : "";
+            string blocked = st.TunMode && xm.Active && !xm.TunRunning && xm.TunBlocked != null ? xm.TunBlocked() : null;
+            xBoard.Line2 = "SOCKS 127.0.0.1:" + st.SocksPort + "  ·  HTTP 127.0.0.1:" + st.HttpPort + tun + (xm.DpiWanted ? "  ·  DPI" : "") + (blocked != null ? "  ·  " + blocked : xm.Detail != "" && s != XState.Connected && xm.Active ? "  ·  " + xm.Detail : "");
             xBoard.Invalidate();
-            if (srvGrid != null && !srvGrid.IsDisposed && curPage == PgServers) FillServers();
+            if (srvGrid != null && !srvGrid.IsDisposed && curPage == PgServers)
+            {
+                // обновляем строки на месте, без пересборки таблицы (не сбивает прокрутку и выделение)
+                foreach (DataGridViewRow r in srvGrid.Rows) { var x = r.Tag as ServerEntry; if (x != null) PaintRow(r, x); }
+            }
+        }
+
+        void RefreshRow(ServerEntry x)
+        {
+            foreach (DataGridViewRow r in srvGrid.Rows) if (r.Tag == x) { PaintRow(r, x); break; }
         }
 
         void TestServers(List<ServerEntry> list)
@@ -284,33 +571,72 @@ namespace NetProbe
                     DelayTester.TestMany(st, curlPath, list, x =>
                     {
                         int d = Interlocked.Increment(ref done);
-                        try { BeginInvoke((Action)(() => { lSrvInfo.Text = Tx("Замер: ") + d + "/" + total + "…"; foreach (DataGridViewRow r in srvGrid.Rows) if (r.Tag == x) { r.Cells[5].Value = DelayText(x); r.Cells[5].Style.ForeColor = x.Delay == -2 ? Theme.Red : Theme.Green; } })); } catch { }
+                        try { BeginInvoke((Action)(() => { lSrvInfo.Text = Tx("Замер: ") + d + "/" + total + "…"; RefreshRow(x); })); } catch { }
                     }, cf);
                 }
                 catch (Exception ex) { Logger.Write(LogLevel.Error, "xray test: " + ex.Message); }
                 ServerStore.Save();
-                try { BeginInvoke((Action)(() => { xTesting = false; int ok = list.Count(x => x.Delay > 0); lSrvInfo.Text = Tx("Замер готов: работают ") + ok + "/" + total; })); } catch { }
+                int ok = list.Count(x => x.Delay > 0);
+                if (ok == 0 && total > 0) Logger.Write(LogLevel.Warn, Tx("Замер: ни один сервер не ответил. Проверьте, открывается ли ") + st.TestUrl + Tx(" и не блокирует ли xray антивирус/брандмауэр"));
+                try { BeginInvoke((Action)(() => { xTesting = false; lSrvInfo.Text = Tx("Замер готов: работают ") + ok + "/" + total; })); } catch { }
             });
         }
 
-        void UpdateSubs()
+        void SpeedServers(List<ServerEntry> list)
         {
-            if (ServerStore.Subs.Count == 0) { using (var d = new SubsDialog()) d.ShowDialog(this); return; }
-            lSrvInfo.Text = Tx("Обновление подписок…");
+            if (xTesting) { if (xTestCf != null) xTestCf.Cancelled = true; return; }
+            if (list == null)
+            {
+                var tab = TabServers();
+                list = tab.Where(x => x.Delay > 0).ToList();
+                if (list.Count == 0) list = tab;
+            }
+            if (list.Count == 0) return;
+            if (!File.Exists(XrayProcess.Exe(st))) { UpdateCore(true); return; }
+            if (list.Count > 5 && MessageBox.Show(this, Tx("Замер скорости серверов: ") + list.Count + Tx(", примерно ") + Math.Max(1, list.Count * (st.SpeedSec + 2) / 60) + Tx(" мин. Продолжить?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            xTesting = true; xTestCf = new CancelFlag();
+            int done = 0, total = list.Count;
+            lSrvInfo.Text = Tx("Скорость: ") + "0/" + total + "…";
+            var cf = xTestCf;
             ThreadPool.QueueUserWorkItem(_ =>
             {
-                var rep = ServerStore.Subs.Where(s => s.Enabled).ToList().Select(ServerStore.UpdateSub).ToList();
+                try
+                {
+                    DelayTester.SpeedMany(st, curlPath, list, x =>
+                    {
+                        int d = Interlocked.Increment(ref done);
+                        try { BeginInvoke((Action)(() => { lSrvInfo.Text = Tx("Скорость: ") + d + "/" + total + "…  " + Tx("(нажмите ещё раз — стоп)"); RefreshRow(x); })); } catch { }
+                    }, cf);
+                }
+                catch (Exception ex) { Logger.Write(LogLevel.Error, "xray speed: " + ex.Message); }
+                ServerStore.Save();
+                var best = list.Where(x => x.Speed > 0).OrderByDescending(x => x.Speed).FirstOrDefault();
+                try { BeginInvoke((Action)(() => { xTesting = false; lSrvInfo.Text = Tx("Скорость готова") + (best != null ? " · " + Tx("лучший: ") + best.Name + " " + SpeedText(best) : ""); })); } catch { }
+            });
+        }
+
+        // subs = null — все включённые подписки; иначе только эти (одну с вкладки)
+        void UpdateSubs(List<Subscription> subs)
+        {
+            if (ServerStore.Subs.Count == 0) { using (var d = new SubsDialog()) d.ShowDialog(this); FillServers(); return; }
+            var todo = subs ?? ServerStore.Subs.Where(s => s.Enabled).ToList();
+            if (todo.Count == 0) { lSrvInfo.Text = Tx("Нет включённых подписок"); return; }
+            lSrvInfo.Text = (todo.Count == 1 ? Tx("Обновление подписки «") + todo[0].Name + "»…" : Tx("Обновление подписок…"));
+            btnUpdSub.Enabled = false;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var rep = todo.Select(ServerStore.UpdateSub).ToList();
                 Logger.Write(LogLevel.Info, Tx("Подписки: ") + string.Join(" · ", rep));
-                try { BeginInvoke((Action)(() => { FillServers(); lSrvInfo.Text = Tx("Подписки: ") + string.Join(" · ", rep); })); } catch { }
+                try { BeginInvoke((Action)(() => { btnUpdSub.Enabled = true; FillServers(); lSrvInfo.Text = Tx("Подписки: ") + string.Join(" · ", rep); })); } catch { }
             });
         }
 
         void UpdateCore(bool ask)
         {
             string cur = Updater.XrayVersion(st);
-            if (ask && MessageBox.Show(this, (cur == "" ? Tx("Ядро xray не установлено.") : "xray " + cur + ".") + "\r\n" + Tx("Скачать последнюю версию с GitHub (XTLS/Xray-core)?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (ask && MessageBox.Show(this, (cur == "" ? Tx("Ядро xray не установлено.") : "xray " + cur + ".") + "\r\n" + Tx("Скачать последнюю версию с GitHub (XTLS/Xray-core)?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) { pendingXConnect = null; return; }
             btnCore.Enabled = false;
-            bool was = xm.Active; string id = st.ActiveServer;
+            bool was = xm.Active; string id = pendingXConnect ?? st.ActiveServer; bool connect = was || pendingXConnect != null; pendingXConnect = null;
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 string res;
@@ -321,7 +647,7 @@ namespace NetProbe
                 }
                 catch (Exception ex) { res = Tx("Ошибка обновления: ") + ex.Message; }
                 Logger.Write(LogLevel.Info, res);
-                try { BeginInvoke((Action)(() => { btnCore.Enabled = true; lSrvInfo.Text = res; UpdateCoreLabel(); CheckUpdates(true); if (was) xm.Connect(id); })); } catch { }
+                try { BeginInvoke((Action)(() => { btnCore.Enabled = true; lSrvInfo.Text = res; UpdateCoreLabel(); CheckUpdates(true); if (connect && File.Exists(XrayProcess.Exe(st))) { StartMonitoringIfProxy(); xm.Connect(id); } })); } catch { }
             });
         }
 
@@ -372,7 +698,7 @@ namespace NetProbe
         readonly TextBox tbName = Ui.TextBox(), tbUrl = Ui.TextBox();
         readonly Label info = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Color.Transparent };
 
-        public SubsDialog()
+        public SubsDialog(string selectId = null)
         {
             Text = Tx("Подписки"); StartPosition = FormStartPosition.CenterParent; Size = new Size(Theme.S(620), Theme.S(440)); BackColor = Theme.Bg; ForeColor = Theme.Text; Font = Theme.Body;
             MinimizeBox = false; ShowInTaskbar = false; AutoScaleMode = AutoScaleMode.None;
@@ -381,7 +707,7 @@ namespace NetProbe
             list.RightText = n => { var sb = ServerStore.Subs.FirstOrDefault(x => x.Name == n); return sb == null ? null : (sb.Enabled ? "" : Tx("выкл") + "  ") + ServerStore.Snapshot().Count(x => x.Group == sb.Id); };
             list.SelectedIndexChanged += (s, e) => { var sb = Cur(); if (sb != null) { tbName.Text = sb.Name; tbUrl.Text = sb.Url; } };
             var lN = Ui.Label(Tx("Имя"), Theme.Small, Theme.Muted); var lU = Ui.Label("URL", Theme.Small, Theme.Muted);
-            var bAdd = new FlatButton(Tx("Добавить"), true) { Glyph = "" }.AutoW();
+            var bAdd = new FlatButton(Tx("Добавить"), true) { Glyph = "\uE710" }.AutoW();
             bAdd.Click += (s, e) =>
             {
                 if (!tbUrl.Text.Trim().StartsWith("http")) { info.Text = Tx("Нужна ссылка http(s)://"); return; }
@@ -394,8 +720,8 @@ namespace NetProbe
                 info.Text = ServerStore.UpdateSub(sb ?? add); Fill();
             };
             var bToggle = new FlatButton(Tx("Вкл/выкл")).AutoW(); bToggle.Click += (s, e) => { var sb = Cur(); if (sb != null) { sb.Enabled = !sb.Enabled; ServerStore.Save(); Fill(); } };
-            var bUpd = new FlatButton(Tx("Обновить")) { Glyph = "" }.AutoW(); bUpd.Click += (s, e) => { var sb = Cur(); if (sb != null) { info.Text = Tx("Загрузка…"); Refresh(); info.Text = ServerStore.UpdateSub(sb); Fill(); } };
-            var bDel = new FlatButton(Tx("Удалить")) { Glyph = "", Danger = true }.AutoW();
+            var bUpd = new FlatButton(Tx("Обновить")) { Glyph = "\uE72C" }.AutoW(); bUpd.Click += (s, e) => { var sb = Cur(); if (sb != null) { info.Text = Tx("Загрузка…"); Refresh(); info.Text = ServerStore.UpdateSub(sb); Fill(); } };
+            var bDel = new FlatButton(Tx("Удалить")) { Glyph = "\uE74D", Danger = true }.AutoW();
             bDel.Click += (s, e) => { var sb = Cur(); if (sb == null) return; ServerStore.Subs.Remove(sb); ServerStore.Remove(ServerStore.Snapshot().Where(x => x.Group == sb.Id).Select(x => x.Id)); Fill(); };
             Controls.AddRange(new Control[] { card, lN, tbName, lU, tbUrl, bAdd, bToggle, bUpd, bDel, info });
             Action lay = () =>
@@ -410,6 +736,8 @@ namespace NetProbe
             };
             Resize += (s, e) => lay(); lay();
             Fill();
+            var pre = ServerStore.Subs.FirstOrDefault(x => x.Id == selectId);
+            if (pre != null) list.SelectedItem = pre.Name;
         }
         Subscription Cur() { var n = list.SelectedItem; return n == null ? null : ServerStore.Subs.FirstOrDefault(x => x.Name == n); }
         void Fill() { var sel = list.SelectedItem; list.Items.Clear(); list.Items.AddRange(ServerStore.Subs.Select(x => x.Name)); list.EndUpdate(); if (sel != null && list.Items.Contains(sel)) list.SelectedItem = sel; }

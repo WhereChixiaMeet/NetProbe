@@ -67,6 +67,11 @@ namespace NetProbe
         public string ActiveServer = "";
         public string PreferredServer = "";  // выбранный вручную; к нему можно возвращаться
         public string TestUrl = "https://www.gstatic.com/generate_204";
+        public string SpeedUrl = "https://speed.cloudflare.com/__down?bytes=50000000";
+        public int SpeedSec = 10;            // длительность замера скорости одного сервера, с
+        public int ApiPort = 10813;          // API статистики xray (трафик по серверам)
+        public string SrvTab = "all";        // открытая вкладка серверов: all / active / fav / manual / id подписки
+        public int SrvListTab = 0;           // открытый список приложений на вкладке «Серверы»
         // автосвитч серверов
         public bool AsEnabled = true;
         public int AsInterval = 10;          // проверка активного сервера, с
@@ -200,6 +205,8 @@ namespace NetProbe
             AsBgTestMin = Math.Max(0, Math.Min(1440, AsBgTestMin)); AsReturnMin = Math.Max(1, Math.Min(1440, AsReturnMin));
             AsCooldown = Math.Max(0, Math.Min(3600, AsCooldown)); AsMaxPerHour = Math.Max(1, Math.Min(120, AsMaxPerHour)); AsSkipFailedMin = Math.Max(0, Math.Min(1440, AsSkipFailedMin));
             if (string.IsNullOrWhiteSpace(TestUrl)) TestUrl = "https://www.gstatic.com/generate_204";
+            if (string.IsNullOrWhiteSpace(SpeedUrl)) SpeedUrl = "https://speed.cloudflare.com/__down?bytes=50000000";
+            SpeedSec = Math.Max(3, Math.Min(60, SpeedSec)); if (ApiPort < 1024 || ApiPort > 65000) ApiPort = 10813;
             if (Theme < 0 || Theme > 2) Theme = 0;
             if (Lang != "ru") Lang = "en";
             if (string.IsNullOrWhiteSpace(Accent)) Accent = "79,140,255";
@@ -309,11 +316,44 @@ namespace NetProbe
         public const string VpnOnlyExcl = "vpnonly-exclude";   // исключения режима «Только VPN»
         public const string DpiOnlyExcl = "dpionly-exclude";
         public const string DpiDomains = "zapret-general-user";
-        public const string DpiApps = "dpi-apps";               // приложения, которые идут мимо VPN под DPI   // домены через DPI = lists\list-general-user.txt zapret
+        public const string DpiApps = "dpi-apps";
+        // списки вкладки «Серверы» (xray / TUN), независимые от VPN на «Подключении»
+        public const string SrvApps = "servers-apps";           // через сервер xray (TUN)
+        public const string SrvExcl = "servers-exclude";        // мимо сервера, напрямую
+        public const string SrvDpiApps = "servers-dpi-apps";    // мимо сервера, под DPI (winws включается сам)
+        public const string SrvDpiExcl = "servers-dpi-exclude"; // мимо DPI               // приложения, которые идут мимо VPN под DPI   // домены через DPI = lists\list-general-user.txt zapret
         public static string ZapretLists = "";
         const string Placeholder = "domain.example.abc";   // исключения режима «Только DPI»
 
-        public static readonly string[] All = { HybridApps, VpnOnlyApps, HybridExcl, VpnOnlyExcl, DpiOnlyExcl };
+        public static readonly string[] All = { HybridApps, VpnOnlyApps, HybridExcl, VpnOnlyExcl, DpiOnlyExcl, SrvApps, SrvExcl, SrvDpiApps, SrvDpiExcl };
+        public static readonly string[] Servers = { SrvApps, SrvExcl, SrvDpiApps, SrvDpiExcl };
+        public static bool IsServers(string key) { return Array.IndexOf(Servers, key) >= 0; }
+
+        // Список приложений из буфера обмена: строки, запятые, точки с запятой, табы; кавычки снимаются.
+        // Строка без пути с несколькими словами («a.exe b.exe») делится по пробелам.
+        public static List<string> ParseClipboard(string text)
+        {
+            var res = new List<string>();
+            if (string.IsNullOrWhiteSpace(text)) return res;
+            foreach (var raw in text.Split(new[] { '\r', '\n', ',', ';', '\t', '|' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string line = raw.Trim().Trim('"', '\'', '`').Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                var parts = line.IndexOf('\\') < 0 && line.IndexOf('/') < 0 && line.Contains(" ") ? line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries) : new[] { line };
+                foreach (var x in parts) { var v = x.Trim().Trim('"', '\''); if (v.Length > 0 && v.Length < 400 && !res.Contains(v, StringComparer.OrdinalIgnoreCase)) res.Add(v); }
+            }
+            return res;
+        }
+
+        // Первый запуск новой версии: списки «Серверов» берутся из «Подключения», как раньше работал TUN
+        public static void SeedServers()
+        {
+            if (Servers.Any(k => File.Exists(FileOf(k)))) return;
+            Set(SrvApps, Get(HybridApps).Concat(Get(VpnOnlyApps)));
+            Set(SrvExcl, Get(HybridExcl));
+            Set(SrvDpiApps, new string[0]);
+            Set(SrvDpiExcl, new string[0]);
+        }
 
         public static string Title(string key)
         {
@@ -325,6 +365,10 @@ namespace NetProbe
                 case VpnOnlyExcl: return Tx("Только VPN — исключения");
                 case DpiOnlyExcl: return Tx("Только DPI — исключения");
                 case DpiApps: return Tx("DPI — приложения");
+                case SrvApps: return Tx("Серверы — через сервер");
+                case SrvExcl: return Tx("Серверы — исключения");
+                case SrvDpiApps: return Tx("Серверы — через DPI");
+                case SrvDpiExcl: return Tx("Серверы — мимо DPI");
             }
             return key;
         }

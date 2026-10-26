@@ -19,6 +19,7 @@ namespace NetProbe
         void AddToList(string key, string item)
         {
             if (string.IsNullOrWhiteSpace(item)) return;
+            if (AppLists.IsServers(key)) { AddToSrvList(key, item); return; }
             // одно и то же приложение не может быть и в «через VPN», и в исключениях этого же блока
             if (key == AppLists.HybridExcl) { AppLists.Remove(AppLists.HybridApps, new[] { item }); AppLists.Remove(AppLists.VpnOnlyApps, new[] { item }); }
             if (key == AppLists.HybridApps || key == AppLists.VpnOnlyApps) AppLists.Remove(AppLists.HybridExcl, new[] { item });

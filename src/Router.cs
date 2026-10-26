@@ -73,7 +73,7 @@ namespace NetProbe
             {
                 ManualDpi = on;
                 if (on) { Logger.Write(LogLevel.Route, Tr.Tx("DPI включён вручную")); if (!Dpi.Running) StartDpi(); }
-                else if (State != RouteState.DpiFailover && State != RouteState.DpiOnly) StopDpi(true);
+                else if (State != RouteState.DpiFailover && State != RouteState.DpiOnly) StopDpi(); // «Серверам» DPI может быть ещё нужен
                 SetState(State, Detail);
             });
         }
@@ -100,7 +100,19 @@ namespace NetProbe
             return new Dictionary<string, string> { { "state", State.ToString() }, { "detail", Detail }, { "tunnel", Wg.TunnelName }, { "backup", OnBackup ? "1" : "0" }, { "strict", StrictOnly ? "1" : "0" }, { "strategy", Dpi.Strategy }, { "manualdpi", ManualDpi ? "1" : "0" } };
         }
 
-        public void StandaloneDpi(bool on) { Post(() => { if (State != RouteState.Off) return; if (on) { Logger.Write(LogLevel.Route, Tr.Tx("Запасной DPI включён")); StartDpi(); } else StopDpi(); }); }
+        // DPI для вкладки «Серверы» (запасной вариант автосвитча, приложения «через DPI»): не зависит от кнопки VPN
+        public Func<bool> DpiHold;                 // winws нужен «Серверам» — не останавливать вместе с VPN
+        public Func<List<string>> ExtraDpiExcl;    // исключения DPI вкладки «Серверы»
+        public void StandaloneDpi(bool on)
+        {
+            Post(() =>
+            {
+                if (on) { if (!Dpi.Running) { Logger.Write(LogLevel.Route, Tr.Tx("DPI для серверов включён")); StartDpi(); } }
+                else if (State != RouteState.DpiFailover && State != RouteState.DpiOnly) StopDpi();
+                SetState(State, Detail);
+            });
+        }
+        public void RefreshDpiExclusions() { Post(() => { if (Dpi.Running) RefreshExclusions(GetSettings(), true); }); }
 
         // результат каждого опроса VPN-канала (пробник netprobe-vpn.exe идёт через туннель)
         public void VpnSample(bool ok, DateTime t)
@@ -127,7 +139,12 @@ namespace NetProbe
                     Action a; lock (q) { if (q.Count == 0) break; a = q.Dequeue(); }
                     try { a(); } catch (Exception ex) { Logger.Write(LogLevel.Error, Tx("Маршрутизатор: ") + ex.Message); }
                 }
-                try { if (State != RouteState.Off) Tick(); } catch (Exception ex) { Logger.Write(LogLevel.Error, Tx("Маршрутизатор: ") + ex.Message); }
+                try
+                {
+                    if (State != RouteState.Off) Tick();
+                    else if (Dpi.Running) RefreshExclusions(GetSettings(), false); // DPI кнопкой или для «Серверов» без VPN
+                }
+                catch (Exception ex) { Logger.Write(LogLevel.Error, Tx("Маршрутизатор: ") + ex.Message); }
             }
         }
 
@@ -194,13 +211,15 @@ namespace NetProbe
             return true;
         }
 
-        void StopDpi(bool force = false) { if (ManualDpi && !force) return; if (Dpi.Running) { Dpi.Stop(); Logger.Write(LogLevel.Route, Tx("DPI (winws) остановлен")); } dpiDied = false; }
+        void StopDpi(bool force = false) { if (!force && (ManualDpi || (DpiHold != null && DpiHold()))) return; if (Dpi.Running) { Dpi.Stop(); Logger.Write(LogLevel.Route, Tx("DPI (winws) остановлен")); } dpiDied = false; }
 
         void RefreshExclusions(Settings st, bool force)
         {
             if (!force && (DateTime.Now - lastExcl).TotalSeconds < st.ExclRefreshSec) return;
             lastExcl = DateTime.Now;
-            var ex = ExclusionSet.From(Excl(st));
+            var list = Excl(st);
+            if (ExtraDpiExcl != null) list = list.Concat(ExtraDpiExcl()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var ex = ExclusionSet.From(list);
             ZapretRunner.WriteExclusions(ex, ProcInfo.RemoteIpsOf(ex.Processes));
         }
 

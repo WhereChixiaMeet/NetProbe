@@ -20,6 +20,24 @@ namespace NetProbe
         public bool Favorite, Insecure;
         public int Delay = -1;            // мс; -1 = не проверялся, -2 = недоступен
         public DateTime Tested = DateTime.MinValue;
+        public string Country = "";       // код страны (флаг в имени или выход через сервер, cloudflare trace)
+        public string Error = "";         // почему последний замер не удался (для подсказки)
+        public double Speed = -1;         // Мбит/с; -1 = не замерялась, -2 = ошибка
+        public long TotalDown, TotalUp;   // байт через этот сервер за всё время (статистика xray)
+
+        // 🇩🇪 в имени → "DE" (флаги — пары regional indicator U+1F1E6…U+1F1FF)
+        public static string FlagCountry(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "";
+            for (int i = 0; i + 3 < s.Length; i++)
+            {
+                if (!char.IsSurrogatePair(s, i) || !char.IsSurrogatePair(s, i + 2)) continue;
+                int a = char.ConvertToUtf32(s, i), b = char.ConvertToUtf32(s, i + 2);
+                if (a < 0x1F1E6 || a > 0x1F1FF || b < 0x1F1E6 || b > 0x1F1FF) continue;
+                return "" + (char)('A' + a - 0x1F1E6) + (char)('A' + b - 0x1F1E6);
+            }
+            return "";
+        }
 
         public string Endpoint { get { return Address + ":" + Port; } }
         public string Transport { get { return Protocol + (Network != "tcp" ? "+" + Network : "") + (Security != "none" ? "+" + Security : ""); } }
@@ -109,6 +127,7 @@ namespace NetProbe
                 }
                 if (e.Address == "" || e.Port <= 0) return null;
                 if (e.Name == "") e.Name = e.Endpoint;
+                e.Country = FlagCountry(e.Name);
                 e.Id = MakeId(e.Link);
                 return e;
             }
@@ -163,7 +182,8 @@ namespace NetProbe
             string[] hosts = Host == "" ? new string[0] : Host.Split(',');
             if (Security == "tls")
             {
-                var t = new Dictionary<string, object> { { "serverName", Sni != "" ? Sni : (Host != "" ? hosts[0] : Address) }, { "allowInsecure", Insecure } };
+                var t = new Dictionary<string, object> { { "serverName", Sni != "" ? Sni : (Host != "" ? hosts[0] : Address) } };
+                if (Insecure) t["allowInsecure"] = true; // в новых xray поле устарело — пишем только когда оно нужно
                 if (Fp != "") t["fingerprint"] = Fp;
                 if (Alpn != "") t["alpn"] = Alpn.Split(',');
                 s["tlsSettings"] = t;
@@ -188,7 +208,8 @@ namespace NetProbe
 
         public Dictionary<string, object> ToDict()
         {
-            return new Dictionary<string, object> { { "link", Link }, { "group", Group }, { "fav", Favorite }, { "delay", Delay }, { "tested", Tested.Ticks }, { "name", Name } };
+            return new Dictionary<string, object> { { "link", Link }, { "group", Group }, { "fav", Favorite }, { "delay", Delay }, { "tested", Tested.Ticks }, { "name", Name },
+                { "cc", Country }, { "speed", Speed }, { "down", TotalDown }, { "up", TotalUp } };
         }
     }
 
@@ -223,6 +244,10 @@ namespace NetProbe
                             if (d.ContainsKey("delay")) e.Delay = Convert.ToInt32(d["delay"]);
                             if (d.ContainsKey("tested")) e.Tested = new DateTime(Convert.ToInt64(d["tested"]));
                             if (d.ContainsKey("name") && Convert.ToString(d["name"]) != "") e.Name = Convert.ToString(d["name"]);
+                            e.Country = d.ContainsKey("cc") && Convert.ToString(d["cc"]) != "" ? Convert.ToString(d["cc"]) : ServerEntry.FlagCountry(e.Name);
+                            if (d.ContainsKey("speed")) e.Speed = Convert.ToDouble(d["speed"], CultureInfo.InvariantCulture);
+                            if (d.ContainsKey("down")) e.TotalDown = Convert.ToInt64(d["down"]);
+                            if (d.ContainsKey("up")) e.TotalUp = Convert.ToInt64(d["up"]);
                             Servers.Add(e);
                         }
                     if (File.Exists(SubFile))
@@ -303,7 +328,7 @@ namespace NetProbe
                     foreach (var e in list)
                     {
                         ServerEntry o; e.Group = s.Id;
-                        if (old.TryGetValue(e.Id, out o)) { e.Favorite = o.Favorite; e.Delay = o.Delay; e.Tested = o.Tested; }
+                        if (old.TryGetValue(e.Id, out o)) { e.Favorite = o.Favorite; e.Delay = o.Delay; e.Tested = o.Tested; e.Speed = o.Speed; e.TotalDown = o.TotalDown; e.TotalUp = o.TotalUp; if (e.Country == "") e.Country = o.Country; }
                         Servers.Add(e);
                     }
                     s.Updated = DateTime.Now;
@@ -313,6 +338,8 @@ namespace NetProbe
             }
             catch (Exception ex) { return s.Name + ": " + ex.Message; }
         }
+
+        public static List<ServerEntry> OfGroup(string id) { lock (lk) return Servers.Where(x => x.Group == id).ToList(); }
 
         public static string GroupName(string id)
         {
@@ -324,7 +351,7 @@ namespace NetProbe
     // Генерация конфига xray и запуск процесса
     public static class XrayConfig
     {
-        public static string Build(Settings st, ServerEntry srv)
+        public static string Build(Settings st, ServerEntry srv, bool stats = false)
         {
             var inbounds = new List<object>
             {
@@ -347,6 +374,13 @@ namespace NetProbe
                 { "outbounds", new object[] { srv.Outbound("proxy"), new Dictionary<string, object> { { "tag", "direct" }, { "protocol", "freedom" } }, new Dictionary<string, object> { { "tag", "block" }, { "protocol", "blackhole" } } } },
                 { "routing", new Dictionary<string, object> { { "domainStrategy", "IPIfNonMatch" }, { "rules", rules } } }
             };
+            if (stats)
+            {
+                // трафик через сервер: api.listen поднимает gRPC без отдельного inbound, счётчики outbound «proxy»
+                cfg["stats"] = new Dictionary<string, object>();
+                cfg["api"] = new Dictionary<string, object> { { "tag", "api" }, { "listen", "127.0.0.1:" + st.ApiPort }, { "services", new[] { "StatsService" } } };
+                cfg["policy"] = new Dictionary<string, object> { { "system", new Dictionary<string, object> { { "statsOutboundDownlink", true }, { "statsOutboundUplink", true } } } };
+            }
             return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Serialize(cfg);
         }
 
@@ -374,13 +408,16 @@ namespace NetProbe
 
         public static string Exe(Settings st) { return System.IO.Path.Combine(st.XrayPath, "xray.exe"); }
 
-        public string Start(Settings st, string json, string cfgFile)
+        public string LastLine = "";   // последняя ошибка из вывода (только при capture)
+
+        // capture = читать вывод (для замеров). Основной xray запускается без перенаправления, чтобы пережить перезапуск NetProbe
+        public string Start(Settings st, string json, string cfgFile, bool capture = false)
         {
             Stop();
             string exe = Exe(st);
             if (!File.Exists(exe)) return Tr.Tx("Не найден xray.exe — обновите ядро (кнопка «Ядро xray»)");
             File.WriteAllText(cfgFile, json, new UTF8Encoding(false));
-            var psi = new ProcessStartInfo(exe, "run -c \"" + cfgFile + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = st.XrayPath };
+            var psi = new ProcessStartInfo(exe, "run -c \"" + cfgFile + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = st.XrayPath, RedirectStandardOutput = capture, RedirectStandardError = capture };
             psi.EnvironmentVariables["XRAY_LOCATION_ASSET"] = st.XrayPath;
             try
             {
@@ -388,7 +425,9 @@ namespace NetProbe
                 pr.OutputDataReceived += (s, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) { var h = Output; if (h != null) h(e.Data.Trim()); } };
                 pr.ErrorDataReceived += (s, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) { var h = Output; if (h != null) h(e.Data.Trim()); } };
                 pr.Exited += (s, e) => { int c = -1; try { c = pr.ExitCode; } catch { } if (pr == p) { var h = Exited; if (h != null) h(c); } };
+                if (capture) Output += l => { if (LastLine == "" || l.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0) LastLine = l; };
                 pr.Start();
+                if (capture) { pr.BeginOutputReadLine(); pr.BeginErrorReadLine(); }
                 p = pr;
                 return null;
             }
@@ -411,7 +450,10 @@ namespace NetProbe
         }
     }
 
-    // Замер реальной задержки серверов через xray (как «Real delay» в v2rayN)
+    // Замер реальной задержки и скорости серверов через xray (как «Real delay» / «Speed test» в v2rayN).
+    //  Серверы идут пачками в одном xray (свой socks-порт на каждый). Если xray не стартует — обычно из-за
+    //  одного несовместимого сервера — пачка делится пополам, пока плохой не останется один.
+    //  Раньше такой сервер «ронял» всю пачку, и у всех серверов было «нет».
     public static class DelayTester
     {
         public static int ViaProxy(string curl, int port, string url, int timeoutSec)
@@ -424,38 +466,127 @@ namespace NetProbe
             return -2;
         }
 
+        // Страна выхода через сервер: cloudflare trace → loc=XX
+        public static string ExitCountry(string curl, int port, int timeoutSec)
+        {
+            var r = Proc.Run(curl, "-s --ssl-no-revoke -x socks5h://127.0.0.1:" + port + " --connect-timeout " + timeoutSec + " --max-time " + timeoutSec + " \"https://www.cloudflare.com/cdn-cgi/trace\"", timeoutSec * 1000 + 4000);
+            foreach (var line in (r.Out ?? "").Split('\n'))
+            {
+                var l = line.Trim();
+                if (l.StartsWith("loc=") && l.Length == 6 && l != "loc=XX") return l.Substring(4).ToUpperInvariant();
+            }
+            return "";
+        }
+
+        // Скорость загрузки через сервер, Мбит/с; -2 = не удалось
+        public static double Speed(string curl, int port, string url, int seconds)
+        {
+            var r = Proc.Run(curl, "-s -o NUL --ssl-no-revoke -x socks5h://127.0.0.1:" + port + " --connect-timeout 8 --max-time " + seconds + " -w \"%{speed_download} %{size_download}\" \"" + url + "\"", (seconds + 14) * 1000);
+            var parts = (r.Out ?? "").Trim().Split(' ');
+            double bps, size;
+            if (parts.Length == 2 && double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out bps) && double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out size) && size >= 65536)
+                return Math.Round(bps * 8 / 1e6, 1);
+            return -2;
+        }
+
+        static readonly object portLk = new object();
+        static int nextBase = 21800;
+
+        static HashSet<int> Listeners()
+        {
+            try { return new HashSet<int>(System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Select(e => e.Port)); }
+            catch { return new HashSet<int>(); }
+        }
+
+        // свободный диапазон портов; параллельные замеры (вручную и фоновый автосвитча) получают разные
+        static int AllocPorts(int n)
+        {
+            lock (portLk)
+            {
+                var busy = Listeners();
+                for (int k = 0; k < 200; k++)
+                {
+                    int b = nextBase; nextBase += 100; if (nextBase > 40000) nextBase = 21800;
+                    bool ok = true; for (int i = 0; i < n && ok; i++) ok = !busy.Contains(b + i);
+                    if (ok) return b;
+                }
+                return nextBase;
+            }
+        }
+
+        static void RunChunk(Settings st, List<ServerEntry> part, int threads, Action<ServerEntry, int> work, Action<ServerEntry> fail, CancelFlag cf)
+        {
+            if (part.Count == 0 || (cf != null && cf.Cancelled)) return;
+            int basePort = AllocPorts(part.Count);
+            string cfg = System.IO.Path.Combine(Settings.Sub("runtime"), "xray-test-" + basePort + ".json");
+            var x = new XrayProcess();
+            string err = x.Start(st, XrayConfig.BuildTest(part, basePort), cfg, true);
+            if (err != null) { Logger.Write(LogLevel.Error, err); foreach (var s in part) { s.Error = err; fail(s); } return; }
+            // ждём, пока xray откроет порты (раньше — 700 мс вслепую)
+            for (int t = 0; t < 60 && x.Running; t++) { if (Listeners().Contains(basePort + part.Count - 1)) break; Thread.Sleep(100); }
+            if (!x.Running)
+            {
+                string why = x.LastLine; x.Stop(); try { File.Delete(cfg); } catch { }
+                if (part.Count == 1)
+                {
+                    part[0].Error = why == "" ? Tr.Tx("xray не принял конфиг сервера") : why;
+                    Logger.Write(LogLevel.Warn, "xray «" + part[0].Name + "»: " + part[0].Error);
+                    fail(part[0]); return;
+                }
+                int h = part.Count / 2;
+                RunChunk(st, part.Take(h).ToList(), threads, work, fail, cf);
+                RunChunk(st, part.Skip(h).ToList(), threads, work, fail, cf);
+                return;
+            }
+            Thread.Sleep(150);
+            int next = -1;
+            var list = new List<Thread>();
+            for (int t = 0; t < Math.Max(1, Math.Min(threads, part.Count)); t++)
+            {
+                var th = new Thread(() =>
+                {
+                    while (true)
+                    {
+                        int i = Interlocked.Increment(ref next);
+                        if (i >= part.Count || (cf != null && cf.Cancelled)) return;
+                        try { work(part[i], basePort + i); } catch (Exception ex) { Logger.Write(LogLevel.Error, "xray test: " + ex.Message); }
+                    }
+                }) { IsBackground = true };
+                th.Start(); list.Add(th);
+            }
+            foreach (var th in list) th.Join();
+            x.Stop();
+            try { File.Delete(cfg); } catch { }
+        }
+
         public static void TestMany(Settings st, string curl, List<ServerEntry> list, Action<ServerEntry> done, CancelFlag cf)
         {
             const int chunk = 40;
             for (int off = 0; off < list.Count; off += chunk)
-            {
-                if (cf != null && cf.Cancelled) return;
-                var part = list.Skip(off).Take(chunk).ToList();
-                int basePort = 21800;
-                var x = new XrayProcess();
-                string err = x.Start(st, XrayConfig.BuildTest(part, basePort), System.IO.Path.Combine(Settings.Sub("runtime"), "xray-test.json"));
-                if (err != null) { foreach (var s in part) { s.Delay = -2; done(s); } Logger.Write(LogLevel.Error, err); return; }
-                Thread.Sleep(700);
-                int next = -1;
-                var threads = new List<Thread>();
-                for (int t = 0; t < Math.Min(8, part.Count); t++)
+                RunChunk(st, list.Skip(off).Take(chunk).ToList(), 8, (s, port) =>
                 {
-                    var th = new Thread(() =>
+                    s.Delay = ViaProxy(curl, port, st.TestUrl, st.AsTimeout); s.Tested = DateTime.Now;
+                    if (s.Delay > 0)
                     {
-                        while (true)
-                        {
-                            int i = Interlocked.Increment(ref next);
-                            if (i >= part.Count || (cf != null && cf.Cancelled)) return;
-                            part[i].Delay = ViaProxy(curl, basePort + i, st.TestUrl, st.AsTimeout);
-                            part[i].Tested = DateTime.Now;
-                            done(part[i]);
-                        }
-                    }) { IsBackground = true };
-                    th.Start(); threads.Add(th);
-                }
-                foreach (var th in threads) th.Join();
-                x.Stop();
-            }
+                        s.Error = "";
+                        if (s.Country == "") { string cc = ExitCountry(curl, port, st.AsTimeout); if (cc != "") s.Country = cc; }
+                    }
+                    else s.Error = Tr.Tx("нет ответа через сервер");
+                    done(s);
+                }, s => { s.Delay = -2; s.Tested = DateTime.Now; done(s); }, cf);
+        }
+
+        // Скорость: по одному серверу за раз, чтобы замеры не делили канал
+        public static void SpeedMany(Settings st, string curl, List<ServerEntry> list, Action<ServerEntry> done, CancelFlag cf)
+        {
+            const int chunk = 20;
+            for (int off = 0; off < list.Count; off += chunk)
+                RunChunk(st, list.Skip(off).Take(chunk).ToList(), 1, (s, port) =>
+                {
+                    s.Speed = Speed(curl, port, st.SpeedUrl, st.SpeedSec);
+                    if (s.Speed > 0 && s.Country == "") { string cc = ExitCountry(curl, port, st.AsTimeout); if (cc != "") s.Country = cc; }
+                    done(s);
+                }, s => { s.Speed = -2; done(s); }, cf);
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.Win32;
 
@@ -25,6 +26,9 @@ namespace NetProbe
         public Func<string> GetCurl;
         public event Action Changed;
         public Action<bool> DpiFallback;   // true = включить DPI, false = выключить
+        public Func<bool> NeedDpi;         // в списке «Серверы — через DPI» есть приложения → winws нужен, пока xray подключён
+        public bool DpiWanted { get { return dpiOn || dpiApps; } }
+        public long SessionDown, SessionUp; // трафик за текущее подключение, байт
 
         public volatile XState State = XState.Off;
         public string Detail = "";
@@ -41,7 +45,9 @@ namespace NetProbe
         readonly Dictionary<string, DateTime> failedAt = new Dictionary<string, DateTime>();
         readonly List<DateTime> switchTimes = new List<DateTime>();
         DateTime lastCheck = DateTime.MinValue, lastSwitch = DateTime.MinValue, lastBgTest = DateTime.Now, lastReturn = DateTime.Now, lastAllDownTry = DateTime.MinValue;
-        int fails, slows; bool dpiOn; volatile bool died;
+        int fails, slows; bool dpiOn, dpiApps; volatile bool died;
+        bool statsOn = true; string statsId; DateTime lastStats = DateTime.MinValue, lastStatsSave = DateTime.Now; bool statsDirty;
+        string lastErr = "";
 
         public bool Active { get { return State != XState.Off; } }
         public bool Testing;
@@ -76,10 +82,44 @@ namespace NetProbe
                 if (sp != null) sb.Attach(sp);
                 ConnectedAt = DateTime.Now; lastCheck = DateTime.Now;
                 var cur = ServerStore.Find(st.ActiveServer);
+                statsId = cur != null ? cur.Id : null; lastStats = DateTime.Now;
+                dpiApps = NeedDpi != null && NeedDpi(); // winws уже подхвачен маршрутизатором
                 Set(XState.Connected, cur != null ? cur.Name : "");
             });
         }
         public void ReapplyTun() { Post(() => { if (Active) { sb.Stop(); EnsureTun(); } }); }
+        public void ReapplyDpi() { Post(SyncDpi); }
+
+        // DPI для приложений «через DPI» вкладки «Серверы»: winws работает, пока подключён xray
+        void SyncDpi()
+        {
+            bool want = Active && NeedDpi != null && NeedDpi();
+            if (want == dpiApps) return;
+            bool before = DpiWanted;
+            dpiApps = want;
+            if (want) Logger.Write(LogLevel.Route, Tx("Серверы: DPI для приложений «через DPI»"));
+            if (DpiWanted != before && DpiFallback != null) DpiFallback(DpiWanted);
+        }
+
+        // Статистика xray: трафик outbound «proxy» с прошлого запроса (-reset) — в счётчики текущего сервера
+        void PollStats(bool save)
+        {
+            var st = GetSettings();
+            if (statsOn && statsId != null && x.Running)
+            {
+                var r = Proc.Run(XrayProcess.Exe(st), "api statsquery --server=127.0.0.1:" + st.ApiPort + " -pattern \"outbound>>>proxy>>>traffic\" -reset", 5000);
+                long down = 0, up = 0;
+                foreach (Match m in Regex.Matches(r.Out ?? "", "traffic>>>(downlink|uplink)\"\\s*(?:,\\s*\"value\"\\s*:\\s*\"?(\\d+))?"))
+                {
+                    long v = 0; if (m.Groups[2].Success) long.TryParse(m.Groups[2].Value, out v);
+                    if (m.Groups[1].Value == "downlink") down += v; else up += v;
+                }
+                var srv = ServerStore.Find(statsId);
+                if (srv != null && (down > 0 || up > 0)) { srv.TotalDown += down; srv.TotalUp += up; SessionDown += down; SessionUp += up; statsDirty = true; }
+            }
+            lastStats = DateTime.Now;
+            if (statsDirty && (save || (DateTime.Now - lastStatsSave).TotalSeconds >= 60)) { statsDirty = false; lastStatsSave = DateTime.Now; ServerStore.Save(); }
+        }
 
         // TUN поднимается один раз и указывает на локальный socks xray — при смене сервера его не трогаем
         void EnsureTun()
@@ -133,20 +173,43 @@ namespace NetProbe
         void EnsurePorts(Settings st)
         {
             if (x.Running) return; // наш xray сам держит эти порты
-            int s0 = st.SocksPort, h0 = st.HttpPort;
+            int s0 = st.SocksPort, h0 = st.HttpPort, a0 = st.ApiPort;
             while (PortBusy(st.SocksPort) || PortBusy(st.HttpPort) || st.SocksPort == st.HttpPort) { st.SocksPort += 10; st.HttpPort += 10; if (st.SocksPort > 64000) { st.SocksPort = 20808; st.HttpPort = 20809; } }
+            while (PortBusy(st.ApiPort) || st.ApiPort == st.SocksPort || st.ApiPort == st.HttpPort) { st.ApiPort += 10; if (st.ApiPort > 64000) st.ApiPort = 20813; }
             if (s0 != st.SocksPort || h0 != st.HttpPort) { st.Save(); Logger.Write(LogLevel.Warn, Tx("Порты ") + s0 + "/" + h0 + Tx(" заняты другой программой — NetProbe использует ") + st.SocksPort + "/" + st.HttpPort); }
+            else if (a0 != st.ApiPort) st.Save();
         }
 
         bool StartOn(ServerEntry s)
         {
             var st = GetSettings();
-            if (s == null) { Logger.Write(LogLevel.Error, Tx("Сервер не выбран")); return false; }
+            if (s == null) { lastErr = Tx("Сервер не выбран"); Logger.Write(LogLevel.Error, lastErr); return false; }
+            PollStats(true); // трафик до переключения — предыдущему серверу
+            statsId = null;
             x.Stop();
             EnsurePorts(st);
-            died = false; fails = 0; slows = 0;
-            string err = x.Start(st, XrayConfig.Build(st, s), Path.Combine(Settings.Sub("runtime"), "xray.json"));
-            if (err != null) { Logger.Write(LogLevel.Error, err); return false; }
+            fails = 0; slows = 0;
+            string cfg = Path.Combine(Settings.Sub("runtime"), "xray.json");
+            string err = null;
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                bool withStats = statsOn;
+                died = false;
+                err = x.Start(st, XrayConfig.Build(st, s, withStats), cfg);
+                if (err != null) break;
+                // xray сразу завершился — неверный конфиг сервера (или ядро без api.listen)
+                for (int t = 0; t < 12 && x.Running; t++) { if (PortBusy(st.SocksPort)) break; Thread.Sleep(100); }
+                if (x.Running) break;
+                if (withStats) { statsOn = false; Logger.Write(LogLevel.Warn, Tx("xray не запустился со статистикой трафика — пробую без неё")); continue; }
+                var test = Proc.Run(XrayProcess.Exe(st), "run -test -c \"" + cfg + "\"", 8000);
+                string msg = (test.Out + "\n" + test.Err).Split('\n').Select(l => l.Trim()).LastOrDefault(l => l.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0 || l.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0) ?? "";
+                err = Tx("xray не запустился с сервером «") + s.Name + "»" + (msg != "" ? ": " + msg : "");
+                break;
+            }
+            died = false;
+            if (err != null) { lastErr = err; Logger.Write(LogLevel.Error, err); x.Stop(); return false; }
+            lastErr = "";
+            statsId = s.Id; lastStats = DateTime.Now;
             st.ActiveServer = s.Id; st.Save();
             if (st.SysProxy && !st.TunMode) SysProxy.Set("127.0.0.1:" + st.HttpPort);
             EnsureTun();
@@ -160,21 +223,23 @@ namespace NetProbe
             var st = GetSettings();
             var s = ServerStore.Find(id) ?? ServerStore.Find(st.ActiveServer);
             if (manual && s != null) { st.PreferredServer = s.Id; st.Save(); }
-            Switches = 0; ConnectedAt = DateTime.Now; switchTimes.Clear(); failedAt.Clear();
+            Switches = 0; ConnectedAt = DateTime.Now; switchTimes.Clear(); failedAt.Clear(); SessionDown = SessionUp = 0;
             string foreign = ForeignCores(st);
             if (foreign != null) Logger.Write(LogLevel.Warn, Tx("Запущен другой клиент: ") + foreign + Tx(" — системный прокси и TUN могут конфликтовать, лучше закрыть его"));
             Set(XState.Connecting, s != null ? s.Name : "");
-            if (StartOn(s)) Set(XState.Connected, s.Name);
-            else { x.Stop(); Set(XState.Off, Tx("Не удалось запустить")); }
+            if (StartOn(s)) { Set(XState.Connected, s.Name); SyncDpi(); }
+            else { x.Stop(); Set(XState.Off, lastErr != "" ? lastErr : Tx("Не удалось запустить")); }
         }
 
         void DoDisconnect()
         {
             bool was = State != XState.Off;
+            PollStats(true);
+            statsId = null;
             sb.Stop();
             x.Stop();
             if (GetSettings().SysProxy || SysProxy.IsOurs()) SysProxy.Clear();
-            if (dpiOn) { dpiOn = false; if (DpiFallback != null) DpiFallback(false); }
+            if (dpiOn || dpiApps) { dpiOn = false; dpiApps = false; if (DpiFallback != null) DpiFallback(false); }
             if (was) Logger.Write(LogLevel.Route, "xray " + Tx("отключён"));
             Set(XState.Off, "");
         }
@@ -254,6 +319,7 @@ namespace NetProbe
             if (st.TunMode && !sb.Running && (now - lastTunTry).TotalSeconds >= 10) EnsureTun();
 
             if (died) { died = false; SwitchAway(st, cur, Tx("процесс xray остановился")); return; }
+            if ((now - lastStats).TotalSeconds >= 10) PollStats(false);
 
             if (State == XState.AllDown)
             {
@@ -317,7 +383,7 @@ namespace NetProbe
         void Recovered(Settings st, ServerEntry s)
         {
             Logger.Write(LogLevel.Route, Tx("Сервер снова работает: «") + s.Name + "»");
-            if (dpiOn) { dpiOn = false; if (DpiFallback != null) DpiFallback(false); }
+            if (dpiOn) { dpiOn = false; if (DpiFallback != null) DpiFallback(DpiWanted); }
             fails = 0; Set(XState.Connected, s.Name);
         }
 
