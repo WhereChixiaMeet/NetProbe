@@ -609,6 +609,9 @@ namespace NetProbe
 
     public static class Ui
     {
+        // подсказки появляются не сразу, а после 3 с наведения (просьба владельца — не мельтешат)
+        public const int TipDelay = 3000;
+        public static ToolTip Tip() { return new ToolTip { InitialDelay = TipDelay, ReshowDelay = TipDelay, AutoPopDelay = 15000 }; }
         public static Label Label(string text, Font f = null, Color? c = null)
         {
             return new Label { Text = text, UseMnemonic = false, Font = f ?? Theme.Body, ForeColor = c ?? Theme.Text, AutoSize = true, BackColor = Color.Transparent };

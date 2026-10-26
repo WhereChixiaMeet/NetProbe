@@ -176,7 +176,7 @@ namespace NetProbe
             cDnsTun.CheckedChanged += (s, e) => { if (loadingConnect) return; st.DnsViaTunnel = cDnsTun.Checked; st.Save(); router.Reapply(); };
             cAutoConnect = Ui.Check(Tx("Автоподключение"), st.AutoConnect); cAutoConnect.BackColor = Theme.Card;
             cAutoConnect.CheckedChanged += (s, e) => { if (loadingConnect) return; st.AutoConnect = cAutoConnect.Checked; st.Save(); };
-            var tip = new ToolTip();
+            var tip = Ui.Tip();
             tip.SetToolTip(cKill, Tx("Блокировать приложения «Строго VPN», пока VPN недоступен"));
             tip.SetToolTip(lF, Tx("VPN не отвечает дольше — переключение")); tip.SetToolTip(lR, Tx("VPN стабилен столько — возврат с DPI"));
             cFail.Controls.AddRange(new Control[] { lF, nFailover, lR, nRecover, lT, nRetry, cKill, cDnsTun, cAutoConnect });
@@ -261,7 +261,7 @@ namespace NetProbe
             lay();
             LoadConnectUi();
         }
-        Action relayConnect; readonly ToolTip listTip = new ToolTip();
+        Action relayConnect; readonly ToolTip listTip = Ui.Tip();
 
         // ПКМ по элементу списка: путь к запускаемому файлу (по запущенному процессу или полному пути)
         public static void AttachPathMenu(ThemedList list, Form owner)

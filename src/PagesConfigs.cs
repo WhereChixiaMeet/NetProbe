@@ -46,7 +46,7 @@ namespace NetProbe
 
         void BuildVpnPanel(Panel p)
         {
-            var tt = new ToolTip();
+            var tt = Ui.Tip();
             var left = new CardPanel { Title = Tx("Туннели") };
             lbTun = new ThemedList { RightText = n => n == st.PrimaryTunnel ? Tx("основной") : n == st.BackupTunnel ? Tx("резервный") : null };
             lbTun.SelectedIndexChanged += (s, e) => LoadTunnel();

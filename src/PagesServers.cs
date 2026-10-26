@@ -62,7 +62,7 @@ namespace NetProbe
         void BuildServersPage()
         {
             var p = NewPage(Tx("Серверы"), Tx("xray · подписки · автосвитч"));
-            var tt = new ToolTip(); srvTip = tt;
+            var tt = Ui.Tip(); srvTip = tt;
             // отдельно от VPN на «Подключении»: xray работает и при выключенном VPN
             btnXConnect = new FlatButton(Tx("Подключить"), true) { Glyph = "", Width = Theme.S(170), Height = Theme.S(36) };
             btnXConnect.Click += (s, e) => XConnectClick();
@@ -115,7 +115,10 @@ namespace NetProbe
             // таблица серверов
             var gridCard = new CardPanel();
             srvGrid = new DataGridView(); Ui.StyleGrid(srvGrid);
-            srvGrid.ShowCellToolTips = true;
+            // свои подсказки ячеек вместо встроенных: у DataGridView нельзя задать задержку
+            srvGrid.ShowCellToolTips = false;
+            srvGrid.CellMouseEnter += (s, e) => { string t = e.RowIndex >= 0 && e.ColumnIndex >= 0 ? srvGrid[e.ColumnIndex, e.RowIndex].ToolTipText : ""; if (tt.GetToolTip(srvGrid) != (t ?? "")) tt.SetToolTip(srvGrid, t); };
+            srvGrid.MouseLeave += (s, e) => tt.SetToolTip(srvGrid, "");
             string[][] cols = { new[] { "f", "★" }, new[] { "n", Tx("ИМЯ") }, new[] { "cc", Tx("ГЕО") }, new[] { "t", Tx("ТИП") }, new[] { "a", Tx("АДРЕС") }, new[] { "p", Tx("ПОРТ") },
                                 new[] { "g", Tx("ГРУППА") }, new[] { "d", Tx("ЗАДЕРЖКА") }, new[] { "sp", Tx("СКОРОСТЬ") }, new[] { "td", Tx("ВСЕГО ↓") } };
             for (int i = 0; i < cols.Length; i++) srvGrid.Columns.Add(cols[i][0], cols[i][1]);

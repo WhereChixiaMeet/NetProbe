@@ -27,7 +27,7 @@ namespace NetProbe
 
         void BuildDpiPanel(Panel p)
         {
-            var tt = new ToolTip();
+            var tt = Ui.Tip();
             // ---- слева: список стратегий + маленькая панель кнопок ----
             var left = new CardPanel { Title = Tx("Стратегии") };
             lbStrat = new ThemedList { BoldItem = n => n == st.DpiStrategy, RightText = n => n == st.DpiStrategy ? Tx("активна") : null };

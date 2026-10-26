@@ -18,11 +18,19 @@ namespace NetProbe
         public event Action<string, Point> RightClicked;
 
         readonly List<Rectangle> rects = new List<Rectangle>();
-        readonly ToolTip tip = new ToolTip();
+        readonly ToolTip tip = Ui.Tip();
+        readonly Timer tipTimer = new Timer { Interval = Ui.TipDelay };
+        Point tipAt;
         int hover = -1, offset, total;
         string tipShown;
 
-        public TabStrip() { Height = Theme.S(32); Cursor = Cursors.Hand; Font = Theme.Body; }
+        public TabStrip()
+        {
+            Height = Theme.S(32); Cursor = Cursors.Hand; Font = Theme.Body;
+            tipTimer.Tick += (s, e) => { tipTimer.Stop(); if (!string.IsNullOrEmpty(tipShown) && !IsDisposed) tip.Show(tipShown, this, tipAt, 8000); };
+        }
+
+        protected override void Dispose(bool disposing) { if (disposing) { tipTimer.Dispose(); tip.Dispose(); } base.Dispose(disposing); }
 
         int Arrow { get { return Theme.S(20); } }
         bool Overflow { get { return !Segmented && total > Width; } }
@@ -77,7 +85,7 @@ namespace NetProbe
         protected override void OnResize(EventArgs e) { base.OnResize(e); Calc(); EnsureVisible(); }
         protected override void OnFontChanged(EventArgs e) { base.OnFontChanged(e); Calc(); }
         protected override void OnMouseWheel(MouseEventArgs e) { if (Overflow) Scroll(-Math.Sign(e.Delta) * Theme.S(80)); base.OnMouseWheel(e); }
-        protected override void OnMouseLeave(EventArgs e) { hover = -1; tip.Hide(this); tipShown = null; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = -1; tipTimer.Stop(); tip.Hide(this); tipShown = null; Invalidate(); base.OnMouseLeave(e); }
 
         int HitTest(Point p)
         {
@@ -91,7 +99,12 @@ namespace NetProbe
             int h = HitTest(e.Location);
             if (h != hover) { hover = h; Invalidate(); }
             string t = h >= 0 ? Tabs[h].Tip : null;
-            if (t != tipShown) { tipShown = t; if (string.IsNullOrEmpty(t)) tip.Hide(this); else tip.Show(t, this, e.X + Theme.S(12), Height + Theme.S(4), 4000); }
+            if (t != tipShown)
+            {
+                // как у остальных подсказок: показываем после Ui.TipDelay наведения
+                tipShown = t; tip.Hide(this); tipTimer.Stop();
+                if (!string.IsNullOrEmpty(t)) { tipAt = new Point(e.X + Theme.S(12), Height + Theme.S(4)); tipTimer.Start(); }
+            }
             base.OnMouseMove(e);
         }
 
