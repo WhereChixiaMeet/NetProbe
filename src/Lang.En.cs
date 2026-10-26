@@ -749,6 +749,18 @@ namespace NetProbe
             { "xray не запустился со статистикой трафика — пробую без неё", "xray did not start with traffic stats — retrying without them" },
             { "xray не запустился с сервером «", "xray did not start with server “" },
             { "DPI для серверов включён", "DPI for servers on" },
+            { "Сбросить вид таблицы", "Reset table layout" },
+            { "Ширина, порядок и видимость колонок — как по умолчанию", "Column widths, order and visibility back to default" },
+            { "Проверить обновления sing-box", "Check for sing-box updates" },
+            { "Скачать ядро xray с GitHub", "Download the xray core from GitHub" },
+            { "Проверить обновления xray", "Check for xray updates" },
+            { "Проверка обновлений ", "Checking for updates: " },
+            { "Не удалось проверить обновления: ", "Could not check for updates: " },
+            { "последняя версия", "latest version" },
+            { "доступна ", "available: " },
+            { "Скачать и установить новую версию?", "Download and install the new version?" },
+            { "Вид таблицы серверов сброшен", "Servers table layout reset" },
+            { "Таблица серверов", "Servers table" },
         };
     }
 }

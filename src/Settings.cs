@@ -71,7 +71,8 @@ namespace NetProbe
         public int SpeedSec = 10;            // длительность замера скорости одного сервера, с
         public int ApiPort = 10813;          // API статистики xray (трафик по серверам)
         public string SrvTab = "all";        // открытая вкладка серверов: all / active / fav / manual / id подписки
-        public int SrvListTab = 0;           // открытый список приложений на вкладке «Серверы»
+        public int SrvListTab = 0;
+        public string SrvCols = "";          // колонки таблицы серверов: имя:ширина/вес:порядок;… (пусто = по умолчанию)           // открытый список приложений на вкладке «Серверы»
         // автосвитч серверов
         public bool AsEnabled = true;
         public int AsInterval = 10;          // проверка активного сервера, с

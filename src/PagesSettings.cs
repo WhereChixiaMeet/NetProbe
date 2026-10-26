@@ -144,6 +144,10 @@ namespace NetProbe
             tbGameTcp = Ui.TextBox(); row(Tx("Игровой фильтр · TCP порты"), tbGameTcp, null);
             tbGameUdp = Ui.TextBox(); row(Tx("Игровой фильтр · UDP порты"), tbGameUdp, null);
             nExclRefresh = Ui.Num(3, 300, 10); row(Tx("Обновлять IP исключённых приложений, с"), nExclRefresh, null);
+            section(Tx("Серверы"));
+            var bSrvView = new FlatButton(Tx("Сбросить вид таблицы")) { Glyph = "\uE777" }.AutoW();
+            bSrvView.Click += (s, e) => ResetSrvColumns();
+            row(Tx("Таблица серверов"), bSrvView, Tx("Ширина, порядок и видимость колонок — как по умолчанию"));
             section(Tx("Обновления"));
             var bZUp = new FlatButton(Tx("Обновить zapret")) { Glyph = "\uE896" }.AutoW();
             bZUp.Click += (s, e) => UpdateZapretUi(bZUp);

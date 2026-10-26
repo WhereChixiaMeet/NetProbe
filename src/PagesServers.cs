@@ -92,10 +92,11 @@ namespace NetProbe
             tbSrvSearch = Ui.TextBox(); tbSrvSearch.Width = Theme.S(180); ((ThemedTextBox)tbSrvSearch).Cue = Tx("Поиск");
             tbSrvSearch.TextChanged += (s, e) => FillServers();
             btnCore = new FlatButton(Tx("Ядро xray")) { Glyph = "" }.AutoW();
-            btnCore.Click += (s, e) => UpdateCore(true);
+            btnCore.Click += (s, e) => CoreButton(true);
             btnSb = new FlatButton("sing-box") { Glyph = "" }.AutoW();
-            btnSb.Click += (s, e) => UpdateSingBoxUi(true);
+            btnSb.Click += (s, e) => CoreButton(false);
             tt.SetToolTip(btnSb, Tx("Ядро TUN-режима (sing-box)"));
+            tt.SetToolTip(btnCore, Tx("Ядро xray"));
             lSrvInfo = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Bg, UseMnemonic = false, AutoEllipsis = true };
 
             // вкладки: все · рабочие · избранные · вручную · по одной на подписку
@@ -109,17 +110,31 @@ namespace NetProbe
             srvGrid.ShowCellToolTips = true;
             string[][] cols = { new[] { "f", "★" }, new[] { "n", Tx("ИМЯ") }, new[] { "cc", Tx("ГЕО") }, new[] { "t", Tx("ТИП") }, new[] { "a", Tx("АДРЕС") }, new[] { "p", Tx("ПОРТ") },
                                 new[] { "g", Tx("ГРУППА") }, new[] { "d", Tx("ЗАДЕРЖКА") }, new[] { "sp", Tx("СКОРОСТЬ") }, new[] { "td", Tx("ВСЕГО ↓") } };
-            // имя/тип/адрес/группа тянутся, числовые колонки фиксированной ширины — чтобы «120 ms» не обрезалось
-            float[] fw = { 0, 34, 0, 16, 20, 0, 12, 0, 0, 0 };
-            int[] fixedW = { 24, 0, 40, 0, 0, 50, 0, 72, 86, 74 };
-            for (int i = 0; i < cols.Length; i++)
+            for (int i = 0; i < cols.Length; i++) srvGrid.Columns.Add(cols[i][0], cols[i][1]);
+            srvGrid.AllowUserToOrderColumns = true;
+            ApplySrvColumns();
+            srvGrid.ColumnWidthChanged += (s, e) => SaveSrvColumns();
+            srvGrid.ColumnDisplayIndexChanged += (s, e) => SaveSrvColumns();
+            // GEO: флаг вместо кода страны (картинка с flagcdn, кэш в config\runtime\flags)
+            srvGrid.CellPainting += (s, e) =>
             {
-                srvGrid.Columns.Add(cols[i][0], cols[i][1]);
-                var col = srvGrid.Columns[i];
-                if (fixedW[i] > 0) { col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None; col.Width = Theme.S(fixedW[i]); }
-                else { col.FillWeight = fw[i]; col.MinimumWidth = Theme.S(40); }
-            }
-            srvGrid.Columns["f"].DefaultCellStyle.Padding = srvGrid.Columns["cc"].DefaultCellStyle.Padding = new Padding(Theme.S(2), 0, Theme.S(2), 0);
+                if (e.RowIndex < 0 || e.ColumnIndex != srvGrid.Columns["cc"].Index) return;
+                var x = srvGrid.Rows[e.RowIndex].Tag as ServerEntry; if (x == null) return;
+                var img = Flags.Get(x.Country); if (img == null) return;
+                e.PaintBackground(e.ClipBounds, (e.State & DataGridViewElementStates.Selected) != 0);
+                int h = Math.Min(e.CellBounds.Height - Theme.S(10), Theme.S(14)), w = Math.Min(e.CellBounds.Width - Theme.S(6), h * img.Width / Math.Max(1, img.Height));
+                var g = e.Graphics; g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                g.DrawImage(img, new Rectangle(e.CellBounds.X + (e.CellBounds.Width - w) / 2, e.CellBounds.Y + (e.CellBounds.Height - h) / 2, w, h));
+                e.Handled = true;
+            };
+            Flags.Loaded += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if (srvGrid != null && !srvGrid.IsDisposed) srvGrid.InvalidateColumn(srvGrid.Columns["cc"].Index); })); } catch { } };
+            srvGrid.ColumnHeaderMouseClick += (s, e) =>
+            {
+                if (e.Button != MouseButtons.Right) return;
+                var hm = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body };
+                hm.Items.Add(Tx("Сбросить вид таблицы"), null, (s2, e2) => ResetSrvColumns());
+                hm.Show(srvGrid, srvGrid.PointToClient(Cursor.Position));
+            };
             srvGrid.Columns["f"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter; srvGrid.Columns["f"].DefaultCellStyle.ForeColor = Theme.Yellow;
             foreach (var c in new[] { "p", "d", "sp", "td" }) srvGrid.Columns[c].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
             foreach (var c in new[] { "t", "a", "p", "g", "td" }) srvGrid.Columns[c].DefaultCellStyle.ForeColor = Theme.Muted;
@@ -170,11 +185,12 @@ namespace NetProbe
                 foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, bFav, bDel }) { b.Location = new Point(x, y); x = b.Right + Theme.S(6); }
                 btnCore.Location = new Point(L + W - btnCore.Width, y);
                 btnSb.Location = new Point(btnCore.Left - Theme.S(6) - btnSb.Width, y);
-                tbSrvSearch.SetBounds(x + Theme.S(6), y + (bImp.Height - tbSrvSearch.Height) / 2, Math.Max(Theme.S(60), btnSb.Left - x - Theme.S(18)), tbSrvSearch.Height);
+                // строка состояния — в свободном месте панели кнопок; поиск — справа от вкладок, над правой колонкой
+                lSrvInfo.SetBounds(x + Theme.S(8), y + (bImp.Height - Theme.S(18)) / 2, Math.Max(0, btnSb.Left - x - Theme.S(16)), Theme.S(18));
                 y += bImp.Height + Theme.S(6);
                 int rw = Theme.S(360), lw = W - rw - gap;
                 srvTabs.SetBounds(L, y, lw, Theme.S(32));
-                lSrvInfo.SetBounds(L + W - rw, y + Theme.S(8), rw, Theme.S(18)); y += Theme.S(36);
+                tbSrvSearch.SetBounds(L + W - rw, y + (Theme.S(32) - tbSrvSearch.Height) / 2, rw, tbSrvSearch.Height); y += Theme.S(36);
                 int h = p.ClientSize.Height - Theme.S(18) - y;
                 gridCard.SetBounds(L, y, lw, h);
                 asHost.SetBounds(L + W - rw, srvTabs.Top + Theme.S(36), rw, p.ClientSize.Height - Theme.S(18) - srvTabs.Top - Theme.S(36)); asHost.Relayout();
@@ -388,11 +404,15 @@ namespace NetProbe
             var tbUrl = Ui.TextBox(st.TestUrl); tbUrl.TextChanged += (s, e) => { st.TestUrl = tbUrl.Text.Trim(); st.Save(); };
             var tbSpd = Ui.TextBox(st.SpeedUrl); tbSpd.TextChanged += (s, e) => { st.SpeedUrl = tbSpd.Text.Trim(); st.Save(); };
             prow("SOCKS", nS); prow("HTTP", nH); prow(Tx("URL проверки"), tbUrl); prow(Tx("URL скорости"), tbSpd);
+            var bResetView = new FlatButton(Tx("Сбросить вид таблицы")) { Glyph = "\uE777" }.AutoW();
+            bResetView.Click += (s, e) => ResetSrvColumns();
+            srvTip.SetToolTip(bResetView, Tx("Ширина, порядок и видимость колонок — как по умолчанию"));
             var lSec = new Label { Text = Tx("Замер скорости, с"), AutoSize = false, ForeColor = Theme.Text, BackColor = Theme.Card, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft };
             lSec.SetBounds(lx, cy, Theme.S(200), Theme.S(26));
             var nSec = Ui.Num(3, 60, st.SpeedSec); nSec.Width = Theme.S(84); nSec.Location = new Point(nx, cy);
             nSec.ValueChanged += (s, e) => { st.SpeedSec = (int)nSec.Value; st.Save(); };
             pc.Controls.Add(lSec); pc.Controls.Add(nSec); cy += Theme.S(32);
+            bResetView.Location = new Point(lx, cy + Theme.S(2)); pc.Controls.Add(bResetView); cy += bResetView.Height + Theme.S(8);
             pc.SetBounds(0, y, w, cy + Theme.S(8));
             body.Controls.Add(pc);
             body.Height = pc.Bottom + Theme.S(10);
@@ -495,6 +515,7 @@ namespace NetProbe
             c["d"].Style.ForeColor = DelayColor(x); c["sp"].Style.ForeColor = SpeedColor(x);
             c["d"].ToolTipText = x.Delay == -2 && x.Error != "" ? x.Error : x.Tested != DateTime.MinValue ? x.Tested.ToString("dd.MM HH:mm") : "";
             c["td"].ToolTipText = x.TotalUp > 0 ? "↑ " + Bytes(x.TotalUp) : "";
+            c["cc"].ToolTipText = x.Country;
             bool act = x.Id == st.ActiveServer && xm.Active;
             c["n"].Style.ForeColor = act ? Theme.Accent : Color.Empty; c["n"].Style.Font = act ? Theme.Bold : null;
         }
@@ -679,15 +700,108 @@ namespace NetProbe
                 try { BeginInvoke((Action)(() =>
                 {
                     if (btnCore.IsDisposed) return;
+                    // не установлено — «Установить» со значком загрузки; установлено — версия и «проверить обновления»
                     bool supd = sv != "" && sbLatest != null && sbLatest.TrimStart('v') != sv.TrimStart('v');
-                    btnSb.Text = sv == "" ? Tx("Установить sing-box") : "sing-box " + sv + (supd ? " → " + sbLatest : ""); btnSb.AutoW(); btnSb.Invalidate();
+                    btnSb.Text = sv == "" ? Tx("Установить sing-box") : "sing-box " + sv + (supd ? " → " + sbLatest : "");
+                    btnSb.Glyph = sv == "" || supd ? "\uE896" : "\uE72C"; btnSb.Primary = supd;
+                    srvTip.SetToolTip(btnSb, sv == "" ? Tx("Ядро TUN-режима (sing-box)") : Tx("Проверить обновления sing-box"));
+                    btnSb.AutoW(); btnSb.Invalidate();
                     bool upd = v != "" && xrayLatest != null && xrayLatest.TrimStart('v') != v.TrimStart('v');
                     btnCore.Text = v == "" ? Tx("Установить xray") : "xray " + v + (upd ? " → " + xrayLatest : "");
-                    btnCore.Primary = false;
+                    btnCore.Glyph = v == "" || upd ? "\uE896" : "\uE72C"; btnCore.Primary = upd;
+                    srvTip.SetToolTip(btnCore, v == "" ? Tx("Скачать ядро xray с GitHub") : Tx("Проверить обновления xray"));
                     btnCore.AutoW(); btnCore.Invalidate();
                     if (relayServers != null) relayServers();
                 })); } catch { }
             });
+        }
+
+        // Кнопки ядер: не установлено — установить; установлено — проверить новую версию и предложить обновить
+        void CoreButton(bool xray)
+        {
+            string cur = xray ? Updater.XrayVersion(st) : Updater.SingBoxVersion(st);
+            if (cur == "") { if (xray) UpdateCore(true); else UpdateSingBoxUi(true); return; }
+            string name = xray ? "xray" : "sing-box";
+            var b = xray ? btnCore : btnSb;
+            b.Enabled = false;
+            lSrvInfo.Text = Tx("Проверка обновлений ") + name + "…";
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                string lat = null, err = null;
+                try { lat = xray ? Updater.Latest(Updater.XrayRepo, n => n.StartsWith("Xray-windows", StringComparison.OrdinalIgnoreCase)).Tag : Updater.SingBoxLatest().Tag; }
+                catch (Exception ex) { err = ex.Message; }
+                try
+                {
+                    BeginInvoke((Action)(() =>
+                    {
+                        b.Enabled = true;
+                        if (lat == null) { lSrvInfo.Text = Tx("Не удалось проверить обновления: ") + err; return; }
+                        if (xray) xrayLatest = lat; else sbLatest = lat;
+                        UpdateCoreLabel();
+                        if (lat.TrimStart('v') == cur.TrimStart('v')) { lSrvInfo.Text = name + " " + cur + " — " + Tx("последняя версия"); return; }
+                        lSrvInfo.Text = name + ": " + Tx("доступна ") + lat;
+                        if (MessageBox.Show(this, name + " " + cur + " → " + lat + "\r\n" + Tx("Скачать и установить новую версию?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                        { if (xray) UpdateCore(false); else UpdateSingBoxUi(false); }
+                    }));
+                }
+                catch { }
+            });
+        }
+
+        // ---------- колонки таблицы серверов: ширина и порядок запоминаются, сброс — в «Прокси» и по ПКМ на заголовке ----------
+        static readonly string[] SrvColNames = { "f", "n", "cc", "t", "a", "p", "g", "d", "sp", "td" };
+        static readonly float[] SrvColFill = { 0, 34, 0, 16, 20, 0, 12, 0, 0, 0 };
+        static readonly int[] SrvColFixed = { 24, 0, 40, 0, 0, 50, 0, 72, 86, 74 };
+        bool applyingCols;
+
+        void ApplySrvColumns()
+        {
+            applyingCols = true;
+            try
+            {
+                var saved = new Dictionary<string, string[]>();
+                foreach (var part in (st.SrvCols ?? "").Split(';'))
+                {
+                    var f = part.Split(':');
+                    if (f.Length == 3) saved[f[0]] = f;
+                }
+                for (int i = 0; i < SrvColNames.Length; i++)
+                {
+                    var col = srvGrid.Columns[SrvColNames[i]];
+                    bool fix = SrvColFixed[i] > 0;
+                    // без минимальной ширины колонку можно сжать до невидимой
+                    col.MinimumWidth = Theme.S(fix ? Math.Min(SrvColFixed[i], 36) : 48);
+                    string[] sv; float fv;
+                    bool has = saved.TryGetValue(SrvColNames[i], out sv) && float.TryParse(sv[1], System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out fv) && fv > 0;
+                    float val = has ? float.Parse(sv[1], CultureInfo.InvariantCulture) : (fix ? SrvColFixed[i] : SrvColFill[i]);
+                    if (fix) { col.AutoSizeMode = DataGridViewAutoSizeColumnMode.None; col.Width = Math.Max(col.MinimumWidth, has ? (int)val : Theme.S((int)val)); }
+                    else { col.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill; col.FillWeight = Math.Max(1f, Math.Min(1000f, val)); }
+                }
+                // порядок колонок
+                var order = SrvColNames.Select((n, i) => { string[] sv; int d; return Tuple.Create(n, saved.TryGetValue(n, out sv) && int.TryParse(sv[2], out d) ? d : i); }).OrderBy(t => t.Item2).ToList();
+                for (int k = 0; k < order.Count; k++) srvGrid.Columns[order[k].Item1].DisplayIndex = k;
+            }
+            finally { applyingCols = false; }
+        }
+
+        void SaveSrvColumns()
+        {
+            if (applyingCols || srvGrid == null) return;
+            string v0 = string.Join(";", SrvColNames.Select((n, i) =>
+            {
+                var c = srvGrid.Columns[n];
+                string v = SrvColFixed[i] > 0 ? c.Width.ToString(CultureInfo.InvariantCulture) : c.FillWeight.ToString("0.##", CultureInfo.InvariantCulture);
+                return n + ":" + v + ":" + c.DisplayIndex;
+            }));
+            if (v0 == st.SrvCols) return; // при растягивании окна ширины «резиновых» колонок меняются, а веса — нет
+            st.SrvCols = v0; st.Save();
+        }
+
+        void ResetSrvColumns()
+        {
+            st.SrvCols = ""; st.Save();
+            if (srvGrid != null && !srvGrid.IsDisposed) { ApplySrvColumns(); srvGrid.Invalidate(); }
+            Logger.Write(LogLevel.Info, Tx("Вид таблицы серверов сброшен"));
         }
     }
 
