@@ -258,6 +258,7 @@ namespace NetProbe
             srvTip.SetToolTip(bPaste, Tx("Добавить список из буфера (по строкам или через запятую)")); srvTip.SetToolTip(bAdd, Tx("Добавить")); srvTip.SetToolTip(bDel, Tx("Удалить"));
             srvListTabs = new TabStrip { Segmented = true, Font = Theme.Small, Height = Theme.S(26) };
             srvListBox = new ThemedList { MultiSelect = true, ShowIcons = st.ShowAppIcons };
+            srvListBox.RightText = n => DomainTag(SrvListKey(), n);
             srvListTabs.Selected += k => { st.SrvListTab = Math.Max(0, Array.IndexOf(SrvListKeys, k)); st.Save(); FillSrvLists(); };
             bAdd.Click += (s, e) =>
             {
@@ -266,7 +267,7 @@ namespace NetProbe
                     if (d.ShowDialog(this) == DialogResult.OK) foreach (var x in d.Result) AddToSrvList(key, x);
             };
             bPaste.Click += (s, e) => PasteToList(SrvListKey(), srvListBox);
-            bDel.Click += (s, e) => { var sel = srvListBox.SelectedItems; if (sel.Count > 0) { AppLists.Remove(SrvListKey(), sel); Logger.Write(LogLevel.Info, AppLists.Title(SrvListKey()) + Tx(": удалено ") + string.Join(", ", sel)); } };
+            bDel.Click += (s, e) => { var sel = srvListBox.SelectedItems; if (sel.Count > 0) RemoveFromList(SrvListKey(), sel); };
             srvListBox.DoubleClick += (s, e) => bAdd.PerformClick2();
             srvListBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) bDel.PerformClick2(); if (e.KeyCode == Keys.V && e.Control) bPaste.PerformClick2(); };
             AttachPathMenu(srvListBox, this);
@@ -274,7 +275,7 @@ namespace NetProbe
             miRen.Click += (s, e) => { var old = srvListBox.SelectedItem; if (old != null) RenameInList(SrvListKey(), old); };
             var miDom = new ToolStripMenuItem(Tx("Домены через DPI…"));
             miDom.Click += (s, e) => AddDomainsTo(SrvListKey(), srvListBox.SelectedItem);
-            srvListBox.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.HasDomains(SrvListKey());
+            srvListBox.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.DomKey(SrvListKey()) != null;
             srvListBox.ContextMenuStrip.Items.Add(new ToolStripSeparator());
             srvListBox.ContextMenuStrip.Items.Add(miRen);
             srvListBox.ContextMenuStrip.Items.Add(miDom);

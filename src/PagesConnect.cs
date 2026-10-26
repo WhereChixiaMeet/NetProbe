@@ -201,11 +201,12 @@ namespace NetProbe
                 lc.BPaste.Click += (s, e) => PasteToList(lc.Key, lc.Box);
                 AttachPathMenu(lc.Box, this);
                 var lcRef = lc;
+                lc.Box.RightText = n => n == ListCard.BuiltIn ? Tx("встроено") : DomainTag(lcRef.Key, n);
                 var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
                 miRen.Click += (s, e) => { var old = lcRef.Box.SelectedItem; if (old != null && old != ListCard.BuiltIn) RenameInList(lcRef.Key, old); };
                 var miDom = new ToolStripMenuItem(Tx("Домены через DPI…"));
                 miDom.Click += (s, e) => AddDomainsTo(lcRef.Key, lcRef.Box.SelectedItem);
-                lc.Box.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.HasDomains(lcRef.Key);
+                lc.Box.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.DomKey(lcRef.Key) != null;
                 lc.Box.ContextMenuStrip.Items.Add(miDom);
                 var miIco = new ToolStripMenuItem(Tx("Сменить иконку…"));
                 miIco.Click += (s, e) =>
@@ -218,7 +219,7 @@ namespace NetProbe
                 miIcoReset.Click += (s, e) => { var it = lcRef.Box.SelectedItem; if (it != null) { AppIcons.SetCustom(it, null); lcRef.Box.Invalidate(); } };
                 lc.Box.ContextMenuStrip.Items.Add(new ToolStripSeparator());
                 lc.Box.ContextMenuStrip.Items.AddRange(new ToolStripItem[] { miRen, miIco, miIcoReset });
-                lc.BDel.Click += (s, e) => { var sel = lc.Box.SelectedItems.Where(x => x != ListCard.BuiltIn).ToList(); if (sel.Count > 0) { AppLists.Remove(lc.Key, sel); Logger.Write(LogLevel.Info, AppLists.Title(lc.Key) + Tx(": удалено ") + string.Join(", ", sel)); } };
+                lc.BDel.Click += (s, e) => { var sel = lc.Box.SelectedItems.Where(x => x != ListCard.BuiltIn).ToList(); if (sel.Count > 0) RemoveFromList(lc.Key, sel); };
                 tip.SetToolTip(lc.BAdd, Tx("Добавить")); tip.SetToolTip(lc.BDel, Tx("Удалить")); tip.SetToolTip(lc.BPaste, Tx("Добавить список из буфера (по строкам или через запятую)"));
                 p.Controls.Add(lc);
             }
@@ -290,10 +291,14 @@ namespace NetProbe
         // тогда через VPN идёт всё, кроме этих доменов (они мимо туннеля, под DPI)
         void AddDomainsTo(string key, string item)
         {
-            if (item == null || item == ListCard.BuiltIn || !AppLists.HasDomains(key)) return;
+            key = AppLists.DomKey(key);
+            if (item == null || item == ListCard.BuiltIn || key == null) return;
             string app = AppLists.ParentOf(item);
             if (ExclusionSet.IsIp(app) || (!app.Contains("\\") && !app.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && app.Contains("."))) return; // это домен, а не приложение
-            string v = Prompt(Tx("Домены через DPI"), app + Tx(" — домены через DPI, остальное как обычно (через запятую):"), "");
+            string how = key == AppLists.SrvDpiApps
+                ? Tx("Если приложение есть и в Include: всё через сервер, кроме этих доменов — они напрямую под DPI (в TUN — только для этого приложения).")
+                : Tx("Если приложение есть и в Include VPN: всё через VPN, кроме этих доменов — они мимо туннеля под DPI. WireSock исключает IP доменов для всех приложений в туннеле; новые IP — при переподключении или раз в 10 мин.");
+            string v = Prompt(Tx("Домены через DPI"), app + Tx(" — домены через DPI (через запятую), например youtube.com") + "\r\n\r\n" + how, "");
             if (string.IsNullOrWhiteSpace(v)) return;
             var added = new List<string>();
             foreach (var x in v.Split(new[] { ',', ';', ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
@@ -301,9 +306,34 @@ namespace NetProbe
             if (added.Count > 0) Logger.Write(LogLevel.Info, AppLists.Title(key) + " · " + app + Tx(": домены через DPI ") + string.Join(", ", added));
         }
 
+        // метка справа в Include DPI: как на самом деле пойдёт приложение и его домены
+        string DomainTag(string key, string item)
+        {
+            if (key == null || item == null) return null;
+            if (AppLists.IsChild(item)) return "→ DPI";
+            if (!AppLists.HasDomains(key)) return null;
+            bool srv = key == AppLists.SrvDpiApps;
+            var inc = srv ? AppLists.Get(AppLists.SrvApps) : AppLists.Get(AppLists.HybridApps).Concat(AppLists.Get(AppLists.VpnOnlyApps)).ToList();
+            bool viaTunnel = inc.Count == 0 || inc.Contains(item, StringComparer.OrdinalIgnoreCase);
+            if (!viaTunnel) return null;
+            bool hasDom = AppLists.Domains(key).Any(d => d.Key.Equals(item, StringComparison.OrdinalIgnoreCase));
+            return srv ? (hasDom ? Tx("сервер, кроме доменов") : Tx("через сервер")) : (hasDom ? Tx("VPN, кроме доменов") : Tx("через VPN"));
+        }
+
+        // домены под приложением в Include VPN лежат в Include DPI — удаляются оттуда
+        void RemoveFromList(string key, List<string> sel)
+        {
+            var kids = sel.Where(AppLists.IsChild).ToList(); var rest = sel.Where(x => !AppLists.IsChild(x)).ToList();
+            string dk = AppLists.DomKey(key) ?? key;
+            if (kids.Count > 0) AppLists.Remove(dk, kids);
+            if (rest.Count > 0) AppLists.Remove(key, rest);
+            Logger.Write(LogLevel.Info, AppLists.Title(key) + Tx(": удалено ") + string.Join(", ", sel.Select(x => AppLists.IsChild(x) ? AppLists.ParentOf(x) + " · " + AppLists.ChildOf(x) : x)));
+        }
+
         void RenameInList(string key, string old)
         {
             bool child = AppLists.IsChild(old);
+            if (child) key = AppLists.DomKey(key) ?? key;
             string v = Prompt(Tx("Переименовать"), child ? Tx("Домен:") : Tx("Имя процесса, путь, домен или IP:"), child ? AppLists.ChildOf(old) : old);
             if (string.IsNullOrWhiteSpace(v)) return;
             v = v.Trim();

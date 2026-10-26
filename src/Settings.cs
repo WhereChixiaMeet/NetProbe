@@ -438,6 +438,14 @@ namespace NetProbe
         public const char Sep = '|';
         public static readonly string[] DomainKeys = { DpiApps, SrvDpiApps };
         public static bool HasDomains(string key) { return Array.IndexOf(DomainKeys, key) >= 0; }
+        // где хранятся домены для приложений этого списка: Include VPN / Strict → Include DPI, Servers Include → Servers Include DPI
+        public static string DomKey(string key)
+        {
+            if (HasDomains(key)) return key;
+            if (key == HybridApps || key == VpnOnlyApps) return DpiApps;
+            if (key == SrvApps) return SrvDpiApps;
+            return null;
+        }
         public static bool IsChild(string s) { return s != null && s.IndexOf(Sep) > 0; }
         public static string ParentOf(string s) { int i = s.IndexOf(Sep); return i > 0 ? s.Substring(0, i) : s; }
         public static string ChildOf(string s) { int i = s.IndexOf(Sep); return i > 0 ? s.Substring(i + 1) : s; }
@@ -445,10 +453,17 @@ namespace NetProbe
         // только приложения, без доменов
         public static List<string> Apps(string key) { return Get(key).Where(x => !IsChild(x)).ToList(); }
 
-        // для показа: каждое приложение, сразу под ним его домены
+        // для показа: каждое приложение, сразу под ним его домены (в Include VPN — домены из Include DPI, чтобы было видно)
         public static List<string> Display(string key)
         {
             var all = Get(key); var res = new List<string>();
+            string dk = DomKey(key);
+            if (dk != null && dk != key)
+            {
+                var doms = Domains(dk);
+                foreach (var a in all) { res.Add(a); res.AddRange(doms.Where(d => d.Key.Equals(a, StringComparison.OrdinalIgnoreCase)).Select(d => d.Key + Sep + d.Value)); }
+                return res;
+            }
             foreach (var a in all.Where(x => !IsChild(x)))
             {
                 res.Add(a);

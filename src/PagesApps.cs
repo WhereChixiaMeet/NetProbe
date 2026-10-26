@@ -38,6 +38,7 @@ namespace NetProbe
                 var l = Ui.Hint(label, Theme.S(510)); l.Location = new Point(Theme.S(16), Theme.S(14));
                 var tb = Ui.TextBox(val); tb.SetBounds(Theme.S(16), l.Bottom + Theme.S(8), Theme.S(510), tb.Height);
                 var ok = new FlatButton("OK", true).AutoW(); ok.Location = new Point(Theme.S(526) - ok.Width, tb.Bottom + Theme.S(14));
+                f.ClientSize = new Size(f.ClientSize.Width, Math.Max(f.ClientSize.Height, ok.Bottom + Theme.S(16))); // длинная подсказка — окно выше
                 ok.Click += (s, e) => { f.DialogResult = DialogResult.OK; f.Close(); };
                 f.Controls.AddRange(new Control[] { l, tb, ok });
                 f.AcceptButton = null;
