@@ -351,6 +351,8 @@ namespace NetProbe
     // Генерация конфига xray и запуск процесса
     public static class XrayConfig
     {
+        public static Func<List<string>> DirectDomains; // домены из «через DPI» вкладки «Серверы»: в режиме прокси (без TUN) — напрямую для всех
+
         public static string Build(Settings st, ServerEntry srv, bool stats = false)
         {
             var inbounds = new List<object>
@@ -361,6 +363,9 @@ namespace NetProbe
             };
             var rules = new List<object>();
             rules.Add(new Dictionary<string, object> { { "type", "field" }, { "ip", new[] { "geoip:private" } }, { "outboundTag", "direct" } });
+            var dd = !st.TunMode && DirectDomains != null ? DirectDomains() : new List<string>();
+            if (dd.Any(d => !ExclusionSet.IsIp(d))) rules.Add(new Dictionary<string, object> { { "type", "field" }, { "domain", dd.Where(d => !ExclusionSet.IsIp(d)).Select(d => "domain:" + d).ToArray() }, { "outboundTag", "direct" } });
+            if (dd.Any(ExclusionSet.IsIp)) rules.Add(new Dictionary<string, object> { { "type", "field" }, { "ip", dd.Where(ExclusionSet.IsIp).ToArray() }, { "outboundTag", "direct" } });
             if (st.BypassRu)
             {
                 rules.Add(new Dictionary<string, object> { { "type", "field" }, { "domain", new[] { "geosite:category-ru", "domain:ru", "domain:su", "domain:xn--p1ai" } }, { "outboundTag", "direct" } });

@@ -46,6 +46,7 @@ namespace NetProbe
         public string GameTcp = "1024-65535";
         public string GameUdp = "1024-65535";
         public int ExclRefreshSec = 10;      // обновление IP исключённых процессов для DPI
+        public int DomainReapplyMin = 10;    // домены приложений через DPI: новые IP из кэша DNS → перезапуск туннеля не чаще, мин (0 = только при подключении)
 
         // --- серверы (xray, аналог v2rayN) ---
         public string XrayDir = "";          // пусто = <папка приложения>\xray
@@ -428,7 +429,65 @@ namespace NetProbe
         public static void Remove(string key, IEnumerable<string> items)
         {
             var rm = new HashSet<string>(items, StringComparer.OrdinalIgnoreCase);
-            Set(key, Get(key).Where(x => !rm.Contains(x)));
+            // вместе с приложением удаляются и его домены
+            Set(key, Get(key).Where(x => !rm.Contains(x) && !(IsChild(x) && rm.Contains(ParentOf(x)))));
+        }
+
+        // ---- домены под приложением: строка «приложение|домен» в списке Include DPI ----
+        // brave.exe в Include VPN + youtube.com под brave.exe в Include DPI → весь brave через VPN, кроме youtube.com — он через DPI
+        public const char Sep = '|';
+        public static readonly string[] DomainKeys = { DpiApps, SrvDpiApps };
+        public static bool HasDomains(string key) { return Array.IndexOf(DomainKeys, key) >= 0; }
+        public static bool IsChild(string s) { return s != null && s.IndexOf(Sep) > 0; }
+        public static string ParentOf(string s) { int i = s.IndexOf(Sep); return i > 0 ? s.Substring(0, i) : s; }
+        public static string ChildOf(string s) { int i = s.IndexOf(Sep); return i > 0 ? s.Substring(i + 1) : s; }
+
+        // только приложения, без доменов
+        public static List<string> Apps(string key) { return Get(key).Where(x => !IsChild(x)).ToList(); }
+
+        // для показа: каждое приложение, сразу под ним его домены
+        public static List<string> Display(string key)
+        {
+            var all = Get(key); var res = new List<string>();
+            foreach (var a in all.Where(x => !IsChild(x)))
+            {
+                res.Add(a);
+                res.AddRange(all.Where(x => IsChild(x) && ParentOf(x).Equals(a, StringComparison.OrdinalIgnoreCase)));
+            }
+            return res;
+        }
+
+        // пары (приложение, домен), у которых приложение есть в списке
+        public static List<KeyValuePair<string, string>> Domains(string key)
+        {
+            var all = Get(key);
+            var apps = new HashSet<string>(all.Where(x => !IsChild(x)), StringComparer.OrdinalIgnoreCase);
+            return all.Where(x => IsChild(x) && apps.Contains(ParentOf(x))).Select(x => new KeyValuePair<string, string>(ParentOf(x), ChildOf(x))).ToList();
+        }
+
+        public static bool AddDomain(string key, string app, string domain)
+        {
+            domain = (domain ?? "").Trim().Trim('"', '\'').TrimStart('*', '.').ToLowerInvariant();
+            if (domain.StartsWith("http://")) domain = domain.Substring(7);
+            if (domain.StartsWith("https://")) domain = domain.Substring(8);
+            int sl = domain.IndexOf('/'); if (sl > 0 && !ExclusionSet.IsIp(domain)) domain = domain.Substring(0, sl);
+            if (domain.StartsWith("www.")) domain = domain.Substring(4);
+            if (domain.Length == 0 || domain.IndexOf(Sep) >= 0 || (!domain.Contains(".") && !domain.Contains(":"))) return false;
+            string line = app + Sep + domain;
+            var l = Get(key);
+            if (l.Any(x => x.Equals(line, StringComparison.OrdinalIgnoreCase))) return false;
+            if (!l.Any(x => x.Equals(app, StringComparison.OrdinalIgnoreCase))) l.Add(app);
+            l.Add(line); Set(key, l); return true;
+        }
+
+        // переименование приложения тянет за собой его домены
+        public static void Rename(string key, string old, string now)
+        {
+            now = now.Trim();
+            Set(key, Get(key).Select(x =>
+                x.Equals(old, StringComparison.OrdinalIgnoreCase) ? now :
+                IsChild(old) ? x :
+                IsChild(x) && ParentOf(x).Equals(old, StringComparison.OrdinalIgnoreCase) ? now + Sep + ChildOf(x) : x));
         }
     }
 }

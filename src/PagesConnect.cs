@@ -74,7 +74,7 @@ namespace NetProbe
             if (Key == null) return;
             Box.BeginUpdate(); Box.Items.Clear();
             if (Key == AppLists.HybridApps) Box.Items.Add(BuiltIn); // пробник VPN всегда в туннеле — показываем, но не храним в списке
-            foreach (var x in AppLists.Get(Key)) if (!x.Equals(BuiltIn, StringComparison.OrdinalIgnoreCase)) Box.Items.Add(x);
+            foreach (var x in AppLists.Display(Key)) if (!x.Equals(BuiltIn, StringComparison.OrdinalIgnoreCase)) Box.Items.Add(x);
             Box.EndUpdate();
         }
         protected override void OnResize(EventArgs e)
@@ -202,13 +202,11 @@ namespace NetProbe
                 AttachPathMenu(lc.Box, this);
                 var lcRef = lc;
                 var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
-                miRen.Click += (s, e) =>
-                {
-                    var old = lcRef.Box.SelectedItem; if (old == null || old == ListCard.BuiltIn) return;
-                    string v = Prompt(Tx("Переименовать"), Tx("Имя процесса, путь, домен или IP:"), old);
-                    if (string.IsNullOrWhiteSpace(v) || v == old) return;
-                    AppLists.Set(lcRef.Key, AppLists.Get(lcRef.Key).Select(x => x.Equals(old, StringComparison.OrdinalIgnoreCase) ? v.Trim() : x));
-                };
+                miRen.Click += (s, e) => { var old = lcRef.Box.SelectedItem; if (old != null && old != ListCard.BuiltIn) RenameInList(lcRef.Key, old); };
+                var miDom = new ToolStripMenuItem(Tx("Домены через DPI…"));
+                miDom.Click += (s, e) => AddDomainsTo(lcRef.Key, lcRef.Box.SelectedItem);
+                lc.Box.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.HasDomains(lcRef.Key);
+                lc.Box.ContextMenuStrip.Items.Add(miDom);
                 var miIco = new ToolStripMenuItem(Tx("Сменить иконку…"));
                 miIco.Click += (s, e) =>
                 {
@@ -288,6 +286,32 @@ namespace NetProbe
             list.ContextMenuStrip = cm;
         }
 
+        // ПКМ → «Домены через DPI…»: домены под приложением. Приложение может быть и в Include VPN —
+        // тогда через VPN идёт всё, кроме этих доменов (они мимо туннеля, под DPI)
+        void AddDomainsTo(string key, string item)
+        {
+            if (item == null || item == ListCard.BuiltIn || !AppLists.HasDomains(key)) return;
+            string app = AppLists.ParentOf(item);
+            if (ExclusionSet.IsIp(app) || (!app.Contains("\\") && !app.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && app.Contains("."))) return; // это домен, а не приложение
+            string v = Prompt(Tx("Домены через DPI"), app + Tx(" — домены через DPI, остальное как обычно (через запятую):"), "");
+            if (string.IsNullOrWhiteSpace(v)) return;
+            var added = new List<string>();
+            foreach (var x in v.Split(new[] { ',', ';', ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+                if (AppLists.AddDomain(key, app, x)) added.Add(AppLists.ChildOf(AppLists.Get(key).Last()));
+            if (added.Count > 0) Logger.Write(LogLevel.Info, AppLists.Title(key) + " · " + app + Tx(": домены через DPI ") + string.Join(", ", added));
+        }
+
+        void RenameInList(string key, string old)
+        {
+            bool child = AppLists.IsChild(old);
+            string v = Prompt(Tx("Переименовать"), child ? Tx("Домен:") : Tx("Имя процесса, путь, домен или IP:"), child ? AppLists.ChildOf(old) : old);
+            if (string.IsNullOrWhiteSpace(v)) return;
+            v = v.Trim();
+            if (child) { if (v.IndexOf(AppLists.Sep) >= 0) return; v = AppLists.ParentOf(old) + AppLists.Sep + v.ToLowerInvariant(); }
+            if (v == old || (!child && v.IndexOf(AppLists.Sep) >= 0)) return;
+            AppLists.Rename(key, old, v);
+        }
+
         void SetupListCards()
         {
             string[] keys; string[][] titles;
@@ -295,7 +319,7 @@ namespace NetProbe
             {
                 case RouteMode.DpiOnly:
                     keys = new[] { AppLists.DpiApps, AppLists.DpiDomains, AppLists.DpiOnlyExcl };
-                    titles = new[] { new[] { Tx("Через VPN"), Tx("приложения мимо VPN под DPI") }, new[] { Tx("Домены"), Tx("домены через DPI") }, new[] { Tx("Исключения"), Tx("мимо DPI") } };
+                    titles = new[] { new[] { Tx("Через VPN"), Tx("приложения мимо VPN под DPI · ПКМ → домены приложения через DPI, остальное через VPN") }, new[] { Tx("Домены"), Tx("домены через DPI") }, new[] { Tx("Исключения"), Tx("мимо DPI") } };
                     break;
                 case RouteMode.VpnOnly:
                     keys = new[] { AppLists.HybridApps, AppLists.VpnOnlyApps, AppLists.VpnOnlyExcl };

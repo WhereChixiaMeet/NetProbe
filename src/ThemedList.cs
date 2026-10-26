@@ -116,7 +116,16 @@ namespace NetProbe
                 else if (i == hover) using (var b = new SolidBrush(Theme.Mix(back, Theme.CardHi, 0.5))) g.FillRectangle(b, r);
                 Color fg = s && Theme.Classic ? Theme.AccentFg : Theme.Text;
                 int x = Theme.S(8);
-                if (ShowIcons)
+                string text = Items[i];
+                // «приложение|домен» — домен под приложением: отступ и значок глобуса
+                if (AppLists.IsChild(text))
+                {
+                    x += Theme.S(20);
+                    TextRenderer.DrawText(g, "\uE774", Theme.Icons, new Rectangle(x, r.Y, Theme.S(16), rh), s && Theme.Classic ? Theme.AccentFg : Theme.Muted, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+                    x += Theme.S(24);
+                    text = AppLists.ChildOf(text);
+                }
+                else if (ShowIcons)
                 {
                     int isz = Theme.S(16);
                     var ico = AppIcons.Get(Items[i], this);
@@ -127,7 +136,7 @@ namespace NetProbe
                 string right = RightText != null ? RightText(Items[i]) : null;
                 int rw = string.IsNullOrEmpty(right) ? 0 : TextRenderer.MeasureText(right, Theme.Small).Width + Theme.S(8);
                 bool bold = BoldItem != null && BoldItem(Items[i]);
-                TextRenderer.DrawText(g, Items[i], bold ? Theme.Bold : Theme.Body, new Rectangle(x, r.Y, w - x - rw, rh), fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                TextRenderer.DrawText(g, text, bold ? Theme.Bold : Theme.Body, new Rectangle(x, r.Y, w - x - rw, rh), fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                 if (rw > 0) TextRenderer.DrawText(g, right, Theme.Small, new Rectangle(w - rw, r.Y, rw - Theme.S(4), rh), s && Theme.Classic ? Theme.AccentFg : Theme.Accent, TextFormatFlags.VerticalCenter | TextFormatFlags.Right);
             }
             if (Items.Count == 0) TextRenderer.DrawText(g, "—", Theme.Body, new Rectangle(0, 0, Width, rh * 2), Theme.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);

@@ -36,7 +36,7 @@ namespace NetProbe
         public DateTime ConnectedAt, LastOk = DateTime.MinValue;
         readonly XrayProcess x = new XrayProcess();
         readonly SingBoxProcess sb = new SingBoxProcess();
-        public Func<Tuple<List<string>, List<string>>> GetTunLists; // (include, exclude)
+        public Func<TunLists> GetTunLists;
         public Func<string> TunBlocked;                            // причина, по которой TUN нельзя включить (например, работает WireSock)
         DateTime lastTunTry = DateTime.MinValue;
         public bool TunRunning { get { return sb.Running; } }
@@ -131,9 +131,9 @@ namespace NetProbe
             if (why != null) { Detail = why; return; }
             lastTunTry = DateTime.Now;
             var l = GetTunLists();
-            string err = sb.Start(st, SingBoxConfig.Build(st, l.Item1, l.Item2));
+            string err = sb.Start(st, SingBoxConfig.Build(st, l));
             if (err != null) Logger.Write(LogLevel.Error, err);
-            else Logger.Write(LogLevel.Route, "TUN (sing-box) " + Tx("запущен") + " · " + (l.Item1.Count == 0 ? Tx("весь трафик через сервер") : Tx("приложений через сервер: ") + l.Item1.Count) + (l.Item2.Count > 0 ? " · " + Tx("исключений: ") + l.Item2.Count : ""));
+            else Logger.Write(LogLevel.Route, "TUN (sing-box) " + Tx("запущен") + " · " + (l.Include.Count == 0 ? Tx("весь трафик через сервер") : Tx("приложений через сервер: ") + l.Include.Count) + (l.Exclude.Count > 0 ? " · " + Tx("исключений: ") + l.Exclude.Count : "") + (l.Domains.Count > 0 ? " · " + Tx("доменов через DPI: ") + l.Domains.Count : ""));
         }
 
         void Loop()

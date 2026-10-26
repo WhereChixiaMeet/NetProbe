@@ -17,7 +17,7 @@ namespace NetProbe
         StatusBoard xBoard; FlatButton btnXConnect, btnXDpi, btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
         TabStrip srvTabs, srvListTabs; ThemedList srvListBox; Toggle tgTun; ToolTip srvTip;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb;
-        readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 };
+        readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
         static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
 
         void InitXray()
@@ -31,25 +31,31 @@ namespace NetProbe
             xm.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if ((xm.State == XState.Off) != (lastX == XState.Off)) RebuildProbers(); lastX = xm.State; UpdateServersUi(); UpdateSide(); })); } catch { } };
             // DPI «Серверов» не зависит от кнопки VPN: запасной вариант автосвитча и приложения «через DPI»
             xm.DpiFallback = on => router.StandaloneDpi(on);
-            xm.NeedDpi = () => AppLists.Get(AppLists.SrvDpiApps).Count > 0;
+            xm.NeedDpi = () => AppLists.Apps(AppLists.SrvDpiApps).Count > 0;
             router.DpiHold = () => xm.DpiWanted;
             router.ExtraDpiExcl = () => xm.Active ? AppLists.Get(AppLists.SrvDpiExcl) : new List<string>();
-            // TUN берёт свои списки вкладки «Серверы»: Include → сервер, Exclude и «через DPI» → напрямую
+            // TUN берёт свои списки вкладки «Серверы»: Include → сервер, Exclude и «через DPI» → напрямую.
+            // Приложение и в Include, и в «через DPI» идёт через сервер, кроме своих доменов из «через DPI»
             xm.GetTunLists = () =>
             {
                 var inc = AppLists.Get(AppLists.SrvApps);
-                var exc = AppLists.Get(AppLists.SrvExcl).Concat(AppLists.Get(AppLists.SrvDpiApps)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                return Tuple.Create(inc, exc);
+                var dpiOnly = AppLists.Apps(AppLists.SrvDpiApps).Where(a => !inc.Contains(a, StringComparer.OrdinalIgnoreCase));
+                var exc = AppLists.Get(AppLists.SrvExcl).Concat(dpiOnly).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                return new TunLists { Include = inc, Exclude = exc, Domains = AppLists.Domains(AppLists.SrvDpiApps) };
             };
+            ZapretRunner.ExtraDomains = () => AppLists.Domains(AppLists.DpiApps).Concat(AppLists.Domains(AppLists.SrvDpiApps)).Select(d => d.Value).ToList();
+            XrayConfig.DirectDomains = () => AppLists.Domains(AppLists.SrvDpiApps).SelectMany(d => ExclusionSet.IsIp(d.Value) ? new List<string> { d.Value } : DomainRoutes.Expand(d.Value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             xm.TunBlocked = () => router.Wg.Running ? Tx("TUN не запущен: работает туннель WireSock (вкладка «Подключение»)") : null;
             AppLists.Changed += key =>
             {
                 if (!AppLists.IsServers(key)) return;
                 if (key != AppLists.SrvDpiExcl && xm.Active && st.TunMode) { tunReapply.Stop(); tunReapply.Start(); }
+                if (key == AppLists.SrvDpiApps && xm.Active && !st.TunMode) { srvProxyReapply.Stop(); srvProxyReapply.Start(); } // домены «через DPI» в режиме прокси — в правила xray
                 if (key == AppLists.SrvDpiApps) xm.ReapplyDpi();
                 if (key == AppLists.SrvDpiApps || key == AppLists.SrvDpiExcl) router.RefreshDpiExclusions();
             };
             tunReapply.Tick += (s, e) => { tunReapply.Stop(); xm.ReapplyTun(); };
+            srvProxyReapply.Tick += (s, e) => { srvProxyReapply.Stop(); if (xm.Active) xm.Reapply(); };
             ServerStore.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => FillServers())); } catch { } };
         }
 
@@ -260,16 +266,13 @@ namespace NetProbe
             srvListBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) bDel.PerformClick2(); if (e.KeyCode == Keys.V && e.Control) bPaste.PerformClick2(); };
             AttachPathMenu(srvListBox, this);
             var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
-            miRen.Click += (s, e) =>
-            {
-                var old = srvListBox.SelectedItem; if (old == null) return;
-                string v = Prompt(Tx("Переименовать"), Tx("Имя процесса, путь, домен или IP:"), old);
-                if (string.IsNullOrWhiteSpace(v) || v == old) return;
-                string key = SrvListKey();
-                AppLists.Set(key, AppLists.Get(key).Select(x => x.Equals(old, StringComparison.OrdinalIgnoreCase) ? v.Trim() : x));
-            };
+            miRen.Click += (s, e) => { var old = srvListBox.SelectedItem; if (old != null) RenameInList(SrvListKey(), old); };
+            var miDom = new ToolStripMenuItem(Tx("Домены через DPI…"));
+            miDom.Click += (s, e) => AddDomainsTo(SrvListKey(), srvListBox.SelectedItem);
+            srvListBox.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.HasDomains(SrvListKey());
             srvListBox.ContextMenuStrip.Items.Add(new ToolStripSeparator());
             srvListBox.ContextMenuStrip.Items.Add(miRen);
+            srvListBox.ContextMenuStrip.Items.Add(miDom);
             card.Controls.AddRange(new Control[] { lTun, tgTun, bPaste, bAdd, bDel, srvListTabs, srvListBox });
             int ip = Theme.S(10), lh = Theme.S(130);
             bDel.Location = new Point(w - ip - bDel.Width, Theme.S(10));
@@ -291,21 +294,22 @@ namespace NetProbe
         {
             if (srvListTabs == null || srvListTabs.IsDisposed) return;
             string[] names = { "Include", "Exclude", "Include DPI", "Exclude DPI" };
-            string[] tips = { Tx("Через сервер · пусто = весь трафик"), Tx("Мимо сервера, напрямую"), Tx("Мимо сервера, под DPI — zapret включается сам"), Tx("Мимо DPI") };
+            string[] tips = { Tx("Через сервер · пусто = весь трафик"), Tx("Мимо сервера, напрямую"), Tx("Мимо сервера, под DPI — zapret включается сам · ПКМ → домены приложения через DPI, остальное через сервер"), Tx("Мимо DPI") };
             srvListTabs.SelectedKey = SrvListKey();
-            srvListTabs.SetTabs(SrvListKeys.Select((k, i) => { int n = AppLists.Get(k).Count; return new TabStrip.Tab { Key = k, Text = names[i], Badge = n > 0 ? n.ToString() : null, Tip = tips[i] }; }));
-            var items = AppLists.Get(SrvListKey());
+            srvListTabs.SetTabs(SrvListKeys.Select((k, i) => { int n = AppLists.Apps(k).Count; return new TabStrip.Tab { Key = k, Text = names[i], Badge = n > 0 ? n.ToString() : null, Tip = tips[i] }; }));
+            var items = AppLists.Display(SrvListKey());
             srvListBox.BeginUpdate(); srvListBox.Items.Clear(); srvListBox.Items.AddRange(items); srvListBox.EndUpdate();
         }
 
-        // Include / Exclude / «через DPI» взаимоисключающие; «через DPI» и «мимо DPI» — тоже
+        // Exclude не совмещается с Include / «через DPI»; «через DPI» и «мимо DPI» — тоже
         void AddToSrvList(string key, string item)
         {
             if (string.IsNullOrWhiteSpace(item)) return;
             item = item.Trim();
             var one = new[] { item };
-            var excl = new[] { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps };
-            if (excl.Contains(key)) foreach (var k in excl) if (k != key) AppLists.Remove(k, one);
+            // Include и Include DPI не вычищают друг друга: приложение в обоих = через сервер, кроме своих доменов из Include DPI
+            if (key == AppLists.SrvExcl) { AppLists.Remove(AppLists.SrvApps, one); AppLists.Remove(AppLists.SrvDpiApps, one); }
+            if (key == AppLists.SrvApps || key == AppLists.SrvDpiApps) AppLists.Remove(AppLists.SrvExcl, one);
             if (key == AppLists.SrvDpiApps) AppLists.Remove(AppLists.SrvDpiExcl, one);
             if (key == AppLists.SrvDpiExcl) AppLists.Remove(AppLists.SrvDpiApps, one);
             AppLists.PushRecent(item);

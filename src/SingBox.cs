@@ -13,13 +13,29 @@ namespace NetProbe
 {
     // TUN-режим для раздела Servers: sing-box поднимает виртуальный адаптер и по процессам решает,
     // что отправить в локальный socks xray (выбранный сервер), а что напрямую. Протоколы по-прежнему обслуживает xray.
+    // Списки TUN: Include → сервер, Exclude → напрямую, Domains — (приложение, домен) мимо сервера под DPI
+    public class TunLists
+    {
+        public List<string> Include = new List<string>(), Exclude = new List<string>();
+        public List<KeyValuePair<string, string>> Domains = new List<KeyValuePair<string, string>>();
+    }
+
     public static class SingBoxConfig
     {
+        static string Cidr(string i) { return i.Contains("/") ? i : i + (i.Contains(":") ? "/128" : "/32"); }
+
+        static List<KeyValuePair<string, List<string>>> DomainGroups(List<KeyValuePair<string, string>> pairs)
+        {
+            return pairs.GroupBy(p => p.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new KeyValuePair<string, List<string>>(g.Key, g.SelectMany(p => ExclusionSet.IsIp(p.Value) ? new List<string> { p.Value } : DomainRoutes.Expand(p.Value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList())).ToList();
+        }
+
         static string Rx(string entry) { return "(?i)" + Regex.Escape(entry.Trim()); } // подстрока пути, как у WireSock
 
-        public static string Build(Settings st, List<string> include, List<string> exclude)
+        public static string Build(Settings st, TunLists l)
         {
-            var ex = ExclusionSet.From(exclude);
+            var include = l.Include;
+            var ex = ExclusionSet.From(l.Exclude);
             var rules = new List<object>
             {
                 new Dictionary<string, object> { { "action", "sniff" } },
@@ -28,9 +44,20 @@ namespace NetProbe
                 // собственные процессы — всегда напрямую, иначе петля
                 new Dictionary<string, object> { { "process_name", new[] { "xray.exe", "sing-box.exe", "netprobe-direct.exe", "wiresock-client.exe", "winws.exe" } }, { "outbound", "direct" } }
             };
+            // домены под приложением (Include DPI): это приложение + этот домен → напрямую (winws обработает), остальное как обычно
+            var dnsRules = new List<object>();
+            foreach (var g in DomainGroups(l.Domains))
+            {
+                var r = new Dictionary<string, object> { { "process_path_regex", new[] { Rx(g.Key) } }, { "outbound", "direct" } };
+                var rd = new Dictionary<string, object> { { "process_path_regex", new[] { Rx(g.Key) } }, { "server", "local" } };
+                var doms = g.Value.Where(d => !ExclusionSet.IsIp(d)).ToArray();
+                var ips = g.Value.Where(ExclusionSet.IsIp).Select(Cidr).ToArray();
+                if (doms.Length > 0) { r["domain_suffix"] = doms; rd["domain_suffix"] = doms; dnsRules.Add(rd); rules.Add(r); }
+                if (ips.Length > 0) rules.Add(new Dictionary<string, object> { { "process_path_regex", new[] { Rx(g.Key) } }, { "ip_cidr", ips }, { "outbound", "direct" } });
+            }
             if (ex.Processes.Count > 0) rules.Add(new Dictionary<string, object> { { "process_path_regex", ex.Processes.Select(Rx).ToArray() }, { "outbound", "direct" } });
             if (ex.Domains.Count > 0) rules.Add(new Dictionary<string, object> { { "domain_suffix", ex.Domains.ToArray() }, { "outbound", "direct" } });
-            if (ex.Ips.Count > 0) rules.Add(new Dictionary<string, object> { { "ip_cidr", ex.Ips.Select(i => i.Contains("/") ? i : i + (i.Contains(":") ? "/128" : "/32")).ToArray() }, { "outbound", "direct" } });
+            if (ex.Ips.Count > 0) rules.Add(new Dictionary<string, object> { { "ip_cidr", ex.Ips.Select(Cidr).ToArray() }, { "outbound", "direct" } });
             bool all = include.Count == 0;
             if (!all)
             {
@@ -46,7 +73,7 @@ namespace NetProbe
                             new Dictionary<string, object> { { "tag", "remote" }, { "type", "tcp" }, { "server", "1.1.1.1" }, { "detour", "proxy" } },
                             new Dictionary<string, object> { { "tag", "local" }, { "type", "local" } } } },
                         { "final", all ? "remote" : "local" },
-                        { "rules", all ? new object[0] : new object[] { new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", "remote" } } } },
+                        { "rules", dnsRules.Concat(all ? new object[0] : new object[] { new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", "remote" } } }).ToArray() },
                         { "strategy", "ipv4_only" }
                     } },
                 { "inbounds", new object[] { new Dictionary<string, object> {

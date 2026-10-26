@@ -25,8 +25,8 @@ namespace NetProbe
             if (key == AppLists.HybridApps || key == AppLists.VpnOnlyApps) AppLists.Remove(AppLists.HybridExcl, new[] { item });
             if (key == AppLists.HybridApps) AppLists.Remove(AppLists.VpnOnlyApps, new[] { item });
             if (key == AppLists.VpnOnlyApps) AppLists.Remove(AppLists.HybridApps, new[] { item });
-            if (key == AppLists.DpiApps) { AppLists.Remove(AppLists.HybridApps, new[] { item }); AppLists.Remove(AppLists.VpnOnlyApps, new[] { item }); }
-            if (key == AppLists.HybridApps || key == AppLists.VpnOnlyApps) AppLists.Remove(AppLists.DpiApps, new[] { item });
+            // Include VPN и Include DPI не вычищают друг друга: приложение может быть в обоих —
+            // тогда через VPN всё, кроме доменов, заданных под ним в Include DPI
             AppLists.PushRecent(item);
             if (AppLists.Add(key, item)) Logger.Write(LogLevel.Info, AppLists.Title(key) + Tx(": добавлено ") + item + (router.Active ? Tx(" — применяется без отключения") : ""));
         }

@@ -144,6 +144,19 @@ namespace NetProbe
 
         public static string ExclIpFile { get { return Path.Combine(Settings.Sub("runtime"), "ipset-exclude-netprobe.txt"); } }
         public static string ExclHostFile { get { return Path.Combine(Settings.Sub("runtime"), "list-exclude-netprobe.txt"); } }
+        // list-general-user.txt + домены приложений из Include DPI — подставляется в стратегию вместо list-general-user.txt
+        public static string UserHostFile { get { return Path.Combine(Settings.Sub("runtime"), "list-general-netprobe.txt"); } }
+        public static Func<List<string>> ExtraDomains;
+
+        // winws сам перечитывает hostlist при изменении файла — перезапуск не нужен
+        public static void WriteUserHosts(string zdir)
+        {
+            var lines = new List<string>();
+            try { string f = Path.Combine(zdir, "lists", "list-general-user.txt"); if (File.Exists(f)) lines.AddRange(File.ReadAllLines(f).Select(x => x.Trim()).Where(x => x.Length > 0 && !x.StartsWith("#"))); } catch { }
+            if (ExtraDomains != null) try { lines.AddRange(ExtraDomains().Where(d => !ExclusionSet.IsIp(d)).SelectMany(DomainRoutes.Expand)); } catch { }
+            if (lines.Count == 0) lines.Add("domain.example.abc");
+            WriteIfChanged(UserHostFile, lines.Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+        }
 
         public static string Check(string zdir)
         {
@@ -216,6 +229,7 @@ namespace NetProbe
             flat = Regex.Replace(flat, "%GameFilterTCP%", gt, RegexOptions.IgnoreCase);
             flat = Regex.Replace(flat, "%GameFilterUDP%", gu, RegexOptions.IgnoreCase);
             flat = Regex.Replace(flat, "%GameFilter%", g, RegexOptions.IgnoreCase);
+            flat = Regex.Replace(flat, Regex.Escape(lists + "list-general-user.txt"), UserHostFile.Replace("$", "$$"), RegexOptions.IgnoreCase);
             // исключения NetProbe добавляются в каждый профиль
             string add = " --ipset-exclude=\"" + ExclIpFile + "\" --hostlist-exclude=\"" + ExclHostFile + "\"";
             var parts = Regex.Split(flat, @"\s+--new(?=\s|$)").Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
@@ -236,6 +250,7 @@ namespace NetProbe
             if (text.Trim().Length == 0) return Tx("Стратегия DPI «") + strategy + Tx("» пуста или не найдена.");
             EnsureUserLists(zdir);
             if (!File.Exists(ExclIpFile)) WriteExclusions(new ExclusionSet(), new string[0]);
+            WriteUserHosts(zdir);
             string args = BuildArgs(st, text);
             var psi = new ProcessStartInfo(Path.Combine(zdir, "bin", "winws.exe"), args)
             {

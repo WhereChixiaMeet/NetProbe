@@ -40,7 +40,8 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 | `Procs.cs` | process snapshot, TCP table (remote IPs per pid), kill switch (Windows Firewall rules "NetProbe KillSwitch") |
 | `Xray.cs` | share-link parsing (vless/vmess/trojan/ss/socks; reality/tls/ws/grpc/xhttp/h2), xray config builder, `ServerStore`, `DelayTester` |
 | `XrayManager.cs` | xray connection + **auto-switch** + system proxy + TUN start; port conflict handling |
-| `SingBox.cs` | TUN config: `process_path_regex` rules, Include → xray socks, Exclude → direct |
+| `SingBox.cs` | TUN config: `process_path_regex` rules, Include → xray socks, Exclude → direct, app+domain overrides → direct |
+| `DomainRoutes.cs` | domains under apps in Include DPI: CDN families, DNS / DNS-cache IP learning for WireSock `DisallowedIPs` |
 | `Updater.cs` | GitHub latest-release download/extract for xray, zapret, sing-box (into `config\runtime`) |
 | `Backup.cs` | export/import all settings as one JSON |
 | `Settings.cs` | `settings.ini` (reflection over public fields), `AppLists` (per-mode lists, recent apps) |
@@ -53,11 +54,12 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 ## Routing model
 - **DPI / VPN** (default): Include apps → WireSock tunnel. Probe `netprobe-vpn.exe` is always in the tunnel; if it gets no answer for N s (FailoverSec, default 7): primary → backup VPN (if the block is on) → DPI. In DPI state the tunnel stays up only for **Strict VPN** apps + probe; when VPN is stable RecoverSec s → back to VPN, DPI stops. Kill switch blocks Strict VPN apps when no VPN is reachable.
 - **VPN Only**: primary → backup → VpnDown (kill switch, retry every 30 s).
-- **DPI Only**: winws only. Lists: Include (DPI apps — mutually exclusive with VPN Include), Domains (`zapret\lists\list-general-user.txt`), Exclude.
+- **DPI Only**: winws only. Lists: Include (DPI apps; may overlap VPN Include — see domains under an app below), Domains (`zapret\lists\list-general-user.txt`), Exclude.
 - Mode cards only choose which mode's lists are being edited; they never reconnect. `Settings.Mode` = edited view, `Settings.VpnMode`/`RunMode` = how the VPN button runs (DPI/VPN or VPN Only). Router uses `RunMode`.
 - Custom background: cards become semi-transparent (`Theme.Translucent`, `CardOpacity`); custom controls paint `Gfx.Backdrop` (page image + translucent card ancestors) instead of clearing with the parent colour.
 - **DPI button** next to VPN on the Connection page: winws in parallel with VPN; not stopped by disconnect.
 - Lists per mode: `hybrid-apps` (Include), `vpnonly-apps` (Strict VPN), `hybrid-exclude`, `vpnonly-exclude`, `dpionly-exclude`, `dpi-apps`. Matching = substring of process name/path (WireSock semantics). `netprobe-vpn.exe` is shown as a built-in Include row but not stored.
+- **Domains under an app** (right-click in Include DPI → "Domains via DPI…"): stored as `app|domain` lines in `dpi-apps` / `servers-dpi-apps`. Include VPN and Include DPI no longer auto-remove each other: app in both = everything via VPN/server except its domains, which go direct under winws. WireSock has no per-app domain rules, so the domain (expanded to its CDN family in `DomainRoutes.Expand`, e.g. youtube → googlevideo/ytimg) is turned into IPs (DNS at tunnel start + Windows DNS cache every 60 s, kept in `config\runtime\domain-ips.txt`) and put into `DisallowedIPs` — this applies to all tunnelled apps; new IPs restart the tunnel at most every `DomainReapplyMin` min. winws runs alongside VPN while such domains exist; they are added to the hostlist via `config\runtime\list-general-netprobe.txt` (replaces `list-general-user.txt` in strategy args). In TUN (sing-box) the rule is exact (process + domain_suffix → direct); in proxy mode the domains go direct in xray for all apps.
 - DPI exclusions by process work through current TCP connections → `--ipset-exclude` file (winws cannot filter by process).
 - **Servers are independent of the VPN button**: own lists `servers-apps` (Include → xray), `servers-exclude` (direct), `servers-dpi-apps` (direct + winws started while xray is connected), `servers-dpi-exclude` (DPI exclusions). Seeded once from the Connection lists. Lists apply in TUN mode (sing-box); TUN is blocked while the WireSock tunnel runs. Router keeps winws running while `Router.DpiHold` (= `xm.DpiWanted`) is true.
 - Servers page: tabs All / Active (answered last test) / Favorite / Manual / one per subscription (⟳ updates only the open subscription). Columns GEO (flag in name, else exit country via cloudflare trace during the test), PORT, SPEED (curl download through the server, `SpeedUrl`), TOTAL ↓ (xray stats via `api.listen` on `ApiPort`, polled every 10 s with `xray api statsquery -reset`).
