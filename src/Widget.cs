@@ -49,8 +49,18 @@ namespace NetProbe
         {
             var wa = Screen.PrimaryScreen.WorkingArea;
             var p = new Point(x, y);
-            bool ok = x >= 0 && y >= 0;
-            if (ok) { ok = false; foreach (var s in Screen.AllScreens) if (s.WorkingArea.Contains(new Rectangle(p, new Size(Width / 2, Height / 2)))) ok = true; }
+            // monitors left of / above the primary one have negative coordinates; -1,-1 = never moved
+            bool ok = !(x == -1 && y == -1);
+            if (ok)
+            {
+                ok = false;
+                var r = new Rectangle(p, Size);
+                foreach (var s in Screen.AllScreens)
+                {
+                    var i = Rectangle.Intersect(s.WorkingArea, r);
+                    if (i.Width * 2 >= Width && i.Height * 2 >= Height) ok = true;
+                }
+            }
             Location = ok ? p : new Point(wa.Right - Width - Theme.S(16), wa.Bottom - Height - Theme.S(16));
         }
 
