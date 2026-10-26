@@ -517,7 +517,7 @@ namespace NetProbe
             { "Тема", "Theme" },
             { "Цвет акцента", "Accent color" },
             { "Русский", "Русский" },
-            { "Язык / Language", "Language / Язык" },
+            { "Язык / Language", "Language" },
             { "Уровень лога WireSock", "WireSock log level" },
             { "Виртуальный сетевой адаптер (-lac)", "Virtual network adapter (-lac)" },
             { "Остановить службу WireSock / TunnlTo", "Stop the WireSock / TunnlTo service" },
