@@ -187,13 +187,13 @@ namespace NetProbe
                 xBoard.SetBounds(L, y, W, Theme.S(84)); y = xBoard.Bottom + gap;
                 int x = L;
                 foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel }) { b.Location = new Point(x, y + (b == srcSwitch ? (bImp.Height - srcSwitch.Height) / 2 : 0)); x = b.Right + Theme.S(6); }
-                btnCore.Location = new Point(L + W - btnCore.Width, y);
-                btnSb.Location = new Point(btnCore.Left - Theme.S(6) - btnSb.Width, y);
-                // строка состояния — в свободном месте панели кнопок; поиск — справа от вкладок, над правой колонкой
-                lSrvInfo.SetBounds(x + Theme.S(8), y + (bImp.Height - Theme.S(18)) / 2, Math.Max(0, btnSb.Left - x - Theme.S(16)), Theme.S(18));
+                // строка состояния — в свободном месте панели кнопок; ядра xray / sing-box — в строке вкладок (не мешают тумблеру источника)
+                lSrvInfo.SetBounds(x + Theme.S(8), y + (bImp.Height - Theme.S(18)) / 2, Math.Max(0, L + W - x - Theme.S(8)), Theme.S(18));
                 y += bImp.Height + Theme.S(6);
                 int rw = Theme.S(360), lw = W - rw - gap;
-                srvTabs.SetBounds(L, y, lw, Theme.S(32));
+                btnCore.Location = new Point(L + lw - btnCore.Width, y);
+                btnSb.Location = new Point(btnCore.Left - Theme.S(6) - btnSb.Width, y);
+                srvTabs.SetBounds(L, y, Math.Max(Theme.S(120), btnSb.Left - L - Theme.S(8)), Theme.S(32));
                 tbSrvSearch.SetBounds(L + W - rw, y + (Theme.S(32) - tbSrvSearch.Height) / 2, rw, tbSrvSearch.Height); y += Theme.S(36);
                 int h = p.ClientSize.Height - Theme.S(18) - y;
                 gridCard.SetBounds(L, y, lw, h);

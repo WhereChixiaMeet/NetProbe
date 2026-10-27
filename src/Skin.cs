@@ -68,7 +68,7 @@ namespace NetProbe
             else
             {
                 // циферблат Zafkiel: окружность, 12 рисок, стрелка — золотом, очень бледно
-                float R = Theme.S(16), cx = r.Right - Theme.S(26), cy = r.Y + Theme.S(24);
+                float R = Theme.S(16), cx = r.Right - Theme.S(26), cy = r.Bottom - Theme.S(24); // внизу справа — там нет кнопок
                 using (var p = new Pen(Color.FromArgb(20, Theme.Accent2), Theme.S(1)))
                 {
                     g.DrawEllipse(p, cx - R, cy - R, R * 2, R * 2);
