@@ -7,6 +7,9 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Мониторинг: VPN и напрямую — клик открывает вкладку Monitor", "Monitoring: VPN and Direct — click to open the Monitor tab" },
+            { "DPI (zapret) параллельно — не выключается кнопкой VPN", "DPI (zapret) in parallel — not turned off by the VPN button" },
+            { "Подключить / отключить текущий режим из активного источника (Primary VPN или подписка)", "Connect / disconnect the current mode from the active source (Primary VPN or subscription)" },
             { "Непрозрачность карточек, %", "Card opacity, %" },
             { "Обновить NetProbe", "Update NetProbe" },
             { "Обновить до ", "Update to " },

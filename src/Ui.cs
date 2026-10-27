@@ -26,8 +26,8 @@ namespace NetProbe
             g.DrawImage(img, new Rectangle(0, 0, c.Width, c.Height), r.X * sx, r.Y * sy, r.Width * sx, r.Height * sy, GraphicsUnit.Pixel);
             g.InterpolationMode = im;
             for (var x = c.Parent; x != null && x != page; x = x.Parent)
-                if (x is CardPanel) using (var b = new SolidBrush(Theme.CardFill)) g.FillRectangle(b, 0, 0, c.Width, c.Height);
-                else if (!(x is CardPanel) && x.BackColor.A == 255 && x.BackgroundImage == null && x != page && !(x.Parent == page && x.Dock == DockStyle.Fill)) { using (var b = new SolidBrush(x.BackColor)) g.FillRectangle(b, 0, 0, c.Width, c.Height); }
+                if (x is CardPanel || x is StatusBoard) using (var b = new SolidBrush(Theme.CardFill)) g.FillRectangle(b, 0, 0, c.Width, c.Height);
+                else if (!(x is CardPanel) && !(x is StatusBoard) && x.BackColor.A == 255 && x.BackgroundImage == null && x != page && !(x.Parent == page && x.Dock == DockStyle.Fill)) { using (var b = new SolidBrush(x.BackColor)) g.FillRectangle(b, 0, 0, c.Width, c.Height); }
         }
 
         public static GraphicsPath Round(RectangleF r, float rad)
@@ -41,7 +41,9 @@ namespace NetProbe
                 return p;
             }
             float d = rad * 2;
-            if (d <= 0 || r.Width < d || r.Height < d) { p.AddRectangle(r); return p; }
+            // радиус больше половины стороны — «пилюля», а не квадрат (раньше тут был прямоугольник: квадратная каёмка у сегмента/кнопок)
+            d = Math.Min(d, Math.Min(r.Width, r.Height));
+            if (d < 1f) { p.AddRectangle(r); return p; }
             p.AddArc(r.X, r.Y, d, d, 180, 90);
             p.AddArc(r.Right - d, r.Y, d, d, 270, 90);
             p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);

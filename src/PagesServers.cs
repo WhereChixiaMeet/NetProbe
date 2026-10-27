@@ -15,7 +15,7 @@ namespace NetProbe
     {
         readonly XrayManager xm = new XrayManager();
         StatusBoard xBoard; FlatButton btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
-        TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; ModeSegment segSrv;
+        TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; ModeSegment segSrv; TopButtons topSrv;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb, btnTest, btnSpeed; ServerEntry speedNow;
         readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
         static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
@@ -60,10 +60,12 @@ namespace NetProbe
             var p = NewPage(Tx("Подписки"), Tx("xray · подписки · автосвитч"));
             var tt = Ui.Tip(); srvTip = tt;
             // отдельно от VPN на «Подключении»: xray работает и при выключенном VPN
-            segSrv = NewSegment(); // тот же сегмент ROUTE | VPN | DPI, что на Routing (синхронно)
+            topSrv = NewTopButtons(p, () => { var x = SelServers().FirstOrDefault(); return x != null ? x.Id : null; }); // те же кнопки, что на Routing
+            segSrv = NewSegment(); // тот же выбор режима ROUTE | VPN | DPI, что на Routing (синхронно)
+            segSrv.Size = new Size(Theme.S(222), Theme.S(30));
             srcSwitch = new SourceSwitch();
             srcSwitch.Picked += PickSource;
-            xBoard = new StatusBoard();
+            xBoard = new StatusBoard { Reserve = Theme.S(236) };
 
             // панель кнопок
             var bImp = new FlatButton(Tx("Из буфера")) { Glyph = "" }.AutoW();
@@ -178,13 +180,16 @@ namespace NetProbe
             int ry = BuildSrvLists(asBody);
             BuildAutoSwitch(asBody, ry);
 
-            p.Controls.AddRange(new Control[] { segSrv, xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, srvTabs, lSrvInfo, gridCard, asHost });
+            xBoard.Controls.Add(segSrv);
+            p.Controls.AddRange(new Control[] { xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, srvTabs, lSrvInfo, gridCard, asHost });
             Action lay = () =>
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
-                segSrv.Location = new Point(p.ClientSize.Width - L - segSrv.Width, Theme.S(22));
+                PlaceTopButtons(topSrv, p.ClientSize.Width - L, Theme.S(22));
                 int y = Theme.S(80);
-                xBoard.SetBounds(L, y, W, Theme.S(84)); y = xBoard.Bottom + gap;
+                xBoard.SetBounds(L, y, W, Theme.S(84));
+                segSrv.Location = new Point(xBoard.Width - Theme.S(14) - segSrv.Width, Theme.S(14));
+                y = xBoard.Bottom + gap;
                 int x = L;
                 foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel }) { b.Location = new Point(x, y + (b == srcSwitch ? (bImp.Height - srcSwitch.Height) / 2 : 0)); x = b.Right + Theme.S(6); }
                 // строка состояния — в свободном месте панели кнопок; ядра xray / sing-box — в строке вкладок (не мешают тумблеру источника)

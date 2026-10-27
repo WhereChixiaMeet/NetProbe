@@ -187,15 +187,18 @@ namespace NetProbe
             }
             else if (st.DpiButton == 1) router.SetManualDpi(true); // DPI был включён кнопкой до перезапуска
             // автоподключение: без диалогов, если туннель ещё не настроен (например, чистая установка)
-            if (handoff == null && st.AutoConnect)
+            // один источник: подписки поднимаются при старте только если они — активный источник (раньше xray мог
+            // подключиться параллельно с туннелем и «не выключался» кнопкой VPN маршрутизатора)
+            if (handoff == null)
             {
-                if (st.RunMode == RouteMode.DpiOnly || ActiveSource() == Source.Vpn) ConnectCurrent(false);
-                else Logger.Write(LogLevel.Info, Tx("Автоподключение пропущено: основной VPN-туннель не выбран"));
+                var src0 = ActiveSource();
+                if (st.AutoConnect && (st.RunMode == RouteMode.DpiOnly || src0 == Source.Vpn)) ConnectCurrent(false);
+                else if ((st.AutoConnect || st.XrayAutoConnect) && st.RunMode != RouteMode.DpiOnly && src0 == Source.Subs) ConnectCurrent(false);
+                else if (st.AutoConnect) Logger.Write(LogLevel.Info, Tx("Автоподключение пропущено: основной VPN-туннель не выбран"));
             }
             ScheduledUpdateCheck(true);
             updTimer.Tick += (s, e) => ScheduledUpdateCheck(false); updTimer.Start();
             appUpdTimer.Tick += (s, e) => { appUpdTimer.Stop(); if (st.CheckUpdates) CheckAppUpdate(false); else appUpdTimer.Start(); }; appUpdTimer.Start();
-            if (handoff == null && st.XrayAutoConnect && ServerStore.Find(st.ActiveServer) != null) { StartMonitoring(); xm.Connect(st.ActiveServer); }
         }
 
         // ================= Shell / navigation =================
@@ -296,9 +299,22 @@ namespace NetProbe
             sideStatus = new Label { AutoSize = false, ForeColor = Theme.Muted, Font = Theme.Small, BackColor = Theme.Side, Anchor = AnchorStyles.Left | AnchorStyles.Bottom | AnchorStyles.Right, TextAlign = ContentAlignment.BottomLeft, UseMnemonic = false };
             sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
             side.Controls.Add(sideStatus);
-            side.Resize += (s, e) => sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
+            // маленькая копия виджета Monitor — над строкой состояния
+            var oldMini = miniMon; miniMon = new MiniMonitor(); miniMon.CopyFrom(oldMini);
+            miniMon.DoubleClick += (s, e) => SelectPage(PgMonitor);
+            miniMon.Click += (s, e) => SelectPage(PgMonitor);
+            Ui.Tip().SetToolTip(miniMon, Tx("Мониторинг: VPN и напрямую — клик открывает вкладку Monitor"));
+            side.Controls.Add(miniMon);
+            Action laySide = () =>
+            {
+                sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
+                miniMon.SetBounds(Theme.S(12), sideStatus.Top - Theme.S(4) - miniMon.Height, side.Width - Theme.S(26), miniMon.Height);
+                int navBottom = navs.Count > 0 ? navs[navs.Count - 1].Bottom : 0;
+                miniMon.Visible = miniMon.Top > navBottom + Theme.S(8); // мало места по высоте — не налезаем на меню
+            };
+            side.Resize += (s, e) => laySide(); laySide();
         }
-        Label sideStatus;
+        Label sideStatus; MiniMonitor miniMon;
 
         Panel NewPage(string title, string subtitle)
         {
@@ -461,6 +477,7 @@ namespace NetProbe
             btnMon.Text = Tx("Запустить мониторинг"); btnMon.Primary = true; btnMon.Invalidate();
             if (miMonitor != null) miMonitor.Checked = false;
             widget.SetLevel(0, Level.Off, "—"); widget.SetLevel(1, Level.Off, "—");
+            if (miniMon != null) { miniMon.SetLevel(0, Level.Off, "—"); miniMon.SetLevel(1, Level.Off, "—"); }
             UpdateTray();
             Logger.Write(LogLevel.Info, Tx("Мониторинг остановлен"));
             UpdateInfo();
@@ -531,6 +548,7 @@ namespace NetProbe
 
             cs.Lv = lv; cs.Val = r.Ok ? F0(r.Latency) + Tx(" мс") : Tx("нет связи");
             widget.SetRow(isVpn ? 0 : 1, lv, cs.Val, r.Ok ? r.Latency : double.NaN);
+            if (miniMon != null && !miniMon.IsDisposed) miniMon.SetRow(isVpn ? 0 : 1, lv, r.Ok ? F0(r.Latency) + Tx(" мс") : "✗", r.Ok ? r.Latency : double.NaN);
             UpdateTray();
             if (isVpn) UpdateEffective();
         }
@@ -570,6 +588,7 @@ namespace NetProbe
             UpdateDpiState();
             UpdateTray();
             if (widget != null) { widget.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : ""; widget.Invalidate(); }
+            if (miniMon != null && !miniMon.IsDisposed) { miniMon.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : xm.Active ? "XRAY" : ""; miniMon.Invalidate(); }
         }
 
         void OnUiTick()

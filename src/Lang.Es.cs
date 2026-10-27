@@ -7,6 +7,9 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "Мониторинг: VPN и напрямую — клик открывает вкладку Monitor", "Monitorización: VPN y directo — clic para abrir la pestaña Monitor" },
+            { "DPI (zapret) параллельно — не выключается кнопкой VPN", "DPI (zapret) en paralelo: el botón VPN no lo apaga" },
+            { "Подключить / отключить текущий режим из активного источника (Primary VPN или подписка)", "Conectar / desconectar el modo actual desde la fuente activa (Primary VPN o suscripción)" },
             { "Непрозрачность карточек, %", "Opacidad de las tarjetas, %" },
             { "Обновить NetProbe", "Actualizar NetProbe" },
             { "Обновить до ", "Actualizar a " },

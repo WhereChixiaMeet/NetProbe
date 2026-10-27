@@ -7,6 +7,11 @@ namespace NetProbe
         // 简体中文。键 — 代码中的俄语字符串，值 — 中文译文
         static readonly Dictionary<string, string> Zh = new Dictionary<string, string>
         {
+            { "ВЫКЛ", "关" },
+            { "ВКЛ", "开" },
+            { "Мониторинг: VPN и напрямую — клик открывает вкладку Monitor", "监控：VPN 与直连 — 点击打开 Monitor 标签页" },
+            { "DPI (zapret) параллельно — не выключается кнопкой VPN", "DPI（zapret）并行运行 — VPN 按钮不会关闭它" },
+            { "Подключить / отключить текущий режим из активного источника (Primary VPN или подписка)", "从当前来源（Primary VPN 或订阅）连接 / 断开当前模式" },
             { "Непрозрачность карточек, %", "卡片不透明度，%" },
             { "Обновить NetProbe", "更新 NetProbe" },
             { "Обновить до ", "更新到 " },

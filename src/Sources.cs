@@ -58,14 +58,68 @@ namespace NetProbe
             return r;
         }
 
-        // клик по чипу сегмента: другой режим — выбрать и подключить; текущий при активном подключении — отключить
+        // клик по чипу сегмента — только выбор режима (подключение — кнопкой «VPN · ВКЛ»).
+        // Если что-то уже подключено, новый режим применяется сразу (переподключение).
         void ChipClick(int m)
         {
             var mode = (RouteMode)m;
-            if (mode == st.RunMode && AnyActive) { DisconnectAll(); return; }
-            if (st.RunMode != mode) { st.SetRunMode(mode); st.Save(); Logger.Write(LogLevel.Info, Tx("Режим: ") + Router.ModeName(mode)); }
+            if (st.RunMode == mode) return;
+            st.SetRunMode(mode); st.Save(); Logger.Write(LogLevel.Info, Tx("Режим: ") + Router.ModeName(mode));
+            if (AnyActive) ConnectCurrent(true);
+            UpdateModeUi();
+        }
+
+        // ---- верхние кнопки, одинаковые на Routing и Subscriptions: VPN · ВКЛ/ВЫКЛ, DPI · ВКЛ/ВЫКЛ, Маршрут ----
+        sealed class TopButtons { public FlatButton Vpn, Dpi, Route; }
+        readonly List<TopButtons> topButtons = new List<TopButtons>();
+
+        TopButtons NewTopButtons(Control page, Func<string> preferServer)
+        {
+            var t = new TopButtons();
+            t.Vpn = new FlatButton("VPN") { Glyph = "\uE7E8", Width = Theme.S(150), Height = Theme.S(36) };
+            t.Vpn.Click += (s, e) => VpnButtonClick(preferServer != null ? preferServer() : null);
+            t.Dpi = new FlatButton("DPI") { Glyph = "\uE7E8", Width = Theme.S(150), Height = Theme.S(36) };
+            t.Dpi.Click += (s, e) => { ToggleDpi(); UpdateModeUi(); };
+            t.Route = new FlatButton(Tx("Маршрут")) { Glyph = "\uE721", Height = Theme.S(36) }.AutoW();
+            t.Route.Click += (s, e) => ShowRoute(null, null);
+            var tip = Ui.Tip();
+            tip.SetToolTip(t.Vpn, Tx("Подключить / отключить текущий режим из активного источника (Primary VPN или подписка)"));
+            tip.SetToolTip(t.Dpi, Tx("DPI (zapret) параллельно — не выключается кнопкой VPN"));
+            tip.SetToolTip(t.Route, Tx("Куда идёт домен или приложение: VPN, DPI или напрямую — по тому, что реально запущено"));
+            page.Controls.AddRange(new Control[] { t.Route, t.Dpi, t.Vpn });
+            t.Vpn.Disposed += (s, e) => topButtons.Remove(t);
+            topButtons.Add(t);
+            return t;
+        }
+
+        // справа налево: VPN, DPI, Маршрут (как в 2.x)
+        static void PlaceTopButtons(TopButtons t, int right, int y)
+        {
+            t.Vpn.Location = new System.Drawing.Point(right - t.Vpn.Width, y);
+            t.Dpi.Location = new System.Drawing.Point(t.Vpn.Left - Theme.S(8) - t.Dpi.Width, y);
+            t.Route.Location = new System.Drawing.Point(t.Dpi.Left - Theme.S(8) - t.Route.Width, y);
+        }
+
+        void VpnButtonClick(string preferServer)
+        {
+            if (AnyActive || pendingXConnect != null) { DisconnectAll(); UpdateModeUi(); return; }
+            // на вкладке Subscriptions выбранный в таблице сервер — если подписки сейчас активный источник
+            if (preferServer != null && st.RunMode != RouteMode.DpiOnly && ActiveSource() == Source.Subs && ServerStore.Find(preferServer) != null)
+            { st.ActiveServer = preferServer; st.Save(); }
             ConnectCurrent(true);
             UpdateModeUi();
+        }
+
+        void UpdateTopButtons()
+        {
+            bool on = AnyActive, dpi = router.ManualDpi || router.Dpi.Running;
+            string why = ChipReasons()[(int)st.RunMode];
+            foreach (var t in topButtons.ToList())
+            {
+                if (t.Vpn.IsDisposed) continue;
+                t.Vpn.Primary = on; t.Vpn.Text = "VPN  ·  " + (on ? Tx("ВКЛ") : Tx("ВЫКЛ")); t.Vpn.Enabled = on || why == null; t.Vpn.Invalidate();
+                t.Dpi.Primary = dpi; t.Dpi.Text = "DPI  ·  " + (dpi ? Tx("ВКЛ") : Tx("ВЫКЛ")); t.Dpi.Invalidate();
+            }
         }
 
         void SetMode(RouteMode m)
@@ -123,10 +177,12 @@ namespace NetProbe
             XConnect(pick.Id, true);
         }
 
+        // «Отключить» гасит оба источника всегда, даже если состояние ещё не дошло до UI (xray в очереди / ставится ядро)
         void DisconnectAll()
         {
-            if (router.Active) router.Disconnect();
-            if (xm.Active) xm.Disconnect();
+            pendingXConnect = null;
+            if (router.Active) router.Disconnect(); // при Off не трогаем: winws кнопки DPI живёт отдельно
+            xm.Disconnect();
         }
 
         // тумблер источника (только в гибриде)
@@ -178,6 +234,7 @@ namespace NetProbe
                 srcSwitch.Value = ActiveSource() == Source.Subs ? 1 : 0;
                 srcSwitch.SetReason(!st.HybridMode ? Tx("Доступно только в Режиме гибрида (Настройки)") : TunnelCount == 0 ? Tx("Нет туннелей — работает только Subscriptions") : !HasSubs ? Tx("Нет подписок — работает только Primary VPN") : null);
             }
+            UpdateTopButtons();
             if (miModes != null) for (int i = 0; i < 3; i++) miModes[i].Checked = i == st.Mode;
             UpdateSide();
         }

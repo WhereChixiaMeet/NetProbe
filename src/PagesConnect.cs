@@ -37,8 +37,9 @@ namespace NetProbe
     public class StatusBoard : DoubleBufferedControl
     {
         public string State = "", Line1 = "", Line2 = "";
+        public int Reserve; // справа под заголовком занято (выбор режима)
         public Level Lv = Level.Off;
-        public StatusBoard() { Height = Theme.S(84); }
+        public StatusBoard() { Height = Theme.S(84); BackColor = Theme.Card; }
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
@@ -47,7 +48,7 @@ namespace NetProbe
             int pad = Theme.S(20);
             Gfx.Dot(g, Theme.LevelColor(Lv), pad + Theme.S(10), Theme.S(30), Theme.S(10), Lv != Level.Off);
             using (var f = new Font(Theme.H1.FontFamily, Theme.Classic ? 13f : 15f, Theme.Classic ? FontStyle.Bold : FontStyle.Regular))
-                Gfx.Text(g, State, f, Theme.Text, new Rectangle(pad + Theme.S(32), Theme.S(12), Width - pad * 2 - Theme.S(32), Theme.S(36)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                Gfx.Text(g, State, f, Theme.Text, new Rectangle(pad + Theme.S(32), Theme.S(12), Width - pad * 2 - Theme.S(32) - Reserve, Theme.S(36)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             Gfx.Text(g, Line1, Theme.Small, Theme.Text, new Rectangle(pad, Theme.S(48), Width - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
             Gfx.Text(g, Line2, Theme.Small, Theme.Muted, new Rectangle(pad, Theme.S(64), Width - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
         }
@@ -115,7 +116,7 @@ namespace NetProbe
 
     public partial class MainForm
     {
-        StatusBoard board; FlatButton btnRoute; ListCard[] listCards;
+        StatusBoard board; ListCard[] listCards; TopButtons topRouting;
         DarkCombo cbPrimary, cbBackup; Toggle tgBackup; Spin nFailover, nRecover, nRetry;
         ThemedCheck cKill, cDnsTun, cAutoConnect;
         bool loadingConnect;
@@ -125,12 +126,11 @@ namespace NetProbe
         void BuildConnectPage()
         {
             var p = NewPage(Tx("Маршрутизация"), Tx("Приложения: туннель, «Строго VPN», исключения"));
-            segRoute = NewSegment();
-            p.Controls.Add(segRoute);
-            btnRoute = new FlatButton(Tx("Маршрут")) { Glyph = "", Height = Theme.S(30) }.AutoW();
-            btnRoute.Click += (s, e) => ShowRoute(null, null);
+            topRouting = NewTopButtons(p, null);
+            segRoute = NewSegment(); // выбор режима ROUTE | VPN | DPI — компактно, на панели состояния
+            segRoute.Size = new Size(Theme.S(222), Theme.S(30));
 
-            board = new StatusBoard();
+            board = new StatusBoard { Reserve = Theme.S(236) };
 
             var cPrim = new CardPanel { Title = Tx("Основной VPN") };
             cbPrimary = new DarkCombo();
@@ -161,7 +161,6 @@ namespace NetProbe
             cAutoConnect = Ui.Check(Tx("Автоподключение"), st.AutoConnect); cAutoConnect.BackColor = Theme.Card;
             cAutoConnect.CheckedChanged += (s, e) => { if (loadingConnect) return; st.AutoConnect = cAutoConnect.Checked; st.Save(); };
             var tip = Ui.Tip();
-            tip.SetToolTip(btnRoute, Tx("Куда идёт домен или приложение: VPN, DPI или напрямую — по тому, что реально запущено"));
             tip.SetToolTip(cKill, Tx("Блокировать приложения «Строго VPN», пока VPN недоступен"));
             tip.SetToolTip(lF, Tx("VPN не отвечает дольше — переключение")); tip.SetToolTip(lR, Tx("VPN стабилен столько — возврат с DPI"));
             cFail.Controls.AddRange(new Control[] { lF, nFailover, lR, nRecover, lT, nRetry, cKill, cDnsTun, cAutoConnect });
@@ -209,14 +208,14 @@ namespace NetProbe
             }
 
             p.Controls.AddRange(new Control[] { board, cPrim, cBack, cFail, lRouteHint });
-            p.Controls.Add(btnRoute); btnRoute.BringToFront();
+            board.Controls.Add(segRoute);
             Action lay = () =>
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
-                segRoute.Location = new Point(p.ClientSize.Width - L - segRoute.Width, Theme.S(22));
+                PlaceTopButtons(topRouting, p.ClientSize.Width - L, Theme.S(22));
                 int y = Theme.S(80);
                 board.SetBounds(L, y, W, Theme.S(84));
-                btnRoute.Location = new Point(board.Right - Theme.S(14) - btnRoute.Width, board.Top + Theme.S(14));
+                segRoute.Location = new Point(board.Width - Theme.S(14) - segRoute.Width, Theme.S(14));
                 y = board.Bottom + gap;
                 int ch = Theme.S(92), ip = Theme.S(16), hw = (W - gap) / 2;
                 cPrim.SetBounds(L, y, hw, ch); cBack.SetBounds(L + hw + gap, y, W - hw - gap, ch);

@@ -105,7 +105,7 @@ namespace NetProbe
             }
         }
 
-        static void DrawSpark(Graphics g, RectangleF r, List<double> s, Color c)
+        internal static void DrawSpark(Graphics g, RectangleF r, List<double> s, Color c)
         {
             if (s.Count < 2) return;
             double mx = 1; foreach (var v in s) if (!double.IsNaN(v)) mx = Math.Max(mx, v);
@@ -126,6 +126,53 @@ namespace NetProbe
                     pts.Add(new PointF(x, (float)(r.Bottom - r.Height * s[i] / mx)));
                 }
                 if (pts.Count > 1) g.DrawLines(p, pts.ToArray());
+            }
+        }
+    }
+    // Маленькая копия виджета в левом нижнем углу главного окна (боковая панель): VPN / Напрямую, точка уровня,
+    // спарклайн и последнее значение. Данные — те же, что у виджета рабочего стола. Двойной клик — вкладка Monitor.
+    public class MiniMonitor : DoubleBufferedControl
+    {
+        class Row { public string Name; public Color Series; public Level Lv = Level.Off; public string Val = "—"; public List<double> Spark = new List<double>(); }
+        readonly Row[] rows = { new Row { Name = "VPN", Series = Theme.Vpn }, new Row { Name = Tx("Напрямую"), Series = Theme.Direct } };
+        public string Header = "";
+
+        public MiniMonitor() { Height = Theme.S(76); Cursor = Cursors.Hand; }
+
+        public void SetRow(int i, Level lv, string val, double sample)
+        {
+            var r = rows[i]; r.Lv = lv; r.Val = val;
+            r.Spark.Add(sample); if (r.Spark.Count > 40) r.Spark.RemoveAt(0);
+            if (Visible) Invalidate();
+        }
+        public void SetLevel(int i, Level lv, string val) { rows[i].Lv = lv; rows[i].Val = val; if (Visible) Invalidate(); }
+        // после пересборки UI (смена темы/языка) — перенести накопленные точки
+        public void CopyFrom(MiniMonitor o)
+        {
+            if (o == null) return;
+            for (int i = 0; i < rows.Length; i++) { rows[i].Lv = o.rows[i].Lv; rows[i].Val = o.rows[i].Val; rows[i].Spark = new List<double>(o.rows[i].Spark); }
+            Header = o.Header;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
+            var box = Theme.Classic ? new RectangleF(0, 0, Width, Height) : new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
+            Gfx.Panel(g, box, Theme.R(10), Theme.Card);
+            int pad = Theme.S(10);
+            Gfx.Text(g, "MONITOR", Theme.Small, Theme.Dim, new Rectangle(pad, Theme.S(4), Theme.S(70), Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            if (Header != "") Gfx.Text(g, Header, Theme.Small, Theme.Muted, new Rectangle(pad + Theme.S(66), Theme.S(4), Width - pad * 2 - Theme.S(66), Theme.S(18)), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            int y = Theme.S(22), rh = Theme.S(25);
+            int nameW = Theme.S(60), valW = Theme.S(52);
+            for (int i = 0; i < rows.Length; i++)
+            {
+                var r = rows[i];
+                float cy = y + rh * i + rh / 2f;
+                Gfx.Dot(g, Theme.LevelColor(r.Lv), pad + Theme.S(4), cy, Theme.S(4.5), r.Lv != Level.Off);
+                Gfx.Text(g, r.Name, Theme.Small, Theme.Text, new Rectangle(pad + Theme.S(12), (int)cy - Theme.S(9), nameW, Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+                int sx = pad + Theme.S(12) + nameW + Theme.S(2), sw = Width - pad - valW - Theme.S(4) - sx;
+                if (sw > Theme.S(16)) WidgetForm.DrawSpark(g, new RectangleF(sx, cy - Theme.S(7), sw, Theme.S(14)), r.Spark, r.Series);
+                Gfx.Text(g, r.Val, Theme.Small, r.Lv == Level.Down ? Theme.Red : Theme.Text, new Rectangle(Width - pad - valW, (int)cy - Theme.S(9), valW, Theme.S(18)), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
         }
     }
