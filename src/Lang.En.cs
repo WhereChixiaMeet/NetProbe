@@ -962,6 +962,14 @@ namespace NetProbe
             { "порт", "port" },
             { "сегодня · 1 точка в минуту · пропуски = нет данных", "today · 1 point per minute · gaps = no data" },
             { "транспорт", "transport" },
+            { "Вкл — персонаж снаружи, держится за рамку окна (Chisa — сверху, Kurumi — слева). Выкл — внутри окна, за карточками", "On — the character is outside, holding the window frame (Chisa on top, Kurumi on the left). Off — inside the window, behind the cards" },
+            { "Картинок нет — тема работает без персонажа. Положи PNG (widget.png, frame.png, window.png) в config\\themes\\", "No images — the theme works without a character. Put PNGs (widget.png, frame.png, window.png) into config\\themes\\" },
+            { "Непрозрачность персонажа, %", "Character opacity, %" },
+            { "Папка темы…", "Theme folder…" },
+            { "Персонаж", "Character" },
+            { "Персонаж за рамкой окна", "Character outside the window frame" },
+            { "Персонаж у виджета", "Character at the widget" },
+            { "Персонаж у окна", "Character at the window" },
         };
     }
 }
