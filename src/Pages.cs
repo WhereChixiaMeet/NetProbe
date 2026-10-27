@@ -16,7 +16,35 @@ namespace NetProbe
     public partial class MainForm
     {
         // ================= Monitor page =================
-        IndicatorCard cardVpn, cardDir; LatencyChart chart; FlatButton btnMon; Label infoLabel, warnLabel;
+        IndicatorCard cardVpn, cardDir; LatencyChart chart; FlatButton btnMon; Label infoLabel, warnLabel; TabStrip monPeriod;
+        volatile bool periodBusy;
+
+        // расчёт в фоне, отрисовка в UI-потоке
+        void LoadPeriod(string k)
+        {
+            if (k == "s") { chart.HA = chart.HB = null; chart.HistSub = chart.HistEmpty = null; chart.Invalidate(); return; }
+            int days = k == "d" ? 1 : 7;
+            chart.HA = chart.HB = null; chart.HistSub = days == 1 ? Tx("сегодня · 1 точка в минуту · пропуски = нет данных") : Tx("7 дней · 1 точка в 30 мин · пропуски = нет данных"); chart.HistEmpty = Tx("Загрузка…"); chart.Invalidate();
+            if (periodBusy) return; periodBusy = true;
+            string dir = st.LogPath;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                Tuple<List<double>, List<double>> r = null;
+                try { r = History.Load(dir, days); } catch { }
+                periodBusy = false;
+                try
+                {
+                    BeginInvoke((Action)(() =>
+                    {
+                        if (monPeriod.SelectedKey != k) return;
+                        if (r == null) { chart.HistEmpty = Tx("Нет данных за период — мониторинг пишет точку в лог раз в минуту, пока запущен"); chart.HA = chart.HB = null; }
+                        else { chart.HA = r.Item1; chart.HB = r.Item2; chart.HistEmpty = null; }
+                        chart.Invalidate();
+                    }));
+                }
+                catch { }
+            });
+        }
 
         void BuildMonitorPage()
         {
@@ -29,14 +57,20 @@ namespace NetProbe
             btnMon.Click += (s, e) => { if (monVpn.Running) StopMonitoring(); else StartMonitoring(); };
             var btnReset = new FlatButton(Tx("Сбросить статистику")) { Glyph = "\uE72C" }.AutoW();
             btnReset.Click += (s, e) => { monVpn.Stats.Reset(); monDir.Stats.Reset(); chart.Clear(); Logger.Write(LogLevel.Info, Tx("Статистика сброшена")); };
+            // период графика: Session (живые опросы) / Day (сегодня из лога) / Week (7 дневных логов, 1 точка / 30 мин)
+            monPeriod = new TabStrip { Segmented = true, Font = Theme.Small, Height = Theme.S(28), Width = Theme.S(240) };
+            monPeriod.SetTabs(new[] { new TabStrip.Tab { Key = "s", Text = "Session", Tip = Tx("Текущая сессия: последние опросы") }, new TabStrip.Tab { Key = "d", Text = "Day", Tip = Tx("Сегодня: из дневного лога, 1 точка в минуту") }, new TabStrip.Tab { Key = "w", Text = "Week", Tip = Tx("7 дней: из дневных логов, 1 точка в 30 мин") } });
+            monPeriod.SelectedKey = "s";
+            monPeriod.Selected += k => LoadPeriod(k);
             infoLabel = new Label { AutoSize = false, ForeColor = Theme.Muted, Font = Theme.Small, BackColor = Theme.Bg, AutoEllipsis = true, UseMnemonic = false };
             warnLabel = new Label { AutoSize = false, ForeColor = Theme.Orange, Font = Theme.Small, BackColor = Theme.Bg, AutoEllipsis = true, Visible = false };
-            p.Controls.AddRange(new Control[] { cardVpn, cardDir, chart, btnMon, btnReset, infoLabel, warnLabel });
+            p.Controls.AddRange(new Control[] { cardVpn, cardDir, chart, btnMon, btnReset, monPeriod, infoLabel, warnLabel });
             Action lay = () =>
             {
                 int L = Theme.S(26), T = Theme.S(86), W = p.ClientSize.Width - L * 2, gap = Theme.S(16);
                 btnMon.Location = new Point(p.ClientSize.Width - L - btnMon.Width, Theme.S(24));
                 btnReset.Location = new Point(btnMon.Left - Theme.S(10) - btnReset.Width, Theme.S(24));
+                monPeriod.Location = new Point(btnReset.Left - Theme.S(16) - monPeriod.Width, Theme.S(26));
                 int cw = (W - gap) / 2, ch = Theme.S(200);
                 cardVpn.SetBounds(L, T, cw, ch);
                 cardDir.SetBounds(L + cw + gap, T, W - cw - gap, ch);

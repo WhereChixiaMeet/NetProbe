@@ -471,6 +471,10 @@ namespace NetProbe
         public readonly List<double> A = new List<double>(), B = new List<double>();
         public string NameA = "VPN", NameB = Tx("Напрямую");
         public int Good = 120, Warn = 300;
+        // Day / Week: точки из логов (NaN = нет данных, разрыв). null — режим Session (живые опросы)
+        public List<double> HA, HB; public string HistSub, HistEmpty;
+        bool Hist { get { return HA != null || HistEmpty != null; } }
+        int Cap { get { return HA != null ? Math.Max(2, Math.Max(HA.Count, HB.Count)) : Capacity; } }
 
         public void Add(bool a, double v)
         {
@@ -492,7 +496,7 @@ namespace NetProbe
             Gfx.Panel(g, rr, Theme.R(12), Theme.Card);
             int pad = Theme.S(18);
             Gfx.Text(g, Tx("Задержка, мс"), Theme.H2, Theme.Text, new Rectangle(pad, Theme.S(12), Theme.S(300), Theme.S(24)), TextFormatFlags.Left);
-            Gfx.Text(g, Tx("последние ") + Capacity + Tx(" опросов  ·  красные отметки = неудачные опросы"), Theme.Small, Theme.Muted, new Rectangle(pad, Theme.S(34), Theme.S(500), Theme.S(18)), TextFormatFlags.Left);
+            Gfx.Text(g, Hist ? (HistSub ?? "") : Tx("последние ") + Capacity + Tx(" опросов  ·  красные отметки = неудачные опросы"), Theme.Small, Theme.Muted, new Rectangle(pad, Theme.S(34), Theme.S(560), Theme.S(18)), TextFormatFlags.Left);
 
             int lx = Width - pad;
             foreach (var it in new[] { Tuple.Create(NameB, Theme.Direct), Tuple.Create(NameA, Theme.Vpn) })
@@ -507,9 +511,10 @@ namespace NetProbe
 
             var plot = new RectangleF(pad + Theme.S(36), Theme.S(62), Width - pad * 2 - Theme.S(40), Height - Theme.S(62) - Theme.S(26));
             if (plot.Width < 20 || plot.Height < 20) return;
+            var sA = HA ?? (Hist ? new List<double>() : A); var sB = HB ?? (Hist ? new List<double>() : B);
             double mx = 0;
-            foreach (var v in A) if (!double.IsNaN(v)) mx = Math.Max(mx, v);
-            foreach (var v in B) if (!double.IsNaN(v)) mx = Math.Max(mx, v);
+            foreach (var v in sA) if (!double.IsNaN(v)) mx = Math.Max(mx, v);
+            foreach (var v in sB) if (!double.IsNaN(v)) mx = Math.Max(mx, v);
             double ymax = Nice(Math.Max(mx * 1.15, Math.Min(Good * 1.2, 150)));
 
             using (var gp = new Pen(Theme.Grid, 1))
@@ -529,17 +534,20 @@ namespace NetProbe
                 float y = (float)(plot.Bottom - plot.Height * th.Item1 / ymax);
                 using (var p = new Pen(Color.FromArgb(90, th.Item2), 1) { DashStyle = DashStyle.Dash }) g.DrawLine(p, plot.Left, y, plot.Right, y);
             }
-            DrawSeries(g, plot, A, Theme.Vpn, ymax, 0, false);
-            DrawSeries(g, plot, B, Theme.Direct, ymax, 1, false);
-            if (A.Count == 0 && B.Count == 0)
+            DrawSeries(g, plot, sA, Theme.Vpn, ymax, 0, false);
+            DrawSeries(g, plot, sB, Theme.Direct, ymax, 1, false);
+            if (Hist && HA == null)
+                Gfx.Text(g, HistEmpty, Theme.Body, Theme.Dim, Rectangle.Round(plot), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            else if (sA.Count == 0 && sB.Count == 0)
                 Gfx.Text(g, Tx("Пока нет данных — запустите мониторинг"), Theme.Body, Theme.Dim, Rectangle.Round(plot), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
         void DrawSeries(Graphics g, RectangleF plot, List<double> s, Color c, double ymax, int idx, bool dashed)
         {
             if (s.Count == 0) return;
-            float step = plot.Width / (Capacity - 1);
-            int off = Capacity - s.Count;
+            int cap = Cap; bool hist = Hist;
+            float step = plot.Width / (cap - 1);
+            int off = cap - s.Count;
             var pts = new List<PointF>();
             Action flush = () =>
             {
@@ -562,7 +570,7 @@ namespace NetProbe
                 if (double.IsNaN(s[i]))
                 {
                     flush();
-                    using (var b = new SolidBrush(Color.FromArgb(200, Theme.Red))) g.FillRectangle(b, x - 1.5f, plot.Bottom + Theme.S(4) + idx * Theme.S(6), 3, Theme.S(5));
+                    if (!hist) using (var b = new SolidBrush(Color.FromArgb(200, Theme.Red))) g.FillRectangle(b, x - 1.5f, plot.Bottom + Theme.S(4) + idx * Theme.S(6), 3, Theme.S(5));
                     continue;
                 }
                 float y = (float)(plot.Bottom - plot.Height * Math.Min(s[i], ymax) / ymax);

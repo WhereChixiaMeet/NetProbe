@@ -468,6 +468,7 @@ namespace NetProbe
         void OnSampleBg(ChannelMonitor m, ProbeResult r)
         {
             if (m.Key == "vpn") router.VpnSample(r.Ok, r.Time);
+            History.Add(m.Key, r.Ok, r.Latency);
             var snap = m.Stats.Snap();
             if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => OnSample(m, r, snap))); } catch { }
         }
@@ -573,6 +574,7 @@ namespace NetProbe
         void OnUiTick()
         {
             if (curPage == PgConnect) UpdateConnectUi();
+            History.Tick();
             if (curPage == PgTasks && chkTasksAuto != null && chkTasksAuto.Checked) RefreshTasks();
         }
 
