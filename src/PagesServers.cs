@@ -31,28 +31,24 @@ namespace NetProbe
             xm.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if ((xm.State == XState.Off) != (lastX == XState.Off)) RebuildProbers(); lastX = xm.State; UpdateServersUi(); UpdateSide(); })); } catch { } };
             // DPI «Серверов» не зависит от кнопки VPN: запасной вариант автосвитча и приложения «через DPI»
             xm.DpiFallback = on => router.StandaloneDpi(on);
-            xm.NeedDpi = () => AppLists.Apps(AppLists.SrvDpiApps).Count > 0;
+            // 3.0: DPI для подписок — тот же глобальный winws: нужен в режиме ROUTE (DPI/VPN), кнопка DPI «выкл» его глушит
+            xm.NeedDpi = () => st.RunMode == RouteMode.Hybrid && !router.DpiForcedOff;
             router.DpiHold = () => xm.DpiWanted;
-            router.ExtraDpiExcl = () => xm.Active ? AppLists.Get(AppLists.SrvDpiExcl) : new List<string>();
-            // TUN берёт свои списки вкладки «Серверы»: Include → сервер, Exclude и «через DPI» → напрямую.
-            // Приложение и в Include, и в «через DPI» идёт через сервер, кроме своих доменов из «через DPI»
+            router.ExtraDpiExcl = () => new List<string>();
+            // TUN берёт те же списки приложений, что и туннель (вкладка Routing): Include + «Строго VPN» → сервер, Exclude → напрямую.
+            // Домены/IP в карточках приложений движку не передаются.
             xm.GetTunLists = () =>
             {
-                var inc = AppLists.Get(AppLists.SrvApps);
-                var dpiOnly = AppLists.Apps(AppLists.SrvDpiApps).Where(a => !AppLists.InList(inc, a));
-                var exc = AppLists.Get(AppLists.SrvExcl).Concat(dpiOnly).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                return new TunLists { Include = inc, Exclude = exc, Domains = AppLists.Domains(AppLists.SrvDpiApps) };
+                var inc = AppLists.AppsOnly(AppLists.HybridApps).Concat(AppLists.AppsOnly(AppLists.VpnOnlyApps)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                return new TunLists { Include = inc, Exclude = AppLists.AppsOnly(Router.TunExclKey(st)), Domains = new List<KeyValuePair<string, string>>() };
             };
-            ZapretRunner.ExtraDomains = () => AppLists.Domains(AppLists.DpiApps).Concat(AppLists.Domains(AppLists.SrvDpiApps)).Select(d => d.Value).ToList();
-            XrayConfig.DirectDomains = () => AppLists.Domains(AppLists.SrvDpiApps).SelectMany(d => ExclusionSet.IsIp(d.Value) ? new List<string> { d.Value } : DomainRoutes.Expand(d.Value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            xm.TunBlocked = () => router.Wg.Running ? Tx("TUN не запущен: работает туннель WireSock (вкладка «Подключение»)") : null;
+            ZapretRunner.ExtraDomains = () => new List<string>();
+            XrayConfig.DirectDomains = () => new List<string>();
+            xm.TunBlocked = () => router.Wg.Running ? Tx("TUN не запущен: работает туннель WireSock (вкладка Routing)") : null;
             AppLists.Changed += key =>
             {
-                if (!AppLists.IsServers(key)) return;
-                if (key != AppLists.SrvDpiExcl && xm.Active && st.TunMode) { tunReapply.Stop(); tunReapply.Start(); }
-                if (key == AppLists.SrvDpiApps && xm.Active && !st.TunMode) { srvProxyReapply.Stop(); srvProxyReapply.Start(); } // домены «через DPI» в режиме прокси — в правила xray
-                if (key == AppLists.SrvDpiApps) xm.ReapplyDpi();
-                if (key == AppLists.SrvDpiApps || key == AppLists.SrvDpiExcl) router.RefreshDpiExclusions();
+                bool appKey = key == AppLists.HybridApps || key == AppLists.VpnOnlyApps || key == AppLists.HybridExcl || key == AppLists.VpnOnlyExcl;
+                if (appKey && xm.Active && st.TunMode) { tunReapply.Stop(); tunReapply.Start(); }
             };
             tunReapply.Tick += (s, e) => { tunReapply.Stop(); xm.ReapplyTun(); };
             srvProxyReapply.Tick += (s, e) => { srvProxyReapply.Stop(); if (xm.Active) xm.Reapply(); };

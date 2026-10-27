@@ -502,7 +502,7 @@ namespace NetProbe
         {
             if (string.IsNullOrWhiteSpace(s) || IsChild(s)) return false;
             s = s.Trim();
-            if (s.Contains("\") || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return true;
+            if (s.Contains("\\") || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return true;
             return !s.Contains(".") && !s.Contains(":") && !s.Contains("/");
         }
         public static List<string> AppsOnly(string key) { return Get(key).Where(IsAppEntry).ToList(); }
