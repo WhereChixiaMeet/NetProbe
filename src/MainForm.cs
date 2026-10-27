@@ -69,6 +69,7 @@ namespace NetProbe
             FirstRunSetup();
 
             router.GetSettings = () => st;
+            router.DpiForcedOff = st.DpiButton == 2;
             router.AskStopService = q => (bool)Invoke((Func<bool>)(() => { RestoreFromTray(); return MessageBox.Show(this, q, "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes; }));
             router.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)OnRouteChanged); } catch { } };
             // несколько правок подряд (добавить + убрать из соседнего списка) = один перезапуск туннеля
@@ -160,8 +161,9 @@ namespace NetProbe
                 router.Adopt(handoff);
                 xm.Adopt(handoff.ContainsKey("xray") && handoff["xray"] == "1");
             }
+            else if (st.DpiButton == 1) router.SetManualDpi(true); // DPI был включён кнопкой до перезапуска
             // автоподключение: без диалогов, если туннель ещё не настроен (например, чистая установка)
-            else if (st.AutoConnect)
+            if (handoff == null && st.AutoConnect)
             {
                 if (Tunnels.Exists(st.PrimaryTunnel)) Connect();
                 else Logger.Write(LogLevel.Info, Tx("Автоподключение пропущено: основной VPN-туннель не выбран"));

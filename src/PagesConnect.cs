@@ -126,7 +126,7 @@ namespace NetProbe
             btnConnect = new FlatButton("VPN") { Glyph = "\uE7E8", Width = Theme.S(150), Height = Theme.S(36) };
             btnConnect.Click += (s, e) => { if (router.Active) Disconnect(); else Connect(); };
             btnDpi = new FlatButton("DPI") { Glyph = "\uE7E8", Width = Theme.S(150), Height = Theme.S(36) };
-            btnDpi.Click += (s, e) => router.SetManualDpi(!router.ManualDpi);
+            btnDpi.Click += (s, e) => ToggleDpi();
             btnRoute = new FlatButton(Tx("Маршрут")) { Glyph = "\uE721", Height = Theme.S(36) }.AutoW();
             btnRoute.Click += (s, e) => ShowRoute(null, null);
             p.Controls.Add(btnRoute);
@@ -271,6 +271,16 @@ namespace NetProbe
             LoadConnectUi();
         }
         Action relayConnect; readonly ToolTip listTip = Ui.Tip();
+
+        // Кнопка DPI (Подключение и Серверы): переключает то, что видно на кнопке. «Выкл» глушит winws сразу,
+        // даже если его держат домены приложений или «Серверы»; выбор сохраняется в settings.ini (DpiButton).
+        void ToggleDpi()
+        {
+            bool on = !(router.ManualDpi || router.Dpi.Running);
+            st.DpiButton = on ? 1 : 2; st.Save();
+            router.SetManualDpi(on);
+            if (!on && router.DpiIsRoute) Logger.Write(LogLevel.Info, Tx("DPI сейчас — основной маршрут (аварийный режим или «Только DPI»): он выключается кнопкой VPN"));
+        }
 
         // ПКМ по элементу списка: путь к запускаемому файлу (по запущенному процессу или полному пути)
         public static void AttachPathMenu(ThemedList list, Form owner)

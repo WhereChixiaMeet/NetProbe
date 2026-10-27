@@ -53,6 +53,8 @@ namespace NetProbe
             { "Иконки и картинки", "Icons and images" },
             { "недавно", "recent" },
             { "DPI включён вручную", "DPI turned on manually" },
+            { "DPI выключен вручную", "DPI turned off manually" },
+            { "DPI сейчас — основной маршрут (аварийный режим или «Только DPI»): он выключается кнопкой VPN", "DPI is the current route (failover or DPI Only): turn it off with the VPN button" },
             { "DPI — приложения", "DPI — apps" },
             { "Переименовать…", "Rename…" },
             { "Переименовать", "Rename" },

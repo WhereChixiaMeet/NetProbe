@@ -45,6 +45,7 @@ namespace NetProbe
         public int GameFilter = 0;           // 0 выкл, 1 TCP+UDP, 2 TCP, 3 UDP
         public string GameTcp = "1024-65535";
         public string GameUdp = "1024-65535";
+        public int DpiButton = 0;            // кнопка DPI: 0 не трогали, 1 включена пользователем, 2 выключена пользователем (переживает перезапуск)
         public int ExclRefreshSec = 10;      // обновление IP исключённых процессов для DPI
         public int DomainReapplyMin = 10;    // домены приложений через DPI: новые IP из кэша DNS → перезапуск туннеля не чаще, мин (0 = только при подключении)
 

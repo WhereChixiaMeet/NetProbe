@@ -67,7 +67,7 @@ namespace NetProbe
             btnXConnect = new FlatButton(Tx("Подключить"), true) { Glyph = "", Width = Theme.S(170), Height = Theme.S(36) };
             btnXConnect.Click += (s, e) => XConnectClick();
             btnXDpi = new FlatButton("DPI") { Glyph = "", Width = Theme.S(150), Height = Theme.S(36) };
-            btnXDpi.Click += (s, e) => router.SetManualDpi(!router.ManualDpi);
+            btnXDpi.Click += (s, e) => ToggleDpi();
             tt.SetToolTip(btnXDpi, Tx("DPI (zapret) — тот же, что на «Подключении»"));
             xBoard = new StatusBoard();
 

@@ -70,13 +70,21 @@ namespace NetProbe
         // DPI без маршрутизатора (запасной вариант автосвитча серверов)
         // DPI отдельной кнопкой: работает параллельно с VPN и не выключается вместе с ним
         public volatile bool ManualDpi;
+        // DPI выключен пользователем кнопкой: winws не поднимают ни домены приложений, ни «Серверы» (DpiHold),
+        // пока DPI снова не включат. Аварийный DPI (DpiFailover) и «Только DPI» — это сам маршрут, их не трогаем.
+        public volatile bool DpiForcedOff;
+        public bool DpiIsRoute { get { return State == RouteState.DpiFailover || State == RouteState.DpiOnly; } }
         public void SetManualDpi(bool on)
         {
             Post(() =>
             {
-                ManualDpi = on;
+                ManualDpi = on; DpiForcedOff = !on;
                 if (on) { Logger.Write(LogLevel.Route, Tr.Tx("DPI включён вручную")); if (!Dpi.Running) StartDpi(); }
-                else if (State != RouteState.DpiFailover && State != RouteState.DpiOnly) StopDpi(); // «Серверам» DPI может быть ещё нужен
+                else
+                {
+                    Logger.Write(LogLevel.Route, Tr.Tx("DPI выключен вручную"));
+                    if (!DpiIsRoute) StopDpi(true);
+                }
                 SetState(State, Detail);
             });
         }
@@ -110,7 +118,7 @@ namespace NetProbe
         {
             Post(() =>
             {
-                if (on) { if (!Dpi.Running) { Logger.Write(LogLevel.Route, Tr.Tx("DPI для серверов включён")); StartDpi(); } }
+                if (on) { if (!Dpi.Running && !DpiForcedOff) { Logger.Write(LogLevel.Route, Tr.Tx("DPI для серверов включён")); StartDpi(); } }
                 else if (State != RouteState.DpiFailover && State != RouteState.DpiOnly) StopDpi();
                 SetState(State, Detail);
             });
@@ -233,7 +241,7 @@ namespace NetProbe
             return true;
         }
 
-        void StopDpi(bool force = false) { if (!force && (ManualDpi || domainDpi || (DpiHold != null && DpiHold()))) return; if (Dpi.Running) { Dpi.Stop(); Logger.Write(LogLevel.Route, Tx("DPI (winws) остановлен")); } dpiDied = false; }
+        void StopDpi(bool force = false) { if (!force && !DpiForcedOff && (ManualDpi || domainDpi || (DpiHold != null && DpiHold()))) return; if (Dpi.Running) { Dpi.Stop(); Logger.Write(LogLevel.Route, Tx("DPI (winws) остановлен")); } dpiDied = false; }
 
         void RefreshExclusions(Settings st, bool force)
         {
@@ -251,7 +259,7 @@ namespace NetProbe
         {
             var now = DateTime.Now;
             if (!domainDpi) return;
-            if (!Dpi.Running && (now - lastDomDpi).TotalSeconds >= 30)
+            if (!Dpi.Running && !DpiForcedOff && (now - lastDomDpi).TotalSeconds >= 30)
             {
                 lastDomDpi = now;
                 Logger.Write(LogLevel.Route, Tx("DPI для доменов приложений (параллельно с VPN)"));
@@ -319,8 +327,8 @@ namespace NetProbe
             var st = GetSettings();
             if (State == RouteState.Off) return;
             if (Wg.Running) { Logger.Write(LogLevel.Route, Tx("Списки изменены — перезапуск туннеля с новыми правилами")); StartTunnel(st, OnBackup, StrictOnly); }
-            if ((State == RouteState.Vpn || State == RouteState.Backup || State == RouteState.VpnDown) && !domainDpi && Dpi.Running) StopDpi(); // доменов больше нет
-            if (domainDpi && !Dpi.Running) { lastDomDpi = DateTime.Now; StartDpi(); }
+            if ((State == RouteState.Vpn || State == RouteState.Backup || State == RouteState.VpnDown) && (!domainDpi || DpiForcedOff) && Dpi.Running) StopDpi(); // доменов больше нет / DPI выключен кнопкой
+            if (domainDpi && !Dpi.Running && !DpiForcedOff) { lastDomDpi = DateTime.Now; StartDpi(); }
             if (Dpi.Running) RefreshExclusions(st, true);
             if (KillSwitch.Active) { KillSwitch.Clear(); lastKill = DateTime.MinValue; }
             SetState(State, Detail);
