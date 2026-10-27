@@ -24,7 +24,7 @@ namespace NetProbe
                 { "app", "NetProbe" }, { "version", MainForm.Version }, { "exported", DateTime.Now.ToString("s") },
                 { "settings", File.Exists(Path.Combine(Settings.Dir, "settings.ini")) ? File.ReadAllText(Path.Combine(Settings.Dir, "settings.ini"), Encoding.UTF8) : "" },
                 { "lists", Files(Settings.Sub("lists"), "*.txt") },
-                { "tunnels", Files(Settings.Sub("tunnels"), "*.conf") },
+                { "tunnels", Files(Settings.Sub("tunnels"), "*.conf").Concat(Files(Settings.Sub("tunnels"), "*.json")).ToDictionary(kv => kv.Key, kv => kv.Value) }, // WireGuard + VLESS/VMess/Trojan
                 { "dpi", Files(Settings.Sub("dpi"), "*.txt") },
                 { "servers", File.Exists(Path.Combine(Settings.Dir, "servers.json")) ? File.ReadAllText(Path.Combine(Settings.Dir, "servers.json"), Encoding.UTF8) : "" },
                 { "subscriptions", File.Exists(Path.Combine(Settings.Dir, "subscriptions.json")) ? File.ReadAllText(Path.Combine(Settings.Dir, "subscriptions.json"), Encoding.UTF8) : "" }
