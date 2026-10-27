@@ -119,6 +119,22 @@ namespace NetProbe
             var nOp = Ui.Num(20, 100, st.CardOpacity); nOp.ValueChanged += (s, e) => { st.CardOpacity = (int)nOp.Value; st.Save(); bgDimTimer.Stop(); bgDimTimer.Start(); };
             row(Tx("Непрозрачность карточек, %"), nOp, null);
             pick(Tx("Иконка приложения"), Tx("Иконки и картинки") + " (*.ico;*.png;*.jpg;*.exe)|*.ico;*.png;*.jpg;*.jpeg;*.exe", f => { st.AppIconPath = f; st.Save(); ApplyAppIcon(); });
+            if (Theme.Personal)
+            {
+                // Personal-темы: персонаж — картинки только локально, config\themes\<chisa|kurumi>\ (в git и в exe их нет)
+                bool art = CharOverlay.HasArt(Theme.Kind, "frame.png") || CharOverlay.HasArt(Theme.Kind, "widget.png") || CharOverlay.HasArt(Theme.Kind, "window.png");
+                var bFolder = new FlatButton(Tx("Папка темы…")) { Glyph = "\uE8B7" }.AutoW();
+                bFolder.Click += (s, e) => { try { System.Diagnostics.Process.Start("explorer.exe", "\"" + CharOverlay.Folder(Theme.Kind) + "\""); } catch { } };
+                row(Tx("Персонаж"), bFolder, art ? null : Tx("Картинок нет — тема работает без персонажа. Положи PNG (widget.png, frame.png, window.png) в config\\themes\\") + (Theme.Chisa ? "chisa" : "kurumi"));
+                var cCW = Ui.Check(Tx("Персонаж у виджета"), st.CharWidget); check(cCW); cCW.CheckedChanged += (s, e) => { st.CharWidget = cCW.Checked; st.Save(); UpdateChars(); };
+                var cCF = Ui.Check(Tx("Персонаж за рамкой окна"), st.CharFrame); check(cCF);
+                var cCI = Ui.Check(Tx("Персонаж у окна"), st.CharWindow); check(cCI);
+                cCF.CheckedChanged += (s, e) => { st.CharFrame = cCF.Checked; st.Save(); UpdateChars(); ResetPageBackground(); BeginInvoke((Action)(() => { RebuildUi(); SelectPage(PgSettings); })); };
+                cCI.CheckedChanged += (s, e) => { st.CharWindow = cCI.Checked; st.Save(); UpdateChars(); ResetPageBackground(); BeginInvoke((Action)(() => { RebuildUi(); SelectPage(PgSettings); })); };
+                Ui.Tip().SetToolTip(cCF, Tx("Вкл — персонаж снаружи, держится за рамку окна (Chisa — сверху, Kurumi — слева). Выкл — внутри окна, за карточками"));
+                var nCO = Ui.Num(20, 100, st.CharOpacity); nCO.ValueChanged += (s, e) => { st.CharOpacity = (int)nCO.Value; st.Save(); UpdateChars(); };
+                row(Tx("Непрозрачность персонажа, %"), nCO, null);
+            }
             var cIcons = Ui.Check(Tx("Иконки приложений в списках"), st.ShowAppIcons); check(cIcons);
             cIcons.CheckedChanged += (s, e) => { st.ShowAppIcons = cIcons.Checked; st.Save(); SetupListCards(); };
             cbLang.SelectedIndexChanged += (s, e) => { if (!cbLang.UserPick) return; string l = Tr.Codes[Math.Max(0, cbLang.SelectedIndex)]; if (l == st.Lang) return; st.Lang = l; st.Save(); Tr.Set(l); BeginInvoke((Action)(() => { RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings); })); }; // применяется без перезапуска

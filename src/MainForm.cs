@@ -86,6 +86,7 @@ namespace NetProbe
             InitXray();
             BuildUi();
             BuildTray();
+            HookChars();
             if (ShotsDir == null) { Toast.Init(appIconBmp); Toast.Activated += OnToast; }
             appNotifyTimer.Tick += (s2, e2) => { appNotifyTimer.Stop(); ScheduleAppNotify(); };
 
@@ -117,7 +118,7 @@ namespace NetProbe
             catch (Exception ex) { Logger.Write(LogLevel.Warn, Tx("Первичная настройка: ") + ex.Message); }
         }
 
-        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Native.TitleTheme(Handle, Theme.IsDark); }
+        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Native.TitleTheme(Handle, Theme.IsDark); DwmTheme.Apply(Handle); }
 
         protected override void SetVisibleCore(bool value)
         {
@@ -240,14 +241,14 @@ namespace NetProbe
             BuildUi();
             chart.A.AddRange(a); chart.B.AddRange(b); chart.Invalidate();
             RedrawLog();
-            Native.TitleTheme(Handle, Theme.IsDark);
+            Native.TitleTheme(Handle, Theme.IsDark); DwmTheme.Apply(Handle);
             trayMenu.Renderer = new ThemedMenuRenderer();
             var wv = widget.Visible;
             widget.Dispose();
             widget = NewWidget();
             if (wv) ApplyWidgetVisibility();
             if (monVpn.Running) { foreach (var c in new[] { cardVpn, cardDir }) { c.Level = Level.Wait; c.Value = "…"; } btnMon.Text = Tx("Остановить мониторинг"); btnMon.Primary = false; }
-            UpdateInfo(); UpdateTray();
+            UpdateInfo(); UpdateTray(); BeginInvoke((Action)UpdateChars);
             ResumeLayout(true);
             Invalidate(true);
         }
@@ -585,6 +586,7 @@ namespace NetProbe
             w.OpenRequested += (s, e) => RestoreFromTray();
             w.Moved += (s, e) => { st.WidgetX = w.Left; st.WidgetY = w.Top; st.Save(); };
             w.Header = router.Active ? Router.StateName(router.State).ToUpperInvariant() : "";
+            HookWidgetChars(w);
             return w;
         }
 
@@ -672,19 +674,41 @@ namespace NetProbe
         Image PageBackground()
         {
             if (pageBg != null) return pageBg;
-            if (string.IsNullOrWhiteSpace(st.BgImage) || !File.Exists(st.BgImage)) return null;
+            bool hasImg = !string.IsNullOrWhiteSpace(st.BgImage) && File.Exists(st.BgImage);
+            // Personal: персонаж внутри окна (запасной режим) — в слое фона страниц, за полупрозрачными карточками
+            bool charInside = Theme.Personal && st.CharWindow && !st.CharFrame && CharOverlay.HasArt(Theme.Kind, "window.png");
+            if (!hasImg && !charInside) return null;
             try
             {
-                using (var img = Image.FromFile(st.BgImage))
+                Bitmap b;
+                if (hasImg)
+                    using (var img = Image.FromFile(st.BgImage))
+                    {
+                        b = new Bitmap(img.Width, img.Height);
+                        using (var g = Graphics.FromImage(b))
+                        {
+                            g.DrawImage(img, 0, 0, img.Width, img.Height);
+                            using (var br = new SolidBrush(Color.FromArgb((int)(255 * Math.Max(0, Math.Min(95, st.BgDim)) / 100.0), Theme.Bg))) g.FillRectangle(br, 0, 0, b.Width, b.Height);
+                        }
+                    }
+                else
                 {
-                    var b = new Bitmap(img.Width, img.Height);
+                    var sz = content != null && content.ClientSize.Width > 200 ? content.ClientSize : new Size(Theme.S(1100), Theme.S(760));
+                    b = new Bitmap(sz.Width, sz.Height);
+                    using (var g = Graphics.FromImage(b)) g.Clear(Theme.Bg);
+                }
+                if (charInside)
+                    using (var art = new Bitmap(Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png")))
                     using (var g = Graphics.FromImage(b))
                     {
-                        g.DrawImage(img, 0, 0, img.Width, img.Height);
-                        using (var br = new SolidBrush(Color.FromArgb((int)(255 * Math.Max(0, Math.Min(95, st.BgDim)) / 100.0), Theme.Bg))) g.FillRectangle(br, 0, 0, b.Width, b.Height);
+                        g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                        // Kurumi — у левого края (у кромки сайдбара), Chisa — сверху справа
+                        int h = Theme.Kurumi ? (int)(b.Height * 0.78) : (int)(b.Height * 0.55), w = h * art.Width / art.Height;
+                        var dst = Theme.Kurumi ? new Rectangle(0, b.Height - h, w, h) : new Rectangle(b.Width - w, 0, w, h);
+                        var cm = new System.Drawing.Imaging.ColorMatrix { Matrix33 = (float)(Math.Max(20, Math.Min(100, st.CharOpacity)) / 100.0 * 0.55) };
+                        using (var ia = new System.Drawing.Imaging.ImageAttributes()) { ia.SetColorMatrix(cm); g.DrawImage(art, dst, 0, 0, art.Width, art.Height, GraphicsUnit.Pixel, ia); }
                     }
-                    pageBg = b;
-                }
+                pageBg = b;
             }
             catch { pageBg = null; }
             return pageBg;

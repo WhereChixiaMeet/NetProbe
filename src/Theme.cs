@@ -22,6 +22,10 @@ namespace NetProbe
 
         public static Color Bg, Side, Card, CardHi, Border, Input, Text, Muted, Dim, Accent, AccentFg, Hilite, Shadow;
         public static Color Green, Yellow, Orange, Red, Gray, Vpn, Direct, Dpi, Grid, Widget;
+        public static Color Accent2; // Personal-темы: второй цвет персонажа (золото часов Kurumi / сталь Chisa)
+        public static bool Chisa { get { return Kind == ThemeKind.Chisa; } }
+        public static bool Kurumi { get { return Kind == ThemeKind.Kurumi; } }
+        public static readonly Color ChisaAccent = Color.FromArgb(224, 49, 59), KurumiAccent = Color.FromArgb(200, 16, 46);
 
         public static Font Body = new Font("Segoe UI", 9.5f);
         public static Font Small = new Font("Segoe UI", 8.5f);
@@ -74,6 +78,24 @@ namespace NetProbe
                     Body = new Font("Segoe UI", 9f); Small = new Font("Segoe UI", 8.25f); Bold = new Font("Segoe UI Semibold", 9f);
                     H1 = new Font("Segoe UI Semibold", 14f); H2 = new Font("Segoe UI Semibold", 10.5f); Big = new Font("Segoe UI Light", 28f);
                     break;
+                case ThemeKind.Chisa:
+                    // Chisa (Wuthering Waves): чёрный с холодным оттенком, алый (лента/галстук), сталь (форма); острые формы
+                    Bg = C(8, 9, 12); Side = C(13, 15, 20); Card = C(20, 22, 28); CardHi = C(28, 31, 39); Border = C(42, 46, 56); Input = C(12, 13, 17);
+                    Text = C(233, 236, 242); Muted = C(139, 147, 165); Dim = C(78, 85, 102); Hilite = C(60, 64, 76); Shadow = G(6);
+                    Green = C(34, 197, 94); Yellow = C(234, 179, 8); Orange = C(249, 115, 22); Red = C(255, 90, 54); Gray = C(75, 80, 92);
+                    Grid = C(30, 33, 41); Widget = C(12, 13, 17); Accent2 = C(140, 151, 173);
+                    Body = new Font("Segoe UI", 9.5f); Small = new Font("Segoe UI", 8.5f); Bold = new Font("Segoe UI Semibold", 9.5f);
+                    H1 = new Font("Segoe UI Semibold", 15f); H2 = new Font("Segoe UI Semibold", 11.5f); Big = new Font("Segoe UI Light", 30f);
+                    break;
+                case ThemeKind.Kurumi:
+                    // Kurumi Tokisaki (Date A Live): чёрный с винным оттенком, crimson (лента/рюши), золото (часы Zafkiel); мягкие формы
+                    Bg = C(11, 8, 9); Side = C(18, 11, 14); Card = C(26, 16, 20); CardHi = C(37, 21, 27); Border = C(61, 28, 38); Input = C(15, 10, 12);
+                    Text = C(242, 232, 234); Muted = C(163, 135, 143); Dim = C(94, 71, 80); Hilite = C(70, 44, 54); Shadow = G(6);
+                    Green = C(34, 197, 94); Yellow = C(234, 179, 8); Orange = C(249, 115, 22); Red = C(255, 90, 54); Gray = C(84, 70, 76);
+                    Grid = C(40, 26, 32); Widget = C(15, 10, 12); Accent2 = C(212, 166, 74);
+                    Body = new Font("Segoe UI", 9.5f); Small = new Font("Segoe UI", 8.5f); Bold = new Font("Segoe UI Semibold", 9.5f);
+                    H1 = new Font("Segoe UI Semibold", 15f); H2 = new Font("Segoe UI Semibold", 11.5f); Big = new Font("Segoe UI Light", 30f);
+                    break;
                 default:
                     // палитра NetProbe 1.x
                     Bg = C(13, 15, 19); Side = C(17, 19, 25); Card = C(24, 27, 34); CardHi = C(31, 35, 44); Border = C(40, 45, 56); Input = C(18, 21, 27);
@@ -84,13 +106,16 @@ namespace NetProbe
                     H1 = new Font("Segoe UI Semibold", 15f); H2 = new Font("Segoe UI Semibold", 11.5f); Big = new Font("Segoe UI Light", 30f);
                     break;
             }
-            Accent = AccentColor;
+            // Personal: акцент персонажа, если пользователь не выбрал свой (свой выбор уважаем)
+            Accent = (k == ThemeKind.Chisa || k == ThemeKind.Kurumi) && AccentColor.ToArgb() == DefaultAccent.ToArgb() ? (k == ThemeKind.Chisa ? ChisaAccent : KurumiAccent) : AccentColor;
             AccentFg = (Accent.R * 0.299 + Accent.G * 0.587 + Accent.B * 0.114) > 170 ? G(16) : G(255);
-            Vpn = k == ThemeKind.Classic ? C(0, 120, 215) : C(139, 92, 246);
-            Direct = k == ThemeKind.Classic ? C(0, 153, 153) : C(6, 182, 212);
+            Vpn = k == ThemeKind.Classic ? C(0, 120, 215) : k == ThemeKind.Chisa ? C(224, 49, 59) : k == ThemeKind.Kurumi ? C(224, 64, 90) : C(139, 92, 246);
+            Direct = k == ThemeKind.Classic ? C(0, 153, 153) : k == ThemeKind.Chisa ? C(127, 167, 217) : k == ThemeKind.Kurumi ? C(212, 166, 74) : C(6, 182, 212);
+            if (k != ThemeKind.Chisa && k != ThemeKind.Kurumi) Accent2 = Accent;
         }
 
-        public static float R(double r) { return Classic ? Math.Min(S(r), S(2)) : S(r); }
+        // радиус скругления: Classic — почти без, Chisa — острые формы (срез вместо скругления, Gfx.Round), Kurumi — мягче
+        public static float R(double r) { return Classic ? Math.Min(S(r), S(2)) : Chisa ? Math.Min(S(r), S(6)) : Kurumi ? S(r * 1.25) : S(r); }
 
         // Полупрозрачные карточки, когда задан свой фон (MainForm выставляет Translucent и CardAlpha)
         public static bool Translucent;

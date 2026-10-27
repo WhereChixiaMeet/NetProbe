@@ -33,6 +33,13 @@ namespace NetProbe
         public static GraphicsPath Round(RectangleF r, float rad)
         {
             var p = new GraphicsPath();
+            if (Theme.Chisa && rad > 0)
+            {
+                // Chisa: срезанные углы (chamfer) вместо скругления — острый «техно»-силуэт
+                float c = Math.Min(rad, Math.Min(r.Width, r.Height) / 2f); c = Math.Min(c, Theme.S(7));
+                p.AddPolygon(new[] { new PointF(r.X + c, r.Y), new PointF(r.Right, r.Y), new PointF(r.Right, r.Bottom - c), new PointF(r.Right - c, r.Bottom), new PointF(r.X, r.Bottom), new PointF(r.X, r.Y + c) });
+                return p;
+            }
             float d = rad * 2;
             if (d <= 0 || r.Width < d || r.Height < d) { p.AddRectangle(r); return p; }
             p.AddArc(r.X, r.Y, d, d, 180, 90);
@@ -193,7 +200,8 @@ namespace NetProbe
                 else if (hover) bg = Theme.Mix(bg, Theme.IsDark ? Color.White : Color.Black, Primary ? 0.12 : 0.06);
                 var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
                 Gfx.FillRound(g, bg, r, Theme.R(6));
-                if (!Primary) Gfx.DrawRound(g, Theme.Border, r, Theme.R(6));
+                if (!Primary) Gfx.DrawRound(g, hover && Enabled && Theme.Personal ? Theme.Mix(Theme.Accent, Theme.Border, 0.4) : Theme.Border, r, Theme.R(6));
+                Skin.Button(g, r, Primary, hover && Enabled, down, Enabled);
             }
             int off = Theme.Classic && down ? 1 : 0;
             var tr = new Rectangle(off, off, Width, Height);
@@ -234,6 +242,7 @@ namespace NetProbe
             Gfx.FillRound(g, track, r, r.Height / 2);
             float d = r.Height - Theme.S(6), x = on ? r.Right - d - Theme.S(3) : r.Left + Theme.S(3);
             using (var b = new SolidBrush(on ? knob : Theme.Muted)) g.FillEllipse(b, x, r.Top + Theme.S(3), d, d);
+            Skin.Knob(g, new RectangleF(x, r.Top + Theme.S(3), d, d), on);
         }
     }
 
@@ -309,6 +318,7 @@ namespace NetProbe
                 if (selected) Gfx.FillRound(g, Theme.CardHi, r, Theme.R(7));
                 else if (hover) Gfx.FillRound(g, Theme.Card, r, Theme.R(7));
                 if (selected) Gfx.FillRound(g, Theme.Accent, new RectangleF(Theme.S(10), Height / 2f - Theme.S(8), Theme.S(3), Theme.S(16)), Theme.S(1.5));
+                if (selected) Skin.NavMarker(g, r, Height);
             }
             Gfx.Text(g, Glyph, Theme.Icons, fg, new Rectangle(Theme.S(24), 0, Theme.S(24), Height), TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
             Gfx.Text(g, Text, selected ? Theme.Bold : Theme.Body, fg, new Rectangle(Theme.S(54), 0, Width - Theme.S(60), Height), TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
@@ -403,6 +413,7 @@ namespace NetProbe
             var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             if (Theme.Classic) r = new RectangleF(0, 0, Width, Height);
             Gfx.Panel(g, r, Theme.R(10), Theme.Card);
+            Skin.CardDecor(g, r);
             if (!string.IsNullOrEmpty(Title)) Gfx.Text(g, Title, Theme.H2, Theme.Text, new Rectangle(Theme.S(16), Theme.S(10), Width - Theme.S(32), Theme.S(24)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             if (!string.IsNullOrEmpty(Sub)) Gfx.Text(g, Sub, Theme.Small, Theme.Muted, new Rectangle(Theme.S(16), Theme.S(34), Width - Theme.S(32), Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
