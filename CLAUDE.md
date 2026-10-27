@@ -1,4 +1,4 @@
-# NetProbe 2.0 — context for Claude
+# NetProbe 3.0 — context for Claude
 
 Windows desktop app (C# WinForms, .NET Framework 4.8, single exe, runs as admin) that combines:
 - a **VPN router** on top of WireSock (WireGuard with per-app split tunneling),
@@ -6,7 +6,7 @@ Windows desktop app (C# WinForms, .NET Framework 4.8, single exe, runs as admin)
 - **Servers** — a v2rayN-like client on xray-core with subscriptions and auto-switch, optional **TUN** via sing-box,
 - the original **NetProbe network monitor** (two channels: VPN / Direct; latency, loss, tests, sites).
 
-UI language is English by default, Russian in Settings. All user data lives next to the exe.
+UI languages: English (default), Español, 中文 (`Lang.En.cs` / `Lang.Es.cs` / `Lang.Zh.cs`; Russian literals in code are only keys, Russian is not selectable). All user data lives next to the exe.
 
 ## Build
 ```
@@ -15,7 +15,8 @@ src\build.cmd
 Roslyn `csc.dll` from the installed .NET SDK (`C:\Program Files\dotnet\sdk\<latest>\Roslyn\bincore\csc.dll`), referencing the .NET Framework 4.8 assemblies in `C:\Windows\Microsoft.NET\Framework64\v4.0.30319`. Output: `..\NetProbe.exe`. `app.manifest` sets `requireAdministrator`.
 - If NetProbe is running, Roslyn renames the locked exe to `<guid>_NetProbe.exe` and fails; run build again. Start the new exe with `--replace` to make the running copy quit (WM "NetProbe_QuitMe_7f3a").
 - For UI testing without UAC, build a copy with a manifest using `asInvoker` into a temp folder.
-- Hidden dev flags: `--shots <dir>` (PNG of every page in all 3 themes, then exit; ignores the single-instance mutex), `--selftest <file>` (config generation check), `--xraytest <file>`.
+- Hidden dev flags: `--shots <dir>` (PNG of every page in all 5 themes for the current language + Configs→DPI→Sites + widget, then exit; ignores the single-instance mutex), `--selftest <file>` (config generation, i18n coverage, protocol link/config check), `--xraytest <file>`.
+- Test copy without UAC and without touching the user's profile: `_tools\testshots.cmd` pattern — asInvoker build into `%TEMP%\NetProbeTest`, settings.ini with AutoConnect=0, Autorun=0, CheckUpdates=0 and **different proxy ports** (otherwise `SysProxy.ClearIfStale` turns off the live copy's system proxy).
 
 ## Folder layout (runtime)
 ```
@@ -52,6 +53,17 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 | `Lang.cs`, `Lang.En.cs` | i18n: code strings are Russian, wrapped in `Tx("...")`; English in `Lang.En.cs` keyed by the Russian literal |
 | `Net.cs`, `Monitor.cs`, `Tests.cs` | monitoring probes (curl), channel stats, tests, Logger (per-day files, retention) |
 
+## 3.0 model (overrides the 2.x notes below where they differ)
+- Tabs: Routing (`BuildConnectPage`), Subscriptions (`BuildServersPage`), Monitor, Configs, Tests, Sites, Log, Settings. `PgMonitor=2`, `PgConfigs=3`.
+- Top segment **ROUTE | VPN | DPI** (`ModeSegment`, `Sources.cs`) on Routing and Subscriptions = `Settings.Mode` = `RunMode` (0 DPI/VPN, 1 VPN only, 2 DPI only; `VpnMode` kept in sync for old versions). Click another chip = switch + connect, active chip = disconnect.
+- Sources (`Sources.cs`): tunnels ≥ 1 → Primary VPN, subscriptions blocked; no tunnels → subscriptions; `HybridMode` → manual `SourceSwitch` (Primary VPN ⇄ Subscriptions). "No tunnel assigned" notice once per install (`VpnNoTunnelWarned`).
+- ROUTE: winws runs **together** with the tunnel (`Router.HybridDpiWanted/EnsureHybridDpi`); DPI button/toggle off = `DpiForcedOff` (persisted as `DpiButton`).
+- Lists: VPN lists accept apps only (`AppLists.IsAppEntry/AppsOnly`); domains there are gray (`ThemedList.DimReason`) and never reach the engine. DPI is global; winws exclusions = `dpionly-exclude` ("Don't touch these sites", Configs → DPI → Sites; legacy process entries still applied via TCP snapshot, hidden in UI). Per-app domains removed; migrated once into `list-general-user.txt` (`DomainsMigrated`). TUN of subscriptions uses the Routing lists.
+- Protocols (`Proto.cs`, `PagesProto.cs`): tunnel = `tunnels\<name>.conf` (WireGuard → WireSock) or `tunnels\<name>.json` (VLESS/VMess/Trojan → xray on `TunnelSocksPort` + sing-box TUN). `Router.Wg` is a `TunnelRunner` wrapping both; router states, failover, kill switch are identical.
+- Updates: one notification per version (`AppNotifiedTag`), frequency `AppNotifyEvery` (now/day/week/month), delay after `published_at` (`AppNotifyDelayOn/Min`, default 15 min), Windows toast via WinRT reflection (`Toast.cs`, AUMID `WhereChixiaMeet.NetProbe`), balloon fallback. After an update: "restart manually" notice + sidebar button (`UpdatedFrom`, `--reapply`).
+- Monitor: Session / Day / Week; a `STAT` line per minute goes to the daily log (`History.cs`), Day/Week are read from the logs.
+- Themes: Dark, Light, Classic, **Chisa (Personal)**, **Kurumi Tokisaki (Personal)** (`Theme.cs`, `Skin.cs`, `CharOverlay.cs`, `Chars.cs`). Character art is local only: `config\themes\<chisa|kurumi>\widget.png|frame.png|window.png` — never commit it or embed it in the exe.
+
 ## Routing model
 - **DPI / VPN** (default): Include apps → WireSock tunnel. Probe `netprobe-vpn.exe` is always in the tunnel; if it gets no answer for N s (FailoverSec, default 7): primary → backup VPN (if the block is on) → DPI. In DPI state the tunnel stays up only for **Strict VPN** apps + probe; when VPN is stable RecoverSec s → back to VPN, DPI stops. Kill switch blocks Strict VPN apps when no VPN is reachable.
 - **VPN Only**: primary → backup → VpnDown (kill switch, retry every 30 s).
@@ -73,7 +85,7 @@ Auto-connect on start and Windows autostart (Task Scheduler, highest privileges,
 ## Self-update (SelfUpdate.cs)
 - Source: GitHub Releases of `WhereChixiaMeet/NetProbe`, `/releases/latest`.
 - **Release format the updater expects:** tag `vX.Y.Z` greater than `MainForm.Version` (bump `Version` in `MainForm.cs` and `AssemblyInfo.cs` before building a release), with an asset named exactly `NetProbe.exe`, or a `.zip` (name without "source"/"src") that contains `NetProbe.exe` somewhere inside.
-- When a newer release exists, an "Update to vX" button appears at the top of the sidebar; Settings → Updates has "Check NetProbe updates". NetProbe releases are checked on their own timer (`appUpdTimer`): 20 s after start, then every hour, retry in 2 min after a network error (only the "Check automatically" toggle applies, not the zapret/xray interval). A failed check never hides an already shown button. Tray notifications for new versions are OFF by default (`UpdNotify`).
+- When a newer release exists, an "Update to vX" button appears at the top of the sidebar; Settings → Updates has "Check NetProbe updates". NetProbe releases are checked on their own timer (`appUpdTimer`): 20 s after start, then every hour, retry in 2 min after a network error (only the "Check automatically" toggle applies, not the zapret/xray interval). A failed check never hides an already shown button. New-version notifications: see the 3.0 model above (`UpdNotify` default on).
 - **VPN does not drop during an update:** wiresock-client / winws / xray / sing-box are started without stdout redirection, so they survive NetProbe exiting. The app writes `config\runtime\handoff.ini` (router state, tunnel, strategy, manual DPI, xray on/off), exits without stopping them, a hidden PowerShell waits for the PID, copies the new exe over the old one and starts it with `--updated`; the new instance calls `Router.Adopt` / `XrayManager.Adopt` to attach to the running processes instead of reconnecting.
 
 ## UI preferences of the owner (keep these)
