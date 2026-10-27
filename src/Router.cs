@@ -20,7 +20,7 @@ namespace NetProbe
     public class Router
     {
         public Func<Settings> GetSettings;
-        public readonly WiresockRunner Wg = new WiresockRunner();
+        public readonly TunnelRunner Wg = new TunnelRunner(); // WireSock или xray-туннель — по протоколу конфига
         public readonly ZapretRunner Dpi = new ZapretRunner();
         public event Action Changed;
         public Func<string, bool> AskStopService; // спросить пользователя перед остановкой чужой службы WireSock
@@ -122,8 +122,15 @@ namespace NetProbe
             {
                 var st = GetSettings();
                 Func<string, string> g = k => h.ContainsKey(k) ? h[k] : "";
-                var wg = SelfUpdate.FindChild("wiresock-client", null);
-                if (wg != null) { Wg.Attach(wg, g("tunnel")); tunnelAt = DateTime.Now; OnBackup = g("backup") == "1"; StrictOnly = g("strict") == "1"; domainDpi = !StrictOnly && TunnelDomains(false).Count > 0; learnedVer = DomainRoutes.Version; }
+                System.Diagnostics.Process wg = null;
+                if (TunnelProto.IsXray(g("tunnel")))
+                {
+                    var xp = SelfUpdate.FindChild("xray", st.XrayPath); var sp = SelfUpdate.FindChild("sing-box", st.SingBoxPath);
+                    if (xp != null && sp != null) { Wg.AttachXray(xp, sp, g("tunnel")); wg = xp; }
+                }
+                else wg = SelfUpdate.FindChild("wiresock-client", null);
+                if (wg != null && !Wg.IsXray) Wg.Attach(wg, g("tunnel"));
+                if (wg != null) { tunnelAt = DateTime.Now; OnBackup = g("backup") == "1"; StrictOnly = g("strict") == "1"; domainDpi = !StrictOnly && TunnelDomains(false).Count > 0; learnedVer = DomainRoutes.Version; }
                 var dpi = SelfUpdate.FindChild("winws", st.ZapretPath);
                 if (dpi != null) Dpi.Attach(dpi, g("strategy"));
                 ManualDpi = g("manualdpi") == "1";
@@ -236,6 +243,21 @@ namespace NetProbe
         {
             string name = backup ? st.BackupTunnel : st.PrimaryTunnel;
             if (!Tunnels.Exists(name)) { TunnelErr((backup ? Tx("Резервный") : Tx("Основной")) + Tx(" туннель не выбран или не найден")); return false; }
+            if (TunnelProto.IsXray(name))
+            {
+                // VLESS / VMess / Trojan: тот же сценарий, другой транспорт (xray + sing-box TUN, списки — process_path_regex)
+                wgDied = false;
+                okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue;
+                var strictL = AppLists.AppsOnly(AppLists.VpnOnlyApps);
+                var lists = strictOnly
+                    ? new TunLists { Include = strictL.Concat(new[] { VpnProbe }).ToList(), Exclude = new List<string>() }
+                    : new TunLists { Include = AppLists.AppsOnly(AppLists.HybridApps).Concat(strictL).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), Exclude = AppLists.AppsOnly(TunExclKey(st)) };
+                string xerr = Wg.StartXray(st, name, lists);
+                if (xerr != null) { TunnelErr(xerr); wgDied = true; return false; }
+                lastTunnelErr = null; OnBackup = backup; StrictOnly = strictOnly;
+                Logger.Write(LogLevel.Route, Tx("Туннель «") + name + "» (" + Tunnels.Endpoint(name) + Tx(") запущен") + (backup ? Tx(" · резервный") : "") + (strictOnly ? Tx(" · только для приложений «строго VPN»") : ""));
+                return true;
+            }
             if (!File.Exists(st.WiresockPath)) { wgDied = true; TunnelErr(Tx("Не найден wiresock-client.exe: ") + st.WiresockPath + Tx(". Установите WireSock VPN Client (есть в папке TunnlTo\\wiresock_installers) или укажите путь в Настройках.")); return false; }
             if (WiresockRunner.ServiceRunning())
             {

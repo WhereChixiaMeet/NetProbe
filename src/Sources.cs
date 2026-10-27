@@ -48,6 +48,11 @@ namespace NetProbe
             var r = new string[3];
             var src = ActiveSource();
             if (src == Source.None) r[0] = r[1] = Tx("Нет ни туннелей, ни подписок — работает только DPI. Добавь туннель в «Конфиги» или подписку на Subscriptions");
+            else if (src == Source.Vpn && TunnelProto.IsXray(st.PrimaryTunnel))
+            {
+                string miss = TunnelProto.Missing(TunnelProto.Load(st.PrimaryTunnel));
+                if (miss != null) r[0] = r[1] = Tx("Основной туннель «") + st.PrimaryTunnel + "»: " + miss + Tx(" (вкладка «Конфиги»)");
+            }
             else if (src == Source.Vpn && !System.IO.File.Exists(st.WiresockPath)) r[0] = r[1] = Tx("WireSock не установлен — VPN-режимы недоступны");
             if (ZapretRunner.Check(st.ZapretPath) != null) { r[2] = Tx("zapret не найден — DPI недоступен"); if (r[0] == null) r[0] = null; }
             return r;

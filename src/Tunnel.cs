@@ -20,15 +20,16 @@ namespace NetProbe
 
         public static List<string> Names()
         {
-            try { return Directory.GetFiles(Dir, "*.conf").Select(Path.GetFileNameWithoutExtension).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList(); }
+            // WireGuard (*.conf) и xray-семейство (*.json, Фаза 2) — одна общая модель туннелей
+            try { return Directory.GetFiles(Dir, "*.conf").Concat(Directory.GetFiles(Dir, "*.json")).Select(Path.GetFileNameWithoutExtension).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList(); }
             catch { return new List<string>(); }
         }
 
         public static string PathOf(string name) { return Path.Combine(Dir, Safe(name) + ".conf"); }
-        public static bool Exists(string name) { return !string.IsNullOrWhiteSpace(name) && File.Exists(PathOf(name)); }
+        public static bool Exists(string name) { return !string.IsNullOrWhiteSpace(name) && (File.Exists(PathOf(name)) || File.Exists(TunnelProto.JsonPath(name))); }
         public static string Read(string name) { try { return File.ReadAllText(PathOf(name), Encoding.UTF8); } catch { return ""; } }
         public static void Write(string name, string text) { File.WriteAllText(PathOf(name), text.Replace("\r\n", "\n").Replace("\n", "\r\n"), new UTF8Encoding(false)); }
-        public static void Delete(string name) { try { File.Delete(PathOf(name)); } catch { } }
+        public static void Delete(string name) { try { File.Delete(PathOf(name)); } catch { } try { File.Delete(TunnelProto.JsonPath(name)); } catch { } }
 
         public static string Safe(string n)
         {
@@ -39,6 +40,7 @@ namespace NetProbe
 
         public static string Endpoint(string name)
         {
+            if (TunnelProto.IsXray(name)) return TunnelProto.Endpoint(name);
             foreach (var l in Read(name).Split('\n'))
             {
                 var t = l.Trim();

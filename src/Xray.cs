@@ -411,6 +411,7 @@ namespace NetProbe
         public event Action<string> Output;
         public event Action<int> Exited;
         public bool Running { get { try { return p != null && !p.HasExited; } catch { return false; } } }
+        public int Pid { get { try { return p != null && !p.HasExited ? p.Id : 0; } catch { return 0; } } }
 
         public static string Exe(Settings st) { return System.IO.Path.Combine(st.XrayPath, "xray.exe"); }
 

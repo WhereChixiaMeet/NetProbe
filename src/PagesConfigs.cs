@@ -48,7 +48,7 @@ namespace NetProbe
         {
             var tt = Ui.Tip();
             var left = new CardPanel { Title = Tx("Туннели") };
-            lbTun = new ThemedList { RightText = n => n == st.PrimaryTunnel ? Tx("основной") : n == st.BackupTunnel ? Tx("резервный") : null };
+            lbTun = new ThemedList { RightText = n => (TunnelProto.IsXray(n) ? TunnelProto.Names[TunnelProto.IndexOf(n)] + (n == st.PrimaryTunnel || n == st.BackupTunnel ? " · " : "") : "") + (n == st.PrimaryTunnel ? Tx("основной") : n == st.BackupTunnel ? Tx("резервный") : "") };
             lbTun.SelectedIndexChanged += (s, e) => LoadTunnel();
             var bNew = IconBtn("", Tx("Новый"), tt);
             bNew.Click += (s, e) =>
@@ -59,11 +59,12 @@ namespace NetProbe
                 FillTunnels(n); tbTunName.Focus(); tbTunName.SelectAll();
             };
             var bImp = IconBtn("", Tx("Импорт .conf"), tt); bImp.Click += (s, e) => ImportConf();
+            var bLinkNew = IconBtn("\uE71B", Tx("Новый из ссылки (vless / vmess / trojan из буфера)"), tt); bLinkNew.Click += (s, e) => NewTunnelFromLink();
             var bDel = IconBtn("", Tx("Удалить"), tt); bDel.Click += (s, e) => DeleteTunnel(lbTun.SelectedItem);
-            var leftBtns = new[] { bNew, bImp, bDel };
+            var leftBtns = new[] { bNew, bLinkNew, bImp, bDel };
             left.Controls.Add(lbTun); left.Controls.AddRange(leftBtns);
 
-            var ed = new CardPanel { Title = "WireGuard" };
+            var ed = new CardPanel { Title = Tx("Туннель") };
             var lName = new Label { Text = Tx("Имя:"), AutoSize = true, ForeColor = Theme.Muted, BackColor = Theme.Card };
             tbTunName = Ui.TextBox();
             tbTunName.Leave += (s, e) => RenameTunnel();
@@ -77,6 +78,7 @@ namespace NetProbe
             bBack.Click += (s, e) => { var n = lbTun.SelectedItem; if (n == null) return; FlushTunnel(); st.BackupTunnel = n; st.BackupEnabled = true; st.Save(); lbTun.Invalidate(); LoadConnectUi(); };
             lTunInfo = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false, TextAlign = ContentAlignment.MiddleRight };
             ed.Controls.AddRange(new Control[] { lName, tbTunName, tbTunText, bPrim, bBack, lTunInfo });
+            BuildProtoUi(ed, tt);
             p.Controls.AddRange(new Control[] { left, ed });
 
             Action lay = () =>
@@ -91,7 +93,9 @@ namespace NetProbe
                 bBack.Location = new Point(ed.Width - ip - bBack.Width, Theme.S(8)); bPrim.Location = new Point(bBack.Left - Theme.S(6) - bPrim.Width, Theme.S(8));
                 lName.Location = new Point(ip, Theme.S(54)); tbTunName.SetBounds(lName.Right + Theme.S(6), Theme.S(50), Math.Min(Theme.S(320), ew - lName.Width), tbTunName.Height);
                 lTunInfo.SetBounds(ip, H - Theme.S(28), ew, Theme.S(18));
-                tbTunText.SetBounds(ip, Theme.S(84), ew, H - Theme.S(118));
+                tsProto.Location = new Point(ip, Theme.S(86));
+                tbTunText.SetBounds(ip, Theme.S(124), ew, H - Theme.S(158));
+                xrForm.SetBounds(ip, Theme.S(124), ew, H - Theme.S(158));
             };
             p.Resize += (s, e) => lay(); lay();
             FillTunnels(st.PrimaryTunnel);
@@ -115,17 +119,18 @@ namespace NetProbe
 
         void LoadTunnel()
         {
-            FlushTunnel();
+            FlushTunnel(); if (xrSave.Enabled) { xrSave.Stop(); SaveXr(); }
             var n = lbTun.SelectedItem; if (n == null) return;
             loadingTun = true;
-            try { tbTunName.Text = n; tbTunText.Text = Tunnels.Read(n).Replace("\r\n", "\n").Replace("\n", "\r\n"); } finally { loadingTun = false; }
+            try { tbTunName.Text = n; tbTunText.Text = TunnelProto.IsXray(n) ? "" : Tunnels.Read(n).Replace("\r\n", "\n").Replace("\n", "\r\n"); } finally { loadingTun = false; }
             lTunInfo.Text = Tunnels.Endpoint(n);
+            ShowProtoEditor(n);
         }
 
         // Конфиг сохраняется сам через секунду после правки
         void SaveTunnel()
         {
-            var n = lbTun.SelectedItem; if (n == null) return;
+            var n = lbTun.SelectedItem; if (n == null || TunnelProto.IsXray(n)) return;
             string text = tbTunText.Text;
             if (text.IndexOf("[Interface]", StringComparison.OrdinalIgnoreCase) < 0 || text.IndexOf("[Peer]", StringComparison.OrdinalIgnoreCase) < 0) { lTunInfo.Text = Tx("Нужны секции [Interface] и [Peer]"); return; }
             Tunnels.Write(n, text);
@@ -140,7 +145,9 @@ namespace NetProbe
             if (name == old || name.Length == 0) return;
             if (Tunnels.Exists(name)) { lTunInfo.Text = Tx("Имя занято"); return; }
             FlushTunnel();
-            Tunnels.Write(name, Tunnels.Read(old)); Tunnels.Delete(old);
+            if (xrSave.Enabled) { xrSave.Stop(); SaveXr(); }
+            if (TunnelProto.IsXray(old)) { var xe = TunnelProto.Load(old); if (xe != null) { xe.Name = name; TunnelProto.Save(name, xe); } Tunnels.Delete(old); }
+            else { Tunnels.Write(name, Tunnels.Read(old)); Tunnels.Delete(old); }
             if (st.PrimaryTunnel == old) st.PrimaryTunnel = name;
             if (st.BackupTunnel == old) st.BackupTunnel = name;
             st.Save();

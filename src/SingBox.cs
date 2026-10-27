@@ -96,12 +96,12 @@ namespace NetProbe
         public bool Running { get { try { return p != null && !p.HasExited; } catch { return false; } } }
         public static string Exe(Settings st) { return Path.Combine(st.SingBoxPath, "sing-box.exe"); }
 
-        public string Start(Settings st, string json)
+        public string Start(Settings st, string json, string cfgName = "singbox.json")
         {
             Stop();
             string exe = Exe(st);
             if (!File.Exists(exe)) return Tx("Не найден sing-box.exe — установите ядро TUN (кнопка «sing-box»)");
-            string cfg = Path.Combine(Settings.Sub("runtime"), "singbox.json");
+            string cfg = Path.Combine(Settings.Sub("runtime"), cfgName);
             File.WriteAllText(cfg, json, new UTF8Encoding(false));
             var psi = new ProcessStartInfo(exe, "run -c \"" + cfg + "\" -D \"" + st.SingBoxPath + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = st.SingBoxPath };
             try

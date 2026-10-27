@@ -52,6 +52,7 @@ namespace NetProbe
         // --- серверы (xray, аналог v2rayN) ---
         public string XrayDir = "";          // пусто = <папка приложения>\xray
         public int SocksPort = 10808;
+        public int TunnelSocksPort = 10828; // socks xray-туннеля (VLESS/VMess/Trojan в «Конфигах»), отдельно от подписок
         public int HttpPort = 10809;
         public bool SysProxy = true;         // системный прокси Windows на время подключения
         public bool AllowLan = false;
