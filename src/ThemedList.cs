@@ -19,6 +19,9 @@ namespace NetProbe
         public bool MultiSelect, ShowIcons;
         public Func<string, string> RightText;
         public Func<string, bool> BoldItem;
+        // запись, которая не работает в этом списке (например, домен в списке приложений): серым + подсказка с причиной
+        public Func<string, string> DimReason;
+        ToolTip dimTip; string dimShown;
         public event EventHandler SelectedIndexChanged;
 
         public ThemedList() { SetStyle(ControlStyles.Selectable, true); TabStop = true; Font = Theme.Body; }
@@ -85,7 +88,12 @@ namespace NetProbe
                 Invalidate(); return;
             }
             int h = e.X >= Width - BarW - 6 ? -2 : top + e.Y / RowH;
-            if (h != hover) { hover = h; Invalidate(); }
+            if (h != hover)
+            {
+                hover = h; Invalidate();
+                string why = DimReason != null && h >= 0 && h < Items.Count ? DimReason(Items[h]) : null;
+                if (why != dimShown) { if (dimTip == null) dimTip = Ui.Tip(); dimTip.SetToolTip(this, why ?? ""); dimShown = why; }
+            }
             base.OnMouseMove(e);
         }
         protected override void OnMouseUp(MouseEventArgs e) { dragThumb = false; base.OnMouseUp(e); }
@@ -115,6 +123,8 @@ namespace NetProbe
                 if (s) { using (var b = new SolidBrush(Theme.Classic ? Theme.Accent : Theme.CardHi)) g.FillRectangle(b, r); if (!Theme.Classic) using (var b = new SolidBrush(Theme.Accent)) g.FillRectangle(b, 0, r.Y + Theme.S(5), Theme.S(2), rh - Theme.S(10)); }
                 else if (i == hover) using (var b = new SolidBrush(Theme.Mix(back, Theme.CardHi, 0.5))) g.FillRectangle(b, r);
                 Color fg = s && Theme.Classic ? Theme.AccentFg : Theme.Text;
+                bool dim = DimReason != null && DimReason(Items[i]) != null;
+                if (dim) fg = Theme.Dim;
                 int x = Theme.S(8);
                 string text = Items[i];
                 // «приложение|домен» — домен под приложением: отступ и значок глобуса

@@ -74,6 +74,22 @@ namespace NetProbe
         // пока DPI снова не включат. Аварийный DPI (DpiFailover) и «Только DPI» — это сам маршрут, их не трогаем.
         public volatile bool DpiForcedOff;
         public bool DpiIsRoute { get { return State == RouteState.DpiFailover || State == RouteState.DpiOnly; } }
+        // Режим DPI/VPN (ROUTE): туннель и winws работают одновременно — Include/«строго VPN» в туннеле, winws для всего остального.
+        // Выключенная кнопка DPI (DpiForcedOff) оставляет только туннель.
+        bool HybridDpiWanted(Settings st)
+        {
+            return st.RunMode == RouteMode.Hybrid && !DpiForcedOff &&
+                   (State == RouteState.Vpn || State == RouteState.Backup || State == RouteState.VpnDown || State == RouteState.Connecting || State == RouteState.DpiFailover);
+        }
+        DateTime lastHybridDpi = DateTime.MinValue;
+        void EnsureHybridDpi(Settings st)
+        {
+            if (!HybridDpiWanted(st) || Dpi.Running || ZapretRunner.Check(st.ZapretPath) != null) return;
+            if ((DateTime.Now - lastHybridDpi).TotalSeconds < 15) return; // не долбить запуском, если winws сразу падает
+            lastHybridDpi = DateTime.Now;
+            Logger.Write(LogLevel.Route, Tx("DPI/VPN: winws параллельно с туннелем"));
+            StartDpi();
+        }
         public void SetManualDpi(bool on)
         {
             Post(() =>
@@ -160,24 +176,28 @@ namespace NetProbe
         }
 
         // ---------- списки ----------
-        List<string> Excl(Settings st)
-        {
-            switch (st.RunMode) { case RouteMode.VpnOnly: return AppLists.Get(AppLists.VpnOnlyExcl); case RouteMode.DpiOnly: return AppLists.Get(AppLists.DpiOnlyExcl); default: return AppLists.Get(AppLists.HybridExcl); }
-        }
+        // исключения winws: «Не трогать эти сайты» (dpionly-exclude: домены/IP/CIDR + легаси-процессы через снапшот TCP).
+        // DPI глобален: исключение приложений из VPN (Exclude) на DPI не влияет — домен важнее приложения.
+        List<string> Excl(Settings st) { return AppLists.Get(AppLists.DpiOnlyExcl); }
+        // исключения туннеля: только приложения (WireSock DisallowedApps)
+        public static string TunExclKey(Settings st) { return st.RunMode == RouteMode.VpnOnly ? AppLists.VpnOnlyExcl : AppLists.HybridExcl; }
 
         // Домены под приложениями в Include DPI, чьи приложения идут в туннель (или Include пуст = весь трафик в туннеле)
         public static List<string> TunnelDomains(bool strictOnly)
         {
             // приложение в Include может быть записано иначе (подстрока пути: «browser», полный путь), поэтому
             // при полном туннеле берутся домены всех приложений; при «строго VPN» — только тех, кто совпал с этим списком
+            if (GetDomainsRemoved()) return new List<string>(); // 3.0: per-app домены упразднены (домены — только глобально на вкладке DPI)
             var doms = AppLists.Domains(AppLists.DpiApps);
             if (strictOnly) { var strict = AppLists.Get(AppLists.VpnOnlyApps); doms = doms.Where(d => AppLists.InList(strict, d.Key)).ToList(); }
             return doms.Select(d => d.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         }
 
+        static bool GetDomainsRemoved() { return true; }
+
         string BuildConfig(Settings st, string tunnel, bool strictOnly)
         {
-            var strict = AppLists.Get(AppLists.VpnOnlyApps);
+            var strict = AppLists.AppsOnly(AppLists.VpnOnlyApps);
             var allow = new List<string>(); var deny = new List<string>();
             if (strictOnly)
             {
@@ -185,9 +205,8 @@ namespace NetProbe
             }
             else
             {
-                allow.AddRange(AppLists.Get(AppLists.HybridApps)); allow.AddRange(strict);
-                var ex = ExclusionSet.From(Excl(st));
-                deny.AddRange(ex.Processes);
+                allow.AddRange(AppLists.AppsOnly(AppLists.HybridApps)); allow.AddRange(strict);
+                deny.AddRange(AppLists.AppsOnly(TunExclKey(st)));
                 if (allow.Count > 0) allow.Add(VpnProbe); else deny.Add(DirectProbe); // пусто = весь трафик через VPN, кроме пробника «напрямую»
             }
             allow = allow.Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -241,7 +260,7 @@ namespace NetProbe
             return true;
         }
 
-        void StopDpi(bool force = false) { if (!force && !DpiForcedOff && (ManualDpi || domainDpi || (DpiHold != null && DpiHold()))) return; if (Dpi.Running) { Dpi.Stop(); Logger.Write(LogLevel.Route, Tx("DPI (winws) остановлен")); } dpiDied = false; }
+        void StopDpi(bool force = false) { if (!force && !DpiForcedOff && (ManualDpi || domainDpi || HybridDpiWanted(GetSettings()) || (DpiHold != null && DpiHold()))) return; if (Dpi.Running) { Dpi.Stop(); Logger.Write(LogLevel.Route, Tx("DPI (winws) остановлен")); } dpiDied = false; }
 
         void RefreshExclusions(Settings st, bool force)
         {
@@ -285,7 +304,7 @@ namespace NetProbe
             if (!on || !st.KillSwitch) { if (KillSwitch.Active) { KillSwitch.Clear(); Logger.Write(LogLevel.Route, Tx("Kill switch снят")); } return; }
             if ((DateTime.Now - lastKill).TotalSeconds < 5) return;
             lastKill = DateTime.Now;
-            var strict = AppLists.Get(AppLists.VpnOnlyApps);
+            var strict = AppLists.AppsOnly(AppLists.VpnOnlyApps);
             if (strict.Count == 0) return;
             int n = KillSwitch.Block(ProcInfo.PathsOf(strict));
             if (n > 0) Logger.Write(LogLevel.Route, Tx("Kill switch: заблокировано приложений «строго VPN»: ") + KillSwitch.Count);
@@ -305,8 +324,8 @@ namespace NetProbe
                 else SetState(RouteState.Off, Tx("Не удалось запустить DPI"));
                 return;
             }
-            if (StartTunnel(st, false, false)) { SetState(RouteState.Vpn, st.PrimaryTunnel); return; }
-            if (HasBackup(st) && StartTunnel(st, true, false)) { backupSince = DateTime.Now; SetState(RouteState.Backup, st.BackupTunnel); return; }
+            if (StartTunnel(st, false, false)) { SetState(RouteState.Vpn, st.PrimaryTunnel); lastHybridDpi = DateTime.MinValue; EnsureHybridDpi(st); return; }
+            if (HasBackup(st) && StartTunnel(st, true, false)) { backupSince = DateTime.Now; SetState(RouteState.Backup, st.BackupTunnel); lastHybridDpi = DateTime.MinValue; EnsureHybridDpi(st); return; }
             string why = File.Exists(st.WiresockPath) ? Tx("VPN не запустился") : Tx("WireSock не установлен");
             if (st.RunMode == RouteMode.Hybrid) { EnterDpi(st, why); return; }
             SetState(RouteState.VpnDown, why); Kill(st, true);
@@ -327,7 +346,8 @@ namespace NetProbe
             var st = GetSettings();
             if (State == RouteState.Off) return;
             if (Wg.Running) { Logger.Write(LogLevel.Route, Tx("Списки изменены — перезапуск туннеля с новыми правилами")); StartTunnel(st, OnBackup, StrictOnly); }
-            if ((State == RouteState.Vpn || State == RouteState.Backup || State == RouteState.VpnDown) && (!domainDpi || DpiForcedOff) && Dpi.Running) StopDpi(); // доменов больше нет / DPI выключен кнопкой
+            if ((State == RouteState.Vpn || State == RouteState.Backup || State == RouteState.VpnDown) && (!domainDpi || DpiForcedOff) && Dpi.Running) StopDpi(); // доменов больше нет / DPI выключен кнопкой (в DPI/VPN winws держит HybridDpiWanted)
+            EnsureHybridDpi(st);
             if (domainDpi && !Dpi.Running && !DpiForcedOff) { lastDomDpi = DateTime.Now; StartDpi(); }
             if (Dpi.Running) RefreshExclusions(st, true);
             if (KillSwitch.Active) { KillSwitch.Clear(); lastKill = DateTime.MinValue; }
@@ -368,6 +388,8 @@ namespace NetProbe
                 case RouteState.Vpn:
                 case RouteState.Backup:
                     DomainTick(st);
+                    EnsureHybridDpi(st);
+                    if (Dpi.Running && st.RunMode == RouteMode.Hybrid) RefreshExclusions(st, false);
                     if (VpnSilent(st))
                     {
                         string why = wgDied ? Tx("процесс WireSock остановился") : Tx("VPN не отвечает ") + st.FailoverSec + Tx(" с");
@@ -418,6 +440,7 @@ namespace NetProbe
 
                 case RouteState.VpnDown:
                     DomainTick(st);
+                    EnsureHybridDpi(st);
                     if (VpnStable(st) || (Wg.Running && LastVpnOk > tunnelAt && (now - LastVpnOk).TotalSeconds < 3))
                     {
                         Logger.Write(LogLevel.Route, Tx("VPN восстановлен"));

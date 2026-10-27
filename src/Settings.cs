@@ -24,7 +24,7 @@ namespace NetProbe
         public static string[] RetentionNames { get { return new[] { Tx("1 час"), Tx("1 день"), Tx("1 неделя"), Tx("1 месяц") }; } }
 
         // --- маршрутизация ---
-        public int Mode = 0;                 // RouteMode — какой режим открыт для настройки списков
+        public int Mode = 0;                 // RouteMode — режим маршрутизации (сегмент ROUTE | VPN | DPI): 0 DPI/VPN, 1 только VPN, 2 только DPI
         public int VpnMode = 0;              // как работает кнопка VPN: 0 DPI/VPN (с переключением на DPI), 1 Только VPN
         public string PrimaryTunnel = "";    // имя .conf в config\tunnels
         public string BackupTunnel = "";
@@ -138,9 +138,28 @@ namespace NetProbe
         public bool Autorun = true;          // по умолчанию запуск вместе с Windows
         public bool Notify = true;
 
+        // ---- 3.0 ----
+        public bool V3Migrated = false;      // одноразовая миграция настроек 2.x → 3.0 (Mode = режим работы, а не «вид»)
+        public bool HybridMode = false;      // Режим гибрида: Primary VPN и подписки разрешены одновременно, ручной тумблер источника
+        public bool HybridWarned = false;    // предупреждение о гибриде показано (галочка «больше не показывать»)
+        public int Source = 0;               // активный источник в гибриде: 0 Primary VPN, 1 Subscriptions
+        public bool VpnNoTunnelWarned = false; // «Туннель не назначен» показан — один раз за жизнь установки, обновлением не сбрасывается
+        public bool DomainsMigrated = false; // домены из карточек приложений перенесены в общий список DPI
+        public string UpdatedFrom = "";      // версия, с которой обновились (баннер «перезапусти вручную»)
+        public int AppNotifyEvery = 0;       // уведомления о новой версии NetProbe: 0 сразу, 1 день, 2 неделя, 3 месяц
+        public bool AppNotifyDelayOn = true; // уведомлять не раньше чем через AppNotifyDelayMin после публикации релиза
+        public int AppNotifyDelayMin = 15;
+        public string AppNotifiedTag = "";   // о какой версии уже уведомили (одно уведомление на версию)
+        public double AppNotifiedAt = 0;     // OADate последнего уведомления
+        public bool CharWidget = true;       // Personal-темы: персонаж у виджета
+        public bool CharWindow = true;       // Personal-темы: персонаж у окна
+        public bool CharFrame = true;        // Personal-темы: персонаж за рамкой окна (окно-компаньон)
+        public int CharOpacity = 85;         // Personal-темы: непрозрачность персонажа, %
+
         public double MaxPollRate { get { return DirectMode == 1 ? MaxPollRatePs : MaxPollRateCurl; } }
         public RouteMode RMode { get { return (RouteMode)Mode; } }
-        public RouteMode RunMode { get { return VpnMode == 1 ? RouteMode.VpnOnly : RouteMode.Hybrid; } }
+        public RouteMode RunMode { get { return (RouteMode)Mode; } }
+        public void SetRunMode(RouteMode m) { Mode = (int)m; VpnMode = m == RouteMode.VpnOnly ? 1 : 0; } // VpnMode — для старых версий
 
         public static string Root { get { return Path.GetDirectoryName(Application.ExecutablePath); } }
 
@@ -210,8 +229,12 @@ namespace NetProbe
             if (string.IsNullOrWhiteSpace(TestUrl)) TestUrl = "https://www.gstatic.com/generate_204";
             if (string.IsNullOrWhiteSpace(SpeedUrl)) SpeedUrl = "https://speed.cloudflare.com/__down?bytes=50000000";
             SpeedSec = Math.Max(3, Math.Min(60, SpeedSec)); if (ApiPort < 1024 || ApiPort > 65000) ApiPort = 10813;
-            if (Theme < 0 || Theme > 2) Theme = 0;
-            if (Lang != "ru") Lang = "en";
+            if (Theme < 0 || Theme > 4) Theme = 0;
+            if (!Tr.IsLang(Lang)) Lang = "en"; // русский в 3.0 не выбирается (en / es / zh)
+            if (AppNotifyEvery < 0 || AppNotifyEvery > 3) AppNotifyEvery = 0;
+            AppNotifyDelayMin = Math.Max(0, Math.Min(1440, AppNotifyDelayMin));
+            CharOpacity = Math.Max(20, Math.Min(100, CharOpacity));
+            if (Source < 0 || Source > 1) Source = 0;
             if (string.IsNullOrWhiteSpace(Accent)) Accent = "79,140,255";
             if (LogRetention < 0 || LogRetention > 3) LogRetention = 2;
             if (GameFilter < 0 || GameFilter > 3) GameFilter = 0;
@@ -265,6 +288,12 @@ namespace NetProbe
                 }
             }
             catch { }
+            if (!st.V3Migrated)
+            {
+                // 2.x: Mode был только «какие списки редактируем», запускался VpnMode (0 DPI/VPN, 1 только VPN)
+                st.Mode = st.VpnMode == 1 ? 1 : 0;
+                st.V3Migrated = true;
+            }
             st.Clamp();
             return st;
         }
@@ -466,6 +495,46 @@ namespace NetProbe
 
         // только приложения, без доменов
         public static List<string> Apps(string key) { return Get(key).Where(x => !IsChild(x)).ToList(); }
+
+        // ---- 3.0: списки VPN принимают только приложения/процессы ----
+        // запись — приложение: путь, *.exe или имя без точки; домен/IP в списке приложений остаётся, но серый и в движок не идёт
+        public static bool IsAppEntry(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s) || IsChild(s)) return false;
+            s = s.Trim();
+            if (s.Contains("\") || s.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) return true;
+            return !s.Contains(".") && !s.Contains(":") && !s.Contains("/");
+        }
+        public static List<string> AppsOnly(string key) { return Get(key).Where(IsAppEntry).ToList(); }
+        public static string NotAppReason(string s) { return IsAppEntry(s) || s == null ? null : Tx("домены в списках приложений не работают — домены пишутся на вкладке DPI"); }
+        // исключение сайтов из DPI («Не трогать эти сайты»): ключ dpionly-exclude, в UI только домены/IP; процессы — легаси, работают фоном
+        public static List<string> DpiSitesExcl() { return Get(DpiOnlyExcl).Where(x => !IsAppEntry(x) && !IsChild(x)).ToList(); }
+        public static void SetDpiSitesExcl(IEnumerable<string> sites)
+        {
+            var legacy = Get(DpiOnlyExcl).Where(IsAppEntry);
+            Set(DpiOnlyExcl, legacy.Concat(sites));
+        }
+
+        // 3.0: домены из карточек приложений («приложение|домен» в dpi-apps / servers-dpi-apps) → общий список DPI
+        public static List<string> MigrateAppDomains()
+        {
+            var moved = new List<string>();
+            foreach (var key in DomainKeys)
+            {
+                var all = Get(key);
+                var kids = all.Where(IsChild).ToList();
+                if (kids.Count == 0) continue;
+                moved.AddRange(kids.Select(ChildOf).Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0));
+                Set(key, all.Where(x => !IsChild(x)));
+            }
+            moved = moved.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (moved.Count > 0)
+            {
+                var sites = Get(DpiDomains);
+                Set(DpiDomains, sites.Concat(moved.Where(m => !ExclusionSet.IsIp(m))).Distinct(StringComparer.OrdinalIgnoreCase));
+            }
+            return moved;
+        }
 
         // для показа: каждое приложение, сразу под ним его домены (в Include VPN — домены из Include DPI, чтобы было видно)
         public static List<string> Display(string key)
