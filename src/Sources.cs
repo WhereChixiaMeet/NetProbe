@@ -234,6 +234,7 @@ namespace NetProbe
                 srcSwitch.Value = ActiveSource() == Source.Subs ? 1 : 0;
                 srcSwitch.SetReason(!st.HybridMode ? Tx("Доступно только в Режиме гибрида (Настройки)") : TunnelCount == 0 ? Tx("Нет туннелей — работает только Subscriptions") : !HasSubs ? Tx("Нет подписок — работает только Primary VPN") : null);
             }
+            if (cbRunMode != null && !cbRunMode.IsDisposed && cbRunMode.SelectedIndex != st.Mode) cbRunMode.SelectedIndex = st.Mode;
             UpdateTopButtons();
             if (miModes != null) for (int i = 0; i < 3; i++) miModes[i].Checked = i == st.Mode;
             UpdateSide();

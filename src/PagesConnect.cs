@@ -121,16 +121,25 @@ namespace NetProbe
         ThemedCheck cKill, cDnsTun, cAutoConnect;
         bool loadingConnect;
 
-        ModeSegment segRoute; Label lRouteHint;
+        DarkCombo cbRunMode; Label lRouteHint;
 
         void BuildConnectPage()
         {
             var p = NewPage(Tx("Маршрутизация"), Tx("Приложения: туннель, «Строго VPN», исключения"));
             topRouting = NewTopButtons(p, null);
-            segRoute = NewSegment(); // выбор режима ROUTE | VPN | DPI — компактно, на панели состояния
-            segRoute.Size = new Size(Theme.S(222), Theme.S(30));
+            // режим маршрутизации — выпадающий список на панели состояния (кнопки сверху только включают/выключают)
+            cbRunMode = new DarkCombo { Width = Theme.S(190) };
+            foreach (var m in new[] { RouteMode.Hybrid, RouteMode.VpnOnly, RouteMode.DpiOnly }) cbRunMode.Items.Add(Router.ModeName(m));
+            cbRunMode.SelectedIndex = st.Mode;
+            cbRunMode.SelectedIndexChanged += (s, e) =>
+            {
+                if (!cbRunMode.UserPick || cbRunMode.SelectedIndex < 0 || cbRunMode.SelectedIndex == st.Mode) return;
+                int want = cbRunMode.SelectedIndex; string why = ChipReasons()[want];
+                if (why != null) { BeginInvoke((Action)(() => { UpdateModeUi(); Notice.Show(this, Router.ModeName((RouteMode)want), why); })); return; }
+                ChipClick(want);
+            };
 
-            board = new StatusBoard { Reserve = Theme.S(236) };
+            board = new StatusBoard { Reserve = Theme.S(204) };
 
             var cPrim = new CardPanel { Title = Tx("Основной VPN") };
             cbPrimary = new DarkCombo();
@@ -208,14 +217,14 @@ namespace NetProbe
             }
 
             p.Controls.AddRange(new Control[] { board, cPrim, cBack, cFail, lRouteHint });
-            board.Controls.Add(segRoute);
+            board.Controls.Add(cbRunMode);
             Action lay = () =>
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
                 PlaceTopButtons(topRouting, p.ClientSize.Width - L, Theme.S(22));
                 int y = Theme.S(80);
                 board.SetBounds(L, y, W, Theme.S(84));
-                segRoute.Location = new Point(board.Width - Theme.S(14) - segRoute.Width, Theme.S(14));
+                cbRunMode.Location = new Point(board.Width - Theme.S(14) - cbRunMode.Width, Theme.S(16));
                 y = board.Bottom + gap;
                 int ch = Theme.S(92), ip = Theme.S(16), hw = (W - gap) / 2;
                 cPrim.SetBounds(L, y, hw, ch); cBack.SetBounds(L + hw + gap, y, W - hw - gap, ch);
