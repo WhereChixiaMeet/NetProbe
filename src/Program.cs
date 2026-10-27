@@ -33,7 +33,7 @@ namespace NetProbe
                     try { Native.PostMessage((IntPtr)0xffff, WM_QUITME, IntPtr.Zero, IntPtr.Zero); } catch { }
                     try { created = mutex.WaitOne(15000); } catch (AbandonedMutexException) { created = true; }
                 }
-                if (!created && Array.IndexOf(args, "--shots") < 0) { try { Native.PostMessage((IntPtr)0xffff, WM_SHOWME, IntPtr.Zero, IntPtr.Zero); } catch { } return; }
+                if (!created && Array.IndexOf(args, "--shots") < 0 && Array.IndexOf(args, "--selftest") < 0 && Array.IndexOf(args, "--speedtest") < 0) { try { Native.PostMessage((IntPtr)0xffff, WM_SHOWME, IntPtr.Zero, IntPtr.Zero); } catch { } return; }
                 try { Native.SetProcessDPIAware(); } catch { }
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);

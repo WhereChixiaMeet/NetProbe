@@ -332,11 +332,11 @@ namespace NetProbe
             try
             {
                 var res = SubParse.Parse(Download(s.Url, 20000, s.UserAgent));
-                string skipped = res.SkippedCount > 0 ? " · " + Tx("пропущено ") + res.SkippedCount + " (" + res.SkippedText + ")" : "";
+                string skipped = res.SkippedCount > 0 ? " · " + Tr.Tx("пропущено ") + res.SkippedCount + " (" + res.SkippedText + ")" : "";
                 if (res.Servers.Count == 0)
                 {
                     s.LastReport = "0" + skipped + " · " + s.ClientName; Save();
-                    return s.Name + ": 0" + skipped + (res.SkippedCount == 0 ? " · " + Tx("попробуй другой клиент в «Подписки…»") : "");
+                    return s.Name + ": 0" + skipped + (res.SkippedCount == 0 ? " · " + Tr.Tx("попробуй другой клиент в «Подписки…»") : "");
                 }
                 lock (lk)
                 {
@@ -353,7 +353,7 @@ namespace NetProbe
                     s.LastReport = res.Servers.Count + skipped + " · " + s.ClientName + (res.Format != "links" ? " · " + res.Format : "");
                 }
                 Save();
-                if (res.SkippedCount > 0) Logger.Write(LogLevel.Info, Tx("Подписка «") + s.Name + Tx("»: пропущено ") + res.SkippedText);
+                if (res.SkippedCount > 0) Logger.Write(LogLevel.Info, Tr.Tx("Подписка «") + s.Name + Tr.Tx("»: пропущено ") + res.SkippedText);
                 return s.Name + ": " + res.Servers.Count + skipped;
             }
             catch (Exception ex) { return s.Name + ": " + ex.Message; }

@@ -11,6 +11,13 @@ namespace NetProbe
         public static void Run(string outFile)
         {
             var sb = new StringBuilder();
+            try { RunInner(sb); }
+            catch (Exception ex) { sb.AppendLine("SELFTEST EXCEPTION: " + ex); }
+            File.WriteAllText(outFile, sb.ToString(), Encoding.UTF8);
+        }
+
+        static void RunInner(StringBuilder sb)
+        {
             var st = Settings.Load();
             sb.AppendLine("zapret: " + st.ZapretPath + " check=" + (ZapretRunner.Check(st.ZapretPath) ?? "ok"));
             sb.AppendLine("imported strategies: " + DpiConfigs.ImportAll(st.ZapretPath, false) + " -> " + string.Join(", ", DpiConfigs.Names()));
@@ -56,15 +63,16 @@ namespace NetProbe
                 Tuple.Create("clash", "port: 7890\nproxies:\n  - {name: C1, type: vless, server: c1.invalid, port: 443, uuid: " + U0 + ", tls: true, servername: c1.invalid, network: ws, ws-opts: {path: /c, headers: {Host: c1.invalid}}}\n  - name: \"C2\"\n    type: trojan\n    server: c2.invalid\n    port: 443\n    password: pw\n    sni: c2.invalid\n  - name: C3\n    type: ss\n    server: c3.invalid\n    port: 8388\n    cipher: aes-128-gcm\n    password: pw\n  - {name: C4, type: hysteria2, server: c4.invalid, port: 443}\nproxy-groups:\n  - name: auto\n"),
             };
             foreach (var smp in samples)
+            try
             {
                 var res = SubParse.Parse(smp.Item2);
                 sb.AppendLine("--- sub " + smp.Item1 + ": format=" + res.Format + " servers=" + res.Servers.Count + " [" + string.Join(" | ", res.Servers.Select(x => x.Name + " " + x.Transport + " " + x.Endpoint)) + "] skipped=" + res.SkippedText);
                 foreach (var x in res.Servers) { var back = ServerEntry.Parse(SubParse.ToLink(x)); if (back == null || back.Transport != x.Transport || back.Endpoint != x.Endpoint || back.UserId != x.UserId) sb.AppendLine("  ROUNDTRIP FAIL: " + x.Name); }
             }
+            catch (Exception sx) { sb.AppendLine("--- sub " + smp.Item1 + " EXCEPTION: " + sx); }
             var b64 = SubParse.Parse(Convert.ToBase64String(Encoding.UTF8.GetBytes(samples[0].Item2)));
             sb.AppendLine("--- sub base64: servers=" + b64.Servers.Count + " skipped=" + b64.SkippedText);
             sb.AppendLine("--- tunnels: " + string.Join(", ", Tunnels.Names().Select(n => n + (TunnelProto.IsXray(n) ? " [" + TunnelProto.Names[TunnelProto.IndexOf(n)] + "]" : " [WireGuard]"))));
-            File.WriteAllText(outFile, sb.ToString(), Encoding.UTF8);
         }
 
         // --speedtest <файл> [ссылки.txt]: диагностика замера задержки/скорости серверов (ничего не подключает, только тестовый xray на 127.0.0.1)
