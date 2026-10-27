@@ -84,6 +84,7 @@ namespace NetProbe
                 var cur = ServerStore.Find(st.ActiveServer);
                 statsId = cur != null ? cur.Id : null; lastStats = DateTime.Now;
                 dpiApps = NeedDpi != null && NeedDpi(); // winws уже подхвачен маршрутизатором
+                if (st.SysProxy && !st.TunMode) SysProxy.Adopt("127.0.0.1:" + st.HttpPort);
                 Set(XState.Connected, cur != null ? cur.Name : "");
             });
         }
@@ -238,7 +239,7 @@ namespace NetProbe
             statsId = null;
             sb.Stop();
             x.Stop();
-            if (GetSettings().SysProxy || SysProxy.IsOurs()) SysProxy.Clear();
+            SysProxy.Clear(); // снимает только прокси, поставленный NetProbe
             if (dpiOn || dpiApps) { dpiOn = false; dpiApps = false; if (DpiFallback != null) DpiFallback(false); }
             if (was) Logger.Write(LogLevel.Route, "xray " + Tx("отключён"));
             Set(XState.Off, "");
@@ -401,43 +402,104 @@ namespace NetProbe
         static string ours;
         static void Refresh() { InternetSetOption(IntPtr.Zero, 39, IntPtr.Zero, 0); InternetSetOption(IntPtr.Zero, 37, IntPtr.Zero, 0); }
 
-        public static void ClearIfStale(int httpPort)
+        // Чужой прокси (Happ, v2rayN, Clash…) не трогаем никогда: снимаем только то, что поставили сами.
+        // Что мы поставили, помним и после перезапуска — config\runtime\sysproxy.txt.
+        static string Marker { get { return System.IO.Path.Combine(Settings.Sub("runtime"), "sysproxy.txt"); } }
+        static string Mine()
+        {
+            if (ours != null) return ours;
+            try { return System.IO.File.Exists(Marker) ? System.IO.File.ReadAllLines(Marker)[0].Trim() : null; } catch { return null; }
+        }
+        // какой прокси был до нас (например, Happ) — вернём его при отключении
+        static string[] Before() { try { var l = System.IO.File.ReadAllLines(Marker); return l.Length >= 3 ? new[] { l[1], l[2], l.Length >= 4 ? l[3] : "" } : null; } catch { return null; } }
+        static void Forget() { ours = null; try { System.IO.File.Delete(Marker); } catch { } }
+        static string Current(RegistryKey k) { return Convert.ToInt32(k.GetValue("ProxyEnable", 0)) == 1 ? Convert.ToString(k.GetValue("ProxyServer")) : null; }
+
+        // старт NetProbe: прокси остался от нас (NetProbe упал / выключили ПК) — убрать. Если порт кем-то слушается
+        // (наш xray ещё не запущен — значит, это другой клиент с тем же портом), прокси его и не трогаем.
+        public static void ClearIfStale(int httpPort, string ourXrayDir)
         {
             try
             {
-                using (var k = Registry.CurrentUser.OpenSubKey(Key, true))
-                    if (Convert.ToInt32(k.GetValue("ProxyEnable", 0)) == 1 && Convert.ToString(k.GetValue("ProxyServer")) == "127.0.0.1:" + httpPort) { k.SetValue("ProxyEnable", 0, RegistryValueKind.DWord); Refresh(); }
+                string mine = Mine();
+                string cur; using (var k = Registry.CurrentUser.OpenSubKey(Key)) cur = Current(k);
+                // 3.0.0 и раньше метку не писали: «наш» = 127.0.0.1:<наш HTTP-порт>, но только если порт никто не слушает
+                if (string.IsNullOrEmpty(mine) && cur == "127.0.0.1:" + httpPort && !PortListened(httpPort) && !OurXrayRunning(ourXrayDir)) { ours = cur; mine = cur; }
+                if (string.IsNullOrEmpty(mine)) return;
+                if (cur == null || cur != mine) { Forget(); return; } // прокси уже не наш
+                int port; int c = mine.LastIndexOf(':');
+                if (c > 0 && int.TryParse(mine.Substring(c + 1), out port) && PortListened(port))
+                {
+                    if (OurXrayRunning(ourXrayDir)) return; // наш xray пережил обновление NetProbe — прокси остаётся нашим
+                    { Logger.Write(LogLevel.Info, Tx("Системный прокси ") + mine + Tx(" используется другой программой — не трогаю")); Forget(); return; }
+                }
+                Clear(); // наш, остался после сбоя: снять (и вернуть прокси, который был до нас)
             }
             catch { }
+        }
+
+        static bool OurXrayRunning(string dir)
+        {
+            try
+            {
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("xray"))
+                    using (p) { string path = ProcInfo.ImagePath(p.Id); if (path != "" && !string.IsNullOrEmpty(dir) && path.StartsWith(dir, StringComparison.OrdinalIgnoreCase)) return true; }
+            }
+            catch { }
+            return false;
+        }
+
+        static bool PortListened(int port)
+        {
+            try { foreach (var ep in System.Net.NetworkInformation.IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners()) if (ep.Port == port) return true; } catch { }
+            return false;
         }
 
         public static void Set(string hostPort)
         {
             try
             {
+                string prev = null;
                 using (var k = Registry.CurrentUser.OpenSubKey(Key, true))
                 {
+                    string had = Current(k);
+                    if (had != null && had != hostPort && had != Mine()) prev = "1\n" + had + "\n" + Convert.ToString(k.GetValue("ProxyOverride"));
+                    else if (Mine() == hostPort) { var b = Before(); if (b != null) prev = b[0] + "\n" + b[1] + "\n" + b[2]; } // повторный Set: «до нас» не теряем
                     k.SetValue("ProxyEnable", 1, RegistryValueKind.DWord);
                     k.SetValue("ProxyServer", hostPort);
                     k.SetValue("ProxyOverride", "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.2*;172.30.*;172.31.*;192.168.*;<local>");
                 }
                 ours = hostPort; Refresh();
+                try { System.IO.File.WriteAllText(Marker, hostPort + (prev != null ? "\n" + prev : "")); } catch { }
             }
             catch (Exception ex) { Logger.Write(LogLevel.Error, "System proxy: " + ex.Message); }
         }
 
+        // после обновления со старой версии: xray подхвачен, прокси на его порту — считаем своим
+        public static void Adopt(string hostPort)
+        {
+            try { using (var k = Registry.CurrentUser.OpenSubKey(Key)) if (string.IsNullOrEmpty(Mine()) && Current(k) == hostPort) { ours = hostPort; System.IO.File.WriteAllText(Marker, hostPort); } } catch { }
+        }
+
         public static bool IsOurs()
         {
-            try { using (var k = Registry.CurrentUser.OpenSubKey(Key)) return ours != null && Convert.ToString(k.GetValue("ProxyServer")) == ours; } catch { return false; }
+            try { string mine = Mine(); using (var k = Registry.CurrentUser.OpenSubKey(Key)) return !string.IsNullOrEmpty(mine) && Current(k) == mine; } catch { return false; }
         }
 
         public static void Clear()
         {
             try
             {
+                string mine = Mine();
                 using (var k = Registry.CurrentUser.OpenSubKey(Key, true))
-                    if (ours == null || Convert.ToString(k.GetValue("ProxyServer")) == ours) k.SetValue("ProxyEnable", 0, RegistryValueKind.DWord);
-                ours = null; Refresh();
+                    if (!string.IsNullOrEmpty(mine) && Current(k) == mine)
+                    {
+                        var b = Before();
+                        if (b != null && b[0] == "1" && b[1] != "") { k.SetValue("ProxyServer", b[1]); k.SetValue("ProxyOverride", b[2]); Logger.Write(LogLevel.Info, Tx("Системный прокси возвращён: ") + b[1]); }
+                        else k.SetValue("ProxyEnable", 0, RegistryValueKind.DWord);
+                        Refresh();
+                    } // чужой (или никакой) — не трогаем
+                Forget();
             }
             catch { }
         }

@@ -209,12 +209,24 @@ namespace NetProbe
 
         public Dictionary<string, object> ToDict()
         {
-            return new Dictionary<string, object> { { "link", Link }, { "group", Group }, { "fav", Favorite }, { "delay", Delay }, { "tested", Tested.Ticks }, { "name", Name },
+            return new Dictionary<string, object> { { "id", Id }, { "link", Link }, { "group", Group }, { "fav", Favorite }, { "delay", Delay }, { "tested", Tested.Ticks }, { "name", Name },
                 { "cc", Country }, { "speed", Speed }, { "down", TotalDown }, { "up", TotalUp } };
         }
     }
 
-    public class Subscription { public string Name = "", Url = ""; public bool Enabled = true; public DateTime Updated = DateTime.MinValue; public string Id = ""; }
+    public class Subscription
+    {
+        public string Name = "", Url = ""; public bool Enabled = true; public DateTime Updated = DateTime.MinValue; public string Id = "";
+        public string UA = "";       // как представляться серверу подписки ("" = v2rayN); панели отдают разный список разным клиентам
+        public string LastReport = ""; // итог последнего обновления: сколько добавлено / что пропущено и почему
+
+        // имя → User-Agent. Remnawave / Marzban / 3x-ui выбирают формат и состав списка по клиенту.
+        public static readonly string[][] Clients = {
+            new[] { "v2rayN", "v2rayN/7.13.8" }, new[] { "Happ", "Happ/2.0.0" }, new[] { "Streisand", "Streisand/1.6" },
+            new[] { "Hiddify", "HiddifyNext/2.5.7" }, new[] { "Clash (mihomo)", "clash.meta/1.19.0" }, new[] { "sing-box", "sing-box/1.11.0" } };
+        public string UserAgent { get { return string.IsNullOrWhiteSpace(UA) ? Clients[0][1] : UA.Trim(); } }
+        public string ClientName { get { var c = Clients.FirstOrDefault(x => x[1] == UserAgent); return c != null ? c[0] : UserAgent; } }
+    }
 
     // Хранилище серверов и подписок: config\servers.json, config\subscriptions.json
     public static class ServerStore
@@ -240,6 +252,7 @@ namespace NetProbe
                         {
                             var e = ServerEntry.Parse(Convert.ToString(d["link"]));
                             if (e == null) continue;
+                            if (d.ContainsKey("id") && Convert.ToString(d["id"]) != "") e.Id = Convert.ToString(d["id"]); // 3.0.1: id хранится (дубли в разных подписках)
                             e.Group = d.ContainsKey("group") ? Convert.ToString(d["group"]) : "";
                             e.Favorite = d.ContainsKey("fav") && Convert.ToBoolean(d["fav"]);
                             if (d.ContainsKey("delay")) e.Delay = Convert.ToInt32(d["delay"]);
@@ -253,7 +266,8 @@ namespace NetProbe
                         }
                     if (File.Exists(SubFile))
                         foreach (var d in Js().Deserialize<List<Dictionary<string, object>>>(File.ReadAllText(SubFile, Encoding.UTF8)))
-                            Subs.Add(new Subscription { Id = Convert.ToString(d["id"]), Name = Convert.ToString(d["name"]), Url = Convert.ToString(d["url"]), Enabled = Convert.ToBoolean(d["enabled"]), Updated = new DateTime(Convert.ToInt64(d["updated"])) });
+                            Subs.Add(new Subscription { Id = Convert.ToString(d["id"]), Name = Convert.ToString(d["name"]), Url = Convert.ToString(d["url"]), Enabled = Convert.ToBoolean(d["enabled"]), Updated = new DateTime(Convert.ToInt64(d["updated"])),
+                                UA = d.ContainsKey("ua") ? Convert.ToString(d["ua"]) : "", LastReport = d.ContainsKey("report") ? Convert.ToString(d["report"]) : "" });
                 }
                 catch (Exception ex) { Logger.Write(LogLevel.Error, "servers.json: " + ex.Message); }
             }
@@ -266,7 +280,7 @@ namespace NetProbe
                 try
                 {
                     File.WriteAllText(SrvFile, Js().Serialize(Servers.Select(s => s.ToDict()).ToList()), new UTF8Encoding(false));
-                    File.WriteAllText(SubFile, Js().Serialize(Subs.Select(s => new Dictionary<string, object> { { "id", s.Id }, { "name", s.Name }, { "url", s.Url }, { "enabled", s.Enabled }, { "updated", s.Updated.Ticks } }).ToList()), new UTF8Encoding(false));
+                    File.WriteAllText(SubFile, Js().Serialize(Subs.Select(s => new Dictionary<string, object> { { "id", s.Id }, { "name", s.Name }, { "url", s.Url }, { "enabled", s.Enabled }, { "updated", s.Updated.Ticks }, { "ua", s.UA }, { "report", s.LastReport } }).ToList()), new UTF8Encoding(false));
                 }
                 catch (Exception ex) { Logger.Write(LogLevel.Error, "servers.json: " + ex.Message); }
             }
@@ -277,18 +291,12 @@ namespace NetProbe
         public static List<ServerEntry> Snapshot() { lock (lk) return Servers.ToList(); }
 
         // Ссылки из текста (буфер обмена / ответ подписки, в т.ч. base64)
-        public static List<ServerEntry> ParseMany(string text)
+        public static List<ServerEntry> ParseMany(string text) { return SubParse.Parse(text).Servers; }
+
+        // одинаковый сервер в разных подписках/группах — отдельные записи (как в v2rayN); id стабилен для группы
+        static void UniqueId(ServerEntry e, string group)
         {
-            var res = new List<ServerEntry>();
-            if (string.IsNullOrWhiteSpace(text)) return res;
-            string t = text.Trim();
-            if (!t.Contains("://")) { try { t = ServerEntry.B64(t); } catch { } }
-            foreach (var line in t.Split(new[] { '\n', '\r', ' ' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                var e = ServerEntry.Parse(line);
-                if (e != null && !res.Any(x => x.Id == e.Id)) res.Add(e);
-            }
-            return res;
+            if (Servers.Any(x => x.Id == e.Id && x.Group != group)) e.Id = ServerEntry.MakeId(group + "|" + e.Link);
         }
 
         public static int AddMany(IEnumerable<ServerEntry> list, string group)
@@ -297,7 +305,8 @@ namespace NetProbe
             lock (lk)
                 foreach (var e in list)
                 {
-                    if (Servers.Any(x => x.Id == e.Id)) continue;
+                    if (Servers.Any(x => x.Group == group && x.Link == e.Link)) continue; // уже есть в этой группе
+                    UniqueId(e, group);
                     e.Group = group; Servers.Add(e); n++;
                 }
             Save();
@@ -306,36 +315,46 @@ namespace NetProbe
 
         public static void Remove(IEnumerable<string> ids) { var set = new HashSet<string>(ids); lock (lk) Servers.RemoveAll(s => set.Contains(s.Id)); Save(); }
 
-        public static string Download(string url, int timeoutMs)
+        public static string Download(string url, int timeoutMs, string userAgent = null)
         {
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)12288;
             var rq = (HttpWebRequest)WebRequest.Create(url);
-            rq.UserAgent = "v2rayN/7.0 NetProbe"; rq.Timeout = timeoutMs; rq.ReadWriteTimeout = timeoutMs;
+            rq.UserAgent = string.IsNullOrEmpty(userAgent) ? Subscription.Clients[0][1] : userAgent; rq.Timeout = timeoutMs; rq.ReadWriteTimeout = timeoutMs;
+            rq.Accept = "*/*";
             rq.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
             using (var r = rq.GetResponse()) using (var sr = new StreamReader(r.GetResponseStream(), Encoding.UTF8)) return sr.ReadToEnd();
         }
 
-        // Обновить подписку: серверы группы заменяются, избранное и замеры сохраняются
+        // Обновить подписку: серверы группы заменяются, избранное и замеры сохраняются.
+        // Итог честный: сколько серверов и что пропущено (протоколы, которые xray не запускает, зашифрованные ссылки, ошибки).
         public static string UpdateSub(Subscription s)
         {
             try
             {
-                var list = ParseMany(Download(s.Url, 20000));
-                if (list.Count == 0) return s.Name + ": 0";
+                var res = SubParse.Parse(Download(s.Url, 20000, s.UserAgent));
+                string skipped = res.SkippedCount > 0 ? " · " + Tx("пропущено ") + res.SkippedCount + " (" + res.SkippedText + ")" : "";
+                if (res.Servers.Count == 0)
+                {
+                    s.LastReport = "0" + skipped + " · " + s.ClientName; Save();
+                    return s.Name + ": 0" + skipped + (res.SkippedCount == 0 ? " · " + Tx("попробуй другой клиент в «Подписки…»") : "");
+                }
                 lock (lk)
                 {
-                    var old = Servers.Where(x => x.Group == s.Id).ToDictionary(x => x.Id);
+                    var old = Servers.Where(x => x.Group == s.Id).GroupBy(x => x.Link).ToDictionary(g => g.Key, g => g.First());
                     Servers.RemoveAll(x => x.Group == s.Id);
-                    foreach (var e in list)
+                    foreach (var e in res.Servers)
                     {
                         ServerEntry o; e.Group = s.Id;
-                        if (old.TryGetValue(e.Id, out o)) { e.Favorite = o.Favorite; e.Delay = o.Delay; e.Tested = o.Tested; e.Speed = o.Speed; e.TotalDown = o.TotalDown; e.TotalUp = o.TotalUp; if (e.Country == "") e.Country = o.Country; }
+                        if (old.TryGetValue(e.Link, out o)) { e.Id = o.Id; e.Favorite = o.Favorite; e.Delay = o.Delay; e.Tested = o.Tested; e.Speed = o.Speed; e.TotalDown = o.TotalDown; e.TotalUp = o.TotalUp; if (e.Country == "") e.Country = o.Country; }
+                        else UniqueId(e, s.Id);
                         Servers.Add(e);
                     }
                     s.Updated = DateTime.Now;
+                    s.LastReport = res.Servers.Count + skipped + " · " + s.ClientName + (res.Format != "links" ? " · " + res.Format : "");
                 }
                 Save();
-                return s.Name + ": " + list.Count;
+                if (res.SkippedCount > 0) Logger.Write(LogLevel.Info, Tx("Подписка «") + s.Name + Tx("»: пропущено ") + res.SkippedText);
+                return s.Name + ": " + res.Servers.Count + skipped;
             }
             catch (Exception ex) { return s.Name + ": " + ex.Message; }
         }

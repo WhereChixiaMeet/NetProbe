@@ -46,6 +46,23 @@ namespace NetProbe
                 sb.AppendLine("--- xray tunnel config ---\r\n" + XrayConfig.Build(cs, demo));
                 sb.AppendLine("--- sing-box TUN config (Include=Discord.exe, Exclude=steam.exe) ---\r\n" + SingBoxConfig.Build(cs, new TunLists { Include = new[] { "Discord.exe" }.ToList(), Exclude = new[] { "steam.exe" }.ToList() }));
             }
+            // 3.0.1: форматы подписок (синтетические данные, ничего не скачивается и не подключается)
+            const string U0 = "00000000-0000-0000-0000-000000000000";
+            var samples = new[]
+            {
+                Tuple.Create("links", "vless://" + U0 + "@a.invalid:443?security=tls&sni=a.invalid&type=ws&path=%2Fws#A 1\nhysteria2://pw@b.invalid:443#B\nhy2://pw@b.invalid:443#B2\ntuic://x@c.invalid:443#C\nhapp://crypt2/AAAA\nss://YWVzLTEyOC1nY206cHc@d.invalid:8388?plugin=obfs#D\ntrojan://pw@e.invalid:443?sni=e.invalid#E\nvless://broken"),
+                Tuple.Create("xray-json", "[{\"remarks\":\"X1\",\"outbounds\":[{\"tag\":\"proxy\",\"protocol\":\"vless\",\"settings\":{\"vnext\":[{\"address\":\"x.invalid\",\"port\":443,\"users\":[{\"id\":\"" + U0 + "\",\"flow\":\"xtls-rprx-vision\",\"encryption\":\"none\"}]}]},\"streamSettings\":{\"network\":\"tcp\",\"security\":\"reality\",\"realitySettings\":{\"serverName\":\"x.invalid\",\"fingerprint\":\"chrome\",\"publicKey\":\"PBK\",\"shortId\":\"01\"}}},{\"tag\":\"direct\",\"protocol\":\"freedom\"}]},{\"remarks\":\"X2\",\"outbounds\":[{\"tag\":\"proxy\",\"protocol\":\"trojan\",\"settings\":{\"servers\":[{\"address\":\"y.invalid\",\"port\":8443,\"password\":\"pw\"}]},\"streamSettings\":{\"network\":\"grpc\",\"security\":\"tls\",\"grpcSettings\":{\"serviceName\":\"g\"},\"tlsSettings\":{\"serverName\":\"y.invalid\"}}}]},{\"remarks\":\"H\",\"outbounds\":[{\"tag\":\"proxy\",\"protocol\":\"hysteria\"}]}]"),
+                Tuple.Create("sing-box", "{\"outbounds\":[{\"type\":\"vmess\",\"tag\":\"S1\",\"server\":\"s.invalid\",\"server_port\":443,\"uuid\":\"" + U0 + "\",\"tls\":{\"enabled\":true,\"server_name\":\"s.invalid\"},\"transport\":{\"type\":\"ws\",\"path\":\"/v\",\"headers\":{\"Host\":\"s.invalid\"}}},{\"type\":\"hysteria2\",\"tag\":\"S2\",\"server\":\"h.invalid\",\"server_port\":443},{\"type\":\"direct\",\"tag\":\"direct\"}]}"),
+                Tuple.Create("clash", "port: 7890\nproxies:\n  - {name: C1, type: vless, server: c1.invalid, port: 443, uuid: " + U0 + ", tls: true, servername: c1.invalid, network: ws, ws-opts: {path: /c, headers: {Host: c1.invalid}}}\n  - name: \"C2\"\n    type: trojan\n    server: c2.invalid\n    port: 443\n    password: pw\n    sni: c2.invalid\n  - name: C3\n    type: ss\n    server: c3.invalid\n    port: 8388\n    cipher: aes-128-gcm\n    password: pw\n  - {name: C4, type: hysteria2, server: c4.invalid, port: 443}\nproxy-groups:\n  - name: auto\n"),
+            };
+            foreach (var smp in samples)
+            {
+                var res = SubParse.Parse(smp.Item2);
+                sb.AppendLine("--- sub " + smp.Item1 + ": format=" + res.Format + " servers=" + res.Servers.Count + " [" + string.Join(" | ", res.Servers.Select(x => x.Name + " " + x.Transport + " " + x.Endpoint)) + "] skipped=" + res.SkippedText);
+                foreach (var x in res.Servers) { var back = ServerEntry.Parse(SubParse.ToLink(x)); if (back == null || back.Transport != x.Transport || back.Endpoint != x.Endpoint || back.UserId != x.UserId) sb.AppendLine("  ROUNDTRIP FAIL: " + x.Name); }
+            }
+            var b64 = SubParse.Parse(Convert.ToBase64String(Encoding.UTF8.GetBytes(samples[0].Item2)));
+            sb.AppendLine("--- sub base64: servers=" + b64.Servers.Count + " skipped=" + b64.SkippedText);
             sb.AppendLine("--- tunnels: " + string.Join(", ", Tunnels.Names().Select(n => n + (TunnelProto.IsXray(n) ? " [" + TunnelProto.Names[TunnelProto.IndexOf(n)] + "]" : " [WireGuard]"))));
             File.WriteAllText(outFile, sb.ToString(), Encoding.UTF8);
         }

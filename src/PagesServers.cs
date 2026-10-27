@@ -24,7 +24,7 @@ namespace NetProbe
         {
             ServerStore.Load();
             AppLists.SeedServers();
-            SysProxy.ClearIfStale(st.HttpPort);
+            SysProxy.ClearIfStale(st.HttpPort, st.XrayPath);
             xm.GetSettings = () => st;
             xm.GetCurl = () => curlPath;
             XState lastX = XState.Off;
@@ -70,9 +70,9 @@ namespace NetProbe
             bImp.Click += (s, e) =>
             {
                 string t = ""; try { t = Clipboard.GetText(); } catch { }
-                var list = ServerStore.ParseMany(t);
-                int n = ServerStore.AddMany(list, "");
-                lSrvInfo.Text = Tx("Добавлено серверов: ") + n + (list.Count == 0 ? " · " + Tx("в буфере нет ссылок vless/vmess/trojan/ss") : "");
+                var res = SubParse.Parse(t);
+                int n = ServerStore.AddMany(res.Servers, "");
+                lSrvInfo.Text = Tx("Добавлено серверов: ") + n + (res.SkippedCount > 0 ? " · " + Tx("пропущено ") + res.SkippedCount + " (" + res.SkippedText + ")" : res.Servers.Count == 0 ? " · " + Tx("в буфере нет ссылок vless/vmess/trojan/ss") : "");
                 if (n > 0 && srvTabs.SelectedKey != "all") srvTabs.Select("manual");
             };
             var bSubs = new FlatButton(Tx("Подписки")) { Glyph = "" }.AutoW();
@@ -800,6 +800,7 @@ namespace NetProbe
     {
         readonly ThemedList list = new ThemedList();
         readonly TextBox tbName = Ui.TextBox(), tbUrl = Ui.TextBox();
+        readonly DarkCombo cbClient = new DarkCombo();
         readonly Label info = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Color.Transparent };
 
         public SubsDialog(string selectId = null)
@@ -808,8 +809,20 @@ namespace NetProbe
             MinimizeBox = false; ShowInTaskbar = false; AutoScaleMode = AutoScaleMode.None;
             var card = new CardPanel(); card.Controls.Add(list);
             card.Resize += (s, e) => list.SetBounds(Theme.S(6), Theme.S(6), card.Width - Theme.S(12), card.Height - Theme.S(12));
-            list.RightText = n => { var sb = ServerStore.Subs.FirstOrDefault(x => x.Name == n); return sb == null ? null : (sb.Enabled ? "" : Tx("выкл") + "  ") + ServerStore.Snapshot().Count(x => x.Group == sb.Id); };
-            list.SelectedIndexChanged += (s, e) => { var sb = Cur(); if (sb != null) { tbName.Text = sb.Name; tbUrl.Text = sb.Url; } };
+            list.RightText = n => { var sb = ServerStore.Subs.FirstOrDefault(x => x.Name == n); return sb == null ? null : (sb.Enabled ? "" : Tx("выкл") + "  ") + (sb.UA != "" ? sb.ClientName + "  ·  " : "") + ServerStore.Snapshot().Count(x => x.Group == sb.Id); };
+            list.SelectedIndexChanged += (s, e) => { var sb = Cur(); if (sb != null) { tbName.Text = sb.Name; tbUrl.Text = sb.Url; SelectClient(sb.UserAgent); info.Text = sb.LastReport; } };
+            foreach (var c in Subscription.Clients) cbClient.Items.Add(c[0]);
+            cbClient.SelectedIndex = 0;
+            // как представляться серверу подписки: панели (Remnawave, Marzban…) отдают разным клиентам разный список
+            cbClient.SelectedIndexChanged += (s, e) =>
+            {
+                if (!cbClient.UserPick) return;
+                var sb = Cur(); if (sb == null || cbClient.SelectedIndex < 0) return;
+                sb.UA = cbClient.SelectedIndex == 0 ? "" : Subscription.Clients[cbClient.SelectedIndex][1]; ServerStore.Save();
+                info.Text = Tx("Загрузка…"); Refresh(); info.Text = ServerStore.UpdateSub(sb); Fill();
+            };
+            var lC = Ui.Label(Tx("Клиент"), Theme.Small, Theme.Muted);
+            Ui.Tip().SetToolTip(cbClient, Tx("Как NetProbe представляется серверу подписки. Если в Happ серверов больше — выбери Happ: многие панели отдают список по клиенту"));
             var lN = Ui.Label(Tx("Имя"), Theme.Small, Theme.Muted); var lU = Ui.Label("URL", Theme.Small, Theme.Muted);
             var bAdd = new FlatButton(Tx("Добавить"), true) { Glyph = "\uE710" }.AutoW();
             bAdd.Click += (s, e) =>
@@ -817,7 +830,8 @@ namespace NetProbe
                 if (!tbUrl.Text.Trim().StartsWith("http")) { info.Text = Tx("Нужна ссылка http(s)://"); return; }
                 var sb = Cur();
                 if (sb != null && sb.Name == tbName.Text.Trim()) { sb.Url = tbUrl.Text.Trim(); }
-                else ServerStore.Subs.Add(new Subscription { Id = ServerEntry.MakeId(tbUrl.Text.Trim() + DateTime.Now.Ticks), Name = tbName.Text.Trim() == "" ? "sub" + (ServerStore.Subs.Count + 1) : tbName.Text.Trim(), Url = tbUrl.Text.Trim() });
+                else ServerStore.Subs.Add(new Subscription { Id = ServerEntry.MakeId(tbUrl.Text.Trim() + DateTime.Now.Ticks), Name = tbName.Text.Trim() == "" ? "sub" + (ServerStore.Subs.Count + 1) : tbName.Text.Trim(), Url = tbUrl.Text.Trim(),
+                    UA = cbClient.SelectedIndex > 0 ? Subscription.Clients[cbClient.SelectedIndex][1] : "" });
                 ServerStore.Save(); Fill();
                 var add = ServerStore.Subs.Last();
                 info.Text = Tx("Загрузка…"); Refresh();
@@ -827,14 +841,16 @@ namespace NetProbe
             var bUpd = new FlatButton(Tx("Обновить")) { Glyph = "\uE72C" }.AutoW(); bUpd.Click += (s, e) => { var sb = Cur(); if (sb != null) { info.Text = Tx("Загрузка…"); Refresh(); info.Text = ServerStore.UpdateSub(sb); Fill(); } };
             var bDel = new FlatButton(Tx("Удалить")) { Glyph = "\uE74D", Danger = true }.AutoW();
             bDel.Click += (s, e) => { var sb = Cur(); if (sb == null) return; ServerStore.Subs.Remove(sb); ServerStore.Remove(ServerStore.Snapshot().Where(x => x.Group == sb.Id).Select(x => x.Id)); Fill(); };
-            Controls.AddRange(new Control[] { card, lN, tbName, lU, tbUrl, bAdd, bToggle, bUpd, bDel, info });
+            Controls.AddRange(new Control[] { card, lN, tbName, lU, tbUrl, lC, cbClient, bAdd, bToggle, bUpd, bDel, info });
             Action lay = () =>
             {
                 int p = Theme.S(14), W = ClientSize.Width - p * 2;
                 int by = ClientSize.Height - p - bAdd.Height;
                 bAdd.Location = new Point(p, by); bToggle.Location = new Point(bAdd.Right + Theme.S(6), by); bUpd.Location = new Point(bToggle.Right + Theme.S(6), by); bDel.Location = new Point(ClientSize.Width - p - bDel.Width, by);
                 info.SetBounds(p, by - Theme.S(24), W, Theme.S(18));
-                tbUrl.SetBounds(p + Theme.S(50), info.Top - Theme.S(34), W - Theme.S(50), tbUrl.Height); lU.Location = new Point(p, tbUrl.Top + Theme.S(4));
+                int cw = Theme.S(170);
+                cbClient.SetBounds(p + W - cw, info.Top - Theme.S(34), cw, cbClient.Height); lC.Location = new Point(cbClient.Left - Theme.S(8) - lC.Width, cbClient.Top + Theme.S(5));
+                tbUrl.SetBounds(p + Theme.S(50), info.Top - Theme.S(34), lC.Left - Theme.S(12) - p - Theme.S(50), tbUrl.Height); lU.Location = new Point(p, tbUrl.Top + Theme.S(4));
                 tbName.SetBounds(p + Theme.S(50), tbUrl.Top - Theme.S(34), W - Theme.S(50), tbName.Height); lN.Location = new Point(p, tbName.Top + Theme.S(4));
                 card.SetBounds(p, p, W, tbName.Top - Theme.S(10) - p);
             };
@@ -843,6 +859,7 @@ namespace NetProbe
             var pre = ServerStore.Subs.FirstOrDefault(x => x.Id == selectId);
             if (pre != null) list.SelectedItem = pre.Name;
         }
+        void SelectClient(string ua) { int i = Array.FindIndex(Subscription.Clients, c => c[1] == ua); cbClient.SelectedIndex = i < 0 ? 0 : i; }
         Subscription Cur() { var n = list.SelectedItem; return n == null ? null : ServerStore.Subs.FirstOrDefault(x => x.Name == n); }
         void Fill() { var sel = list.SelectedItem; list.Items.Clear(); list.Items.AddRange(ServerStore.Subs.Select(x => x.Name)); list.EndUpdate(); if (sel != null && list.Items.Contains(sel)) list.SelectedItem = sel; }
         protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Native.TitleTheme(Handle, Theme.IsDark); }

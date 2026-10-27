@@ -7,6 +7,17 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "ошибка разбора", "error de análisis" },
+            { "нет адреса или порта", "sin dirección o puerto" },
+            { "пропущено ", "omitidos " },
+            { "попробуй другой клиент в «Подписки…»", "prueba otro cliente en «Suscripciones…»" },
+            { "Подписка «", "Suscripción «" },
+            { "»: пропущено ", "»: omitidos " },
+            { "Клиент", "Cliente" },
+            { "Как NetProbe представляется серверу подписки. Если в Happ серверов больше — выбери Happ: многие панели отдают список по клиенту", "Cómo se identifica NetProbe ante el servidor de suscripción. Si Happ muestra más servidores, elige Happ: muchos paneles devuelven la lista según el cliente" },
+            { "Системный прокси ", "Proxy del sistema " },
+            { " используется другой программой — не трогаю", " lo usa otro programa — no se toca" },
+            { "Системный прокси возвращён: ", "Proxy del sistema restaurado: " },
             { "Стратегии zapret, сайты и исключения", "Estrategias zapret, sitios y exclusiones" },
             { "Туннели: WireGuard, VLESS, VMess, Trojan", "Túneles: WireGuard, VLESS, VMess, Trojan" },
             { "DPI-конфиги", "Configs DPI" },

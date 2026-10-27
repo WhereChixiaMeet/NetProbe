@@ -7,6 +7,17 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "ошибка разбора", "parse error" },
+            { "нет адреса или порта", "no address or port" },
+            { "пропущено ", "skipped " },
+            { "попробуй другой клиент в «Подписки…»", "try another client in “Subscriptions…”" },
+            { "Подписка «", "Subscription “" },
+            { "»: пропущено ", "”: skipped " },
+            { "Клиент", "Client" },
+            { "Как NetProbe представляется серверу подписки. Если в Happ серверов больше — выбери Happ: многие панели отдают список по клиенту", "How NetProbe identifies itself to the subscription server. If Happ shows more servers, pick Happ: many panels return the list based on the client" },
+            { "Системный прокси ", "System proxy " },
+            { " используется другой программой — не трогаю", " is used by another program — left untouched" },
+            { "Системный прокси возвращён: ", "System proxy restored: " },
             { "Стратегии zapret, сайты и исключения", "zapret strategies, sites and exclusions" },
             { "Туннели: WireGuard, VLESS, VMess, Trojan", "Tunnels: WireGuard, VLESS, VMess, Trojan" },
             { "DPI-конфиги", "DPI configs" },
