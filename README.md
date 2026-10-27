@@ -1,32 +1,42 @@
-# NetProbe 2.0
+# NetProbe 3.0
 
-VPN (WireSock) + DPI (zapret) router with automatic failover, per-app split tunneling and the NetProbe network monitor.
-
+Windows protocol router: WireGuard · VLESS · VMess · Trojan, DPI bypass (zapret), per-app split routing with automatic failover and a built-in network monitor.
 
 ## Requirements
 - Windows 10/11, .NET Framework 4.8 (built in).
-- WireSock VPN Client 1.4.x — installer: `TunnlTo\wiresock_installers\wiresock-vpn-client-x64-1.4.7.1.msi`.
-- Runs as administrator (WireSock, WinDivert and the firewall kill switch need it).
+- Runs as administrator (WinDivert, TUN and the firewall kill switch need it).
+- WireGuard tunnels use the WireSock VPN Client 1.4.x engine. VLESS / VMess / Trojan tunnels and subscriptions use xray-core + sing-box (TUN), both installable from inside the app.
 
 ## Folder layout
 ```
 NetProbe.exe
 zapret\          winws.exe, WinDivert, lists (copied from zapret-discord-youtube)
-config\          settings.ini, tunnels\*.conf, dpi\*.txt, lists\*.txt, runtime\
+xray\, singbox\  cores, installed/updated from the app
+config\          settings.ini, tunnels\*.conf|*.json, dpi\*.txt, lists\*.txt, themes\, runtime\
 log\             one file per day: YYYY-MM-DD.log (folder can be changed in Settings)
 src\             sources, build.cmd
 ```
 
-## Modes
-- **DPI / VPN** — traffic of the Include apps goes through the VPN. If the VPN probe gets no answer for N seconds (Switch after, default 7), NetProbe switches: primary VPN → backup VPN (if the block is on) → DPI. While on DPI the tunnel stays up for Strict VPN apps; once the VPN is stable for M seconds (Return after) it switches back and stops DPI.
-- **VPN Only** — tunnel only (primary → backup). On outage the kill switch blocks Strict VPN apps.
-- **DPI Only** — winws only, the tunnel is never started.
+## Routing modes (segment ROUTE | VPN | DPI)
+- **ROUTE** (DPI/VPN) — Include apps go through the tunnel, DPI handles everything outside it at the same time. If the tunnel probe gets no answer for N seconds: primary → backup → DPI failover; back to the tunnel once it is stable again.
+- **VPN** — tunnel only (primary → backup). On outage the kill switch blocks Strict VPN apps.
+- **DPI** — winws only, no tunnel.
 
-## Lists (Connection tab)
-- **Include** — apps in the VPN (empty = all traffic).
-- **Strict VPN** — always in the tunnel, never DPI/direct; blocked by the kill switch when no VPN is reachable.
-- **Exclude** — separate list per mode. VPN modes: `DisallowedApps`. DPI: domains/IPs plus remote IPs of excluded processes (refreshed every 10 s) go to `--ipset-exclude`.
-Add items by hand or from the built-in Task manager; changes apply without disconnecting (the tunnel restarts with the new rules for ~1–2 s).
+Clicking the active chip disconnects; clicking another chip switches mode and connects.
+
+## Protocols
+The protocol is a property of each tunnel config (Configs tab): **WireGuard** (via WireSock), **VLESS**, **VMess**, **Trojan** (via xray + sing-box TUN). Every protocol works the same way on top: same router states, lists, kill switch, DPI failover and recovery. Links (`vless://`, `vmess://`, `trojan://`) fill the fields automatically.
+
+## Sources
+- At least one tunnel → Primary VPN is the source, subscriptions are off.
+- No tunnels → subscriptions (xray) are the source.
+- **Hybrid mode** (Settings) → both, with a manual "Primary VPN ⇄ Subscriptions" switch. Primary VPN always has priority.
+
+## Lists (Routing tab — apps only)
+- **Include** — apps in the tunnel (empty = all traffic).
+- **Strict VPN** — always in the tunnel, never DPI; blocked by the kill switch when the tunnel is down.
+- **Exclude** — bypass the tunnel.
+DPI is global: domains for DPI and "don't touch these sites" live on Configs → DPI → Sites. Priority: Strict VPN > domain > app.
 
 ## Build
 ```
@@ -34,7 +44,9 @@ src\build.cmd
 ```
 Uses Roslyn from the installed .NET SDK, targets .NET Framework 4.8.
 
+## Languages
+English · Español · 中文 (Settings → Language, applied without restart).
+
 ## Known limits
+- winws cannot filter by process; legacy process exclusions from 2.x work through current TCP connections (QUIC/UDP not covered).
 - WireSock cannot run twice: stop `wiresock-client-service` (TunnlTo) first — NetProbe offers to do it.
-- winws cannot filter by process; DPI exclusions by process work through their current TCP connections (QUIC/UDP of excluded apps is not covered).
-- On first start NetProbe imports the zapret strategies from the bundled zapret folder. Tunnels, servers and lists start empty.

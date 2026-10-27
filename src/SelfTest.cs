@@ -29,6 +29,24 @@ namespace NetProbe
             sb.AppendLine("paths of 'discord': " + string.Join(", ", ProcInfo.PathsOf(new[] { "discord" }.ToList())));
             sb.AppendLine("wiresock service running: " + WiresockRunner.ServiceRunning());
             sb.AppendLine("dpi conflicts: " + (ZapretRunner.Conflicts(-1) ?? "none"));
+            // 3.0: i18n — словари загрузились (дубли ключей уронили бы статический инициализатор), покрытие ES / ZH относительно EN
+            var en = Tr.Dict("en"); var es = Tr.Dict("es"); var zh = Tr.Dict("zh");
+            var missEs = en.Keys.Where(k => !es.ContainsKey(k)).ToList(); var missZh = en.Keys.Where(k => !zh.ContainsKey(k)).ToList();
+            sb.AppendLine("--- i18n --- en=" + en.Count + " es=" + es.Count + " zh=" + zh.Count + " · no ES pair: " + missEs.Count + " · no ZH pair: " + missZh.Count);
+            foreach (var k in missEs.Take(40)) sb.AppendLine("  ES missing: " + k);
+            foreach (var k in missZh.Take(40)) sb.AppendLine("  ZH missing: " + k);
+            // 3.0: протоколы — разбор ссылок и генерация конфигов xray-туннеля (ничего не запускается и не подключается)
+            string err;
+            var demo = TunnelProto.FromLink("vless://00000000-0000-0000-0000-000000000000@example.invalid:443?security=reality&sni=example.invalid&pbk=AAAA&sid=01&type=tcp&flow=xtls-rprx-vision#demo", out err);
+            sb.AppendLine("--- vless link parse: " + (demo != null ? demo.Transport + " " + demo.Endpoint + " missing=" + (TunnelProto.Missing(demo) ?? "none") : err));
+            string bad; TunnelProto.FromLink("vless://broken", out bad); sb.AppendLine("--- broken link: " + (bad ?? "parsed?!"));
+            if (demo != null)
+            {
+                var cs = st.Clone(); cs.SocksPort = st.TunnelSocksPort; cs.TunMode = true;
+                sb.AppendLine("--- xray tunnel config ---\r\n" + XrayConfig.Build(cs, demo));
+                sb.AppendLine("--- sing-box TUN config (Include=Discord.exe, Exclude=steam.exe) ---\r\n" + SingBoxConfig.Build(cs, new TunLists { Include = new[] { "Discord.exe" }.ToList(), Exclude = new[] { "steam.exe" }.ToList() }));
+            }
+            sb.AppendLine("--- tunnels: " + string.Join(", ", Tunnels.Names().Select(n => n + (TunnelProto.IsXray(n) ? " [" + TunnelProto.Names[TunnelProto.IndexOf(n)] + "]" : " [WireGuard]"))));
             File.WriteAllText(outFile, sb.ToString(), Encoding.UTF8);
         }
 

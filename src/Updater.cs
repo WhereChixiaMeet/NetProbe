@@ -24,7 +24,7 @@ namespace NetProbe
         {
             ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)12288;
             var rq = (HttpWebRequest)WebRequest.Create(url);
-            rq.UserAgent = "NetProbe/2.0"; rq.Timeout = timeout; rq.ReadWriteTimeout = timeout;
+            rq.UserAgent = "NetProbe/" + MainForm.Version; rq.Timeout = timeout; rq.ReadWriteTimeout = timeout;
             rq.Accept = "application/vnd.github+json";
             return rq;
         }
