@@ -11,37 +11,27 @@ namespace NetProbe
 {
     public partial class MainForm
     {
-        Panel cfgVpn, cfgDpi; FlatButton tabVpn, tabDpi; int cfgTab;
         ThemedList lbTun; TextBox tbTunName, tbTunText; Label lTunInfo;
 
+        // 3.0: VPN-конфиги и DPI-конфиги — два отдельных пункта меню (раньше одна страница «Конфиги» с переключателем VPN/DPI)
         void BuildConfigsPage()
         {
-            var p = NewPage(Tx("Конфиги"), Tx("VPN-туннели и стратегии DPI"));
-            tabVpn = new FlatButton("VPN") { Glyph = "" }.AutoW();
-            tabDpi = new FlatButton("DPI") { Glyph = "" }.AutoW();
-            tabVpn.Width = tabDpi.Width = Math.Max(tabVpn.Width, tabDpi.Width) + Theme.S(20);
-            tabVpn.Click += (s, e) => ShowCfgTab(0); tabDpi.Click += (s, e) => ShowCfgTab(1);
-            cfgVpn = new Panel { BackColor = Theme.Bg }; cfgDpi = new Panel { BackColor = Theme.Bg };
-            p.Controls.AddRange(new Control[] { tabVpn, tabDpi, cfgVpn, cfgDpi });
-            BuildVpnPanel(cfgVpn);
-            BuildDpiPanel(cfgDpi);
-            Action lay = () =>
-            {
-                int L = Theme.S(26);
-                tabDpi.Location = new Point(p.ClientSize.Width - L - tabDpi.Width, Theme.S(24));
-                tabVpn.Location = new Point(tabDpi.Left - Theme.S(6) - tabVpn.Width, Theme.S(24));
-                cfgVpn.SetBounds(0, Theme.S(84), p.ClientSize.Width, p.ClientSize.Height - Theme.S(84));
-                cfgDpi.SetBounds(0, Theme.S(84), p.ClientSize.Width, p.ClientSize.Height - Theme.S(84));
-            };
+            var p = NewPage(Tx("VPN-конфиги"), Tx("Туннели: WireGuard, VLESS, VMess, Trojan"));
+            var host = new Panel { BackColor = Theme.Bg };
+            p.Controls.Add(host);
+            BuildVpnPanel(host);
+            Action lay = () => host.SetBounds(0, Theme.S(84), p.ClientSize.Width, p.ClientSize.Height - Theme.S(84));
             p.Resize += (s, e) => lay(); lay();
-            ShowCfgTab(cfgTab);
         }
 
-        void ShowCfgTab(int i)
+        void BuildDpiConfigsPage()
         {
-            cfgTab = i;
-            cfgVpn.Visible = i == 0; cfgDpi.Visible = i == 1;
-            tabVpn.Primary = i == 0; tabDpi.Primary = i == 1; tabVpn.Invalidate(); tabDpi.Invalidate();
+            var p = NewPage(Tx("DPI-конфиги"), Tx("Стратегии zapret, сайты и исключения"));
+            var host = new Panel { BackColor = Theme.Bg };
+            p.Controls.Add(host);
+            BuildDpiPanel(host);
+            Action lay = () => host.SetBounds(0, Theme.S(84), p.ClientSize.Width, p.ClientSize.Height - Theme.S(84));
+            p.Resize += (s, e) => lay(); lay();
         }
 
         void BuildVpnPanel(Panel p)

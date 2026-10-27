@@ -45,7 +45,7 @@ namespace NetProbe
         int curPage;
         bool monitoringWanted;
 
-        public const int PgConnect = 0, PgServers = 1, PgMonitor = 2, PgConfigs = 3, PgTests = 4, PgSites = 5, PgLog = 6, PgSettings = 7, PgTasks = 99;
+        public const int PgConnect = 0, PgServers = 1, PgMonitor = 2, PgConfigs = 3, PgDpi = 4, PgTests = 5, PgSites = 6, PgLog = 7, PgSettings = 8, PgTasks = 99;
 
         public MainForm(bool startMinimized)
         {
@@ -146,7 +146,7 @@ namespace NetProbe
                     Theme.Apply(k); st.Theme = (int)k; RebuildUi();
                     string pre = Tr.Code + "-" + k + "-";
                     for (int i = 0; i < pages.Count; i++) { SelectPage(i); shot(pre + i); }
-                    SelectPage(PgConfigs); ShowCfgTab(1); ShowDpiTab(2); shot(pre + "dpi-sites"); ShowDpiTab(0); ShowCfgTab(0);
+                    SelectPage(PgDpi); ShowDpiTab(2); shot(pre + "dpi-sites"); ShowDpiTab(0);
                     using (var bmp = new Bitmap(widget.Width, widget.Height)) { widget.DrawToBitmap(bmp, new Rectangle(0, 0, widget.Width, widget.Height)); bmp.Save(Path.Combine(ShotsDir, pre + "widget.png")); }
                 }
                 st.Theme = keep; ExitApp();
@@ -212,10 +212,19 @@ namespace NetProbe
             BuildServersPage();
             BuildMonitorPage();
             BuildConfigsPage();
+            BuildDpiConfigsPage();
             BuildTestsPage();
             BuildSitesPage();
             BuildLogPage();
             BuildSettingsPage();
+            // кнопки «Маршрут · DPI · VPN» сверху на всех вкладках, кроме Настроек (Routing и Subscriptions ставят их сами)
+            foreach (int pi in new[] { PgMonitor, PgConfigs, PgDpi, PgTests, PgSites, PgLog })
+            {
+                var pg = pages[pi]; var tb = NewTopButtons(pg, null);
+                Action place = () => PlaceTopButtons(tb, pg.ClientSize.Width - Theme.S(26), Theme.S(22));
+                pg.Resize += (s2, e2) => place(); place();
+            }
+            UpdateModeUi();
             SelectPage(curPage);
             ApplyUpdateBadges();
             ResumeLayout(true);
@@ -276,7 +285,7 @@ namespace NetProbe
             };
             string[][] items = {
                 new[] { "", Tx("Маршрутизация") }, new[] { "\uE753", Tx("Подписки") }, new[] { "", Tx("Мониторинг") },
-                new[] { "", Tx("Конфиги") }, new[] { "", Tx("Тесты") }, new[] { "", Tx("Сайты") }, new[] { "", Tx("Лог и опрос") }, new[] { "", Tx("Настройки") } };
+                new[] { "", Tx("VPN-конфиги") }, new[] { "\uEA18", Tx("DPI-конфиги") }, new[] { "", Tx("Тесты") }, new[] { "", Tx("Сайты") }, new[] { "", Tx("Лог и опрос") }, new[] { "", Tx("Настройки") } };
             btnAppUpd = new FlatButton(Tx("Обновить NetProbe"), true) { Glyph = "\uE896", Visible = false, Height = Theme.S(30) };
             btnAppUpd.SetBounds(Theme.S(16), Theme.S(70), side.Width - Theme.S(34), Theme.S(30));
             btnAppUpd.Click += (s, e) => DoAppUpdate();

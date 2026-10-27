@@ -538,7 +538,7 @@ namespace NetProbe
             string traffic = xm.SessionDown + xm.SessionUp > 0 ? "  ·  ↓ " + Bytes(xm.SessionDown) + " ↑ " + Bytes(xm.SessionUp) : "";
             xBoard.Line1 = xm.Active
                 ? (cur != null ? (cur.Country != "" ? cur.Country + " · " : "") + cur.Transport + " · " + cur.Endpoint : "") + "  ·  " + Tx("задержка ") + (xm.LastDelay > 0 ? xm.LastDelay + Tx(" мс") : xm.LastDelay == -2 ? Tx("нет ответа") : "…") + traffic + "  ·  " + Tx("переключений: ") + xm.Switches + (st.AsEnabled ? "" : "  ·  " + Tx("автосвитч выкл"))
-                : xm.Detail != "" ? xm.Detail : SubsBlockedReason() ?? Tx("Двойной клик по серверу или чип VPN / ROUTE сверху — подключить");
+                : xm.Detail != "" ? xm.Detail : SubsBlockedReason() ?? Tx("Двойной клик по серверу или кнопка «VPN · ВЫКЛ» сверху — подключить");
             string tun = st.TunMode ? "  ·  TUN" + (xm.Active ? (xm.TunRunning ? " ✓" : " ✗") : "") : st.SysProxy ? "  ·  " + Tx("системный прокси") : "";
             string blocked = st.TunMode && xm.Active && !xm.TunRunning && xm.TunBlocked != null ? xm.TunBlocked() : null;
             xBoard.Line2 = "SOCKS 127.0.0.1:" + st.SocksPort + "  ·  HTTP 127.0.0.1:" + st.HttpPort + tun + (xm.DpiWanted ? "  ·  DPI" : "") + (blocked != null ? "  ·  " + blocked : xm.Detail != "" && s != XState.Connected && xm.Active ? "  ·  " + xm.Detail : "");

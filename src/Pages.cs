@@ -67,10 +67,11 @@ namespace NetProbe
             p.Controls.AddRange(new Control[] { cardVpn, cardDir, chart, btnMon, btnReset, monPeriod, infoLabel, warnLabel });
             Action lay = () =>
             {
-                int L = Theme.S(26), T = Theme.S(86), W = p.ClientSize.Width - L * 2, gap = Theme.S(16);
-                btnMon.Location = new Point(p.ClientSize.Width - L - btnMon.Width, Theme.S(24));
-                btnReset.Location = new Point(btnMon.Left - Theme.S(10) - btnReset.Width, Theme.S(24));
-                monPeriod.Location = new Point(btnReset.Left - Theme.S(16) - monPeriod.Width, Theme.S(26));
+                // сверху справа — общие кнопки «Маршрут · DPI · VPN»; управление монитором — строкой ниже
+                int L = Theme.S(26), T = Theme.S(126), W = p.ClientSize.Width - L * 2, gap = Theme.S(16), ry = Theme.S(80);
+                btnMon.Location = new Point(p.ClientSize.Width - L - btnMon.Width, ry);
+                btnReset.Location = new Point(btnMon.Left - Theme.S(10) - btnReset.Width, ry);
+                monPeriod.Location = new Point(L, ry + (btnMon.Height - monPeriod.Height) / 2);
                 int cw = (W - gap) / 2, ch = Theme.S(200);
                 cardVpn.SetBounds(L, T, cw, ch);
                 cardDir.SetBounds(L + cw + gap, T, W - cw - gap, ch);
