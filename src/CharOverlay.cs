@@ -13,7 +13,6 @@ namespace NetProbe
     // Картинки — только локально: config\themes\<chisa|kurumi>\widget.png / frame.png (в git и в exe их нет).
     public class CharOverlay : Form
     {
-        public enum Anchor { Left, Top }
         readonly Form host; readonly bool widget;
         Bitmap art; string artKey;
         public int Opacity255 = 220;
