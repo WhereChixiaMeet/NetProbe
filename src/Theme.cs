@@ -6,7 +6,7 @@ using static NetProbe.Tr;
 namespace NetProbe
 {
     public enum Level { Off, Wait, Good, Fair, Slow, Down }
-    public enum ThemeKind { Dark = 0, Light = 1, Classic = 2 }
+    public enum ThemeKind { Dark = 0, Light = 1, Classic = 2, Chisa = 3, Kurumi = 4 }
 
     // Монохромные палитры: Dark / Light и «классика» (что-то между Windows 95 и 11).
     public static class Theme
@@ -16,7 +16,9 @@ namespace NetProbe
 
         public static ThemeKind Kind = ThemeKind.Dark;
         public static bool Classic { get { return Kind == ThemeKind.Classic; } }
-        public static bool IsDark { get { return Kind == ThemeKind.Dark; } }
+        public static bool IsDark { get { return Kind == ThemeKind.Dark || Personal; } }
+        // Personal-темы (Chisa / Kurumi): тёмная основа, своя палитра и скин контролов
+        public static bool Personal { get { return Kind == ThemeKind.Chisa || Kind == ThemeKind.Kurumi; } }
 
         public static Color Bg, Side, Card, CardHi, Border, Input, Text, Muted, Dim, Accent, AccentFg, Hilite, Shadow;
         public static Color Green, Yellow, Orange, Red, Gray, Vpn, Direct, Dpi, Grid, Widget;

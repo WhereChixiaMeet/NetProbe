@@ -83,6 +83,17 @@ namespace NetProbe
             return null;
         }
 
+        // «Перезапустить сейчас» после обновления: тот же exe, с --updated --reapply (handoff — туннель/winws/xray не рвутся)
+        public static void LaunchRestart()
+        {
+            string exe = System.Windows.Forms.Application.ExecutablePath;
+            int pid = Process.GetCurrentProcess().Id;
+            Func<string, string> q = s => "'" + s.Replace("'", "''") + "'";
+            string ps = "Wait-Process -Id " + pid + " -Timeout 30 -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500; Start-Process -FilePath " + q(exe) + " -ArgumentList '--updated','--reapply'";
+            string enc = Convert.ToBase64String(Encoding.Unicode.GetBytes(ps));
+            Process.Start(new ProcessStartInfo("powershell.exe", "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand " + enc) { UseShellExecute = false, CreateNoWindow = true });
+        }
+
         // Заменить exe после выхода текущего процесса и запустить новую версию с --updated (права админа наследуются)
         public static void LaunchSwap(string newExe)
         {

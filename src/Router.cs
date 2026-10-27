@@ -104,6 +104,17 @@ namespace NetProbe
                 SetState(State, Detail);
             });
         }
+        // Тумблер «DPI вместе с туннелем» (Конфиги → DPI): выкл = DPI только аварийный / «Только DPI» / ручной
+        public void SetManualDpiParallel(bool on)
+        {
+            Post(() =>
+            {
+                DpiForcedOff = !on;
+                if (!on) { ManualDpi = false; if (!DpiIsRoute) StopDpi(true); Logger.Write(LogLevel.Route, Tr.Tx("DPI вместе с туннелем выключен")); }
+                else { Logger.Write(LogLevel.Route, Tr.Tx("DPI вместе с туннелем включён")); lastHybridDpi = DateTime.MinValue; EnsureHybridDpi(GetSettings()); }
+                SetState(State, Detail);
+            });
+        }
         // После самообновления: подхватить уже работающие wiresock-client / winws вместо повторного запуска
         public void Adopt(Dictionary<string, string> h)
         {

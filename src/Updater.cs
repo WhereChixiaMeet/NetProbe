@@ -18,7 +18,7 @@ namespace NetProbe
         public const string XrayRepo = "XTLS/Xray-core";
         public const string ZapretRepo = "Flowseal/zapret-discord-youtube";
 
-        public class Release { public string Tag = "", AssetName = "", AssetUrl = ""; public long Size; }
+        public class Release { public string Tag = "", AssetName = "", AssetUrl = ""; public long Size; public DateTime PublishedAt = DateTime.MinValue; /* UTC */ }
 
         static HttpWebRequest Req(string url, int timeout)
         {
@@ -36,6 +36,8 @@ namespace NetProbe
             {
                 var j = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Deserialize<Dictionary<string, object>>(sr.ReadToEnd());
                 var rel = new Release { Tag = Convert.ToString(j["tag_name"]) };
+                DateTime pub; object po;
+                if (j.TryGetValue("published_at", out po) && DateTime.TryParse(Convert.ToString(po), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out pub)) rel.PublishedAt = pub;
                 foreach (var ao in (System.Collections.ArrayList)j["assets"])
                 {
                     var a = (Dictionary<string, object>)ao;

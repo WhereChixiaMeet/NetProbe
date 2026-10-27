@@ -115,38 +115,26 @@ namespace NetProbe
 
     public partial class MainForm
     {
-        StatusBoard board; FlatButton btnConnect, btnDpi, btnRoute; ModeCard[] modeCards; ListCard[] listCards;
-        DarkCombo cbPrimary, cbBackup, cbStrategy, cbGame; Toggle tgBackup; Spin nFailover, nRecover, nRetry;
+        StatusBoard board; FlatButton btnRoute; ListCard[] listCards;
+        DarkCombo cbPrimary, cbBackup; Toggle tgBackup; Spin nFailover, nRecover, nRetry;
         ThemedCheck cKill, cDnsTun, cAutoConnect;
         bool loadingConnect;
 
+        ModeSegment segRoute; Label lRouteHint;
+
         void BuildConnectPage()
         {
-            var p = NewPage(Tx("Подключение"), Tx("VPN с автопереключением на DPI"));
-            btnConnect = new FlatButton("VPN") { Glyph = "\uE7E8", Width = Theme.S(150), Height = Theme.S(36) };
-            btnConnect.Click += (s, e) => { if (router.Active) Disconnect(); else Connect(); };
-            btnDpi = new FlatButton("DPI") { Glyph = "\uE7E8", Width = Theme.S(150), Height = Theme.S(36) };
-            btnDpi.Click += (s, e) => ToggleDpi();
-            btnRoute = new FlatButton(Tx("Маршрут")) { Glyph = "\uE721", Height = Theme.S(36) }.AutoW();
+            var p = NewPage(Tx("Маршрутизация"), Tx("Приложения: туннель, «Строго VPN», исключения"));
+            segRoute = NewSegment();
+            p.Controls.Add(segRoute);
+            btnRoute = new FlatButton(Tx("Маршрут")) { Glyph = "", Height = Theme.S(30) }.AutoW();
             btnRoute.Click += (s, e) => ShowRoute(null, null);
-            p.Controls.Add(btnRoute);
-            p.Controls.Add(btnDpi);
-            p.Controls.Add(btnConnect);
 
             board = new StatusBoard();
-            modeCards = new ModeCard[3];
-            string[][] md = { new[] { "", "DPI / VPN", Tx("VPN, при сбое — DPI") }, new[] { "", Tx("Только VPN"), Tx("Основной → резервный") }, new[] { "", Tx("Только DPI"), Tx("Без VPN") } };
-            for (int i = 0; i < 3; i++)
-            {
-                int m = i;
-                modeCards[i] = new ModeCard { Glyph = md[i][0], Title = md[i][1], Desc = md[i][2] };
-                modeCards[i].Click += (s, e) => SetMode((RouteMode)m);
-                p.Controls.Add(modeCards[i]);
-            }
 
             var cPrim = new CardPanel { Title = Tx("Основной VPN") };
             cbPrimary = new DarkCombo();
-            cbPrimary.SelectedIndexChanged += (s, e) => { if (loadingConnect) return; st.PrimaryTunnel = cbPrimary.SelectedItem as string ?? ""; st.Save(); if (router.Active && !router.OnBackup && st.RMode != RouteMode.DpiOnly) router.Reapply(); };
+            cbPrimary.SelectedIndexChanged += (s, e) => { if (loadingConnect) return; st.PrimaryTunnel = cbPrimary.SelectedItem as string ?? ""; st.Save(); if (router.Active && !router.OnBackup && st.RunMode != RouteMode.DpiOnly) router.Reapply(); };
             cPrim.Controls.Add(cbPrimary);
 
             var cBack = new CardPanel { Title = Tx("Резервный VPN") };
@@ -155,13 +143,6 @@ namespace NetProbe
             cbBackup = new DarkCombo();
             cbBackup.SelectedIndexChanged += (s, e) => { if (loadingConnect) return; st.BackupTunnel = cbBackup.SelectedItem as string ?? ""; st.Save(); };
             cBack.Controls.AddRange(new Control[] { tgBackup, cbBackup });
-
-            var cDpi = new CardPanel { Title = "DPI" };
-            cbStrategy = new DarkCombo();
-            cbStrategy.SelectedIndexChanged += (s, e) => { if (loadingConnect) return; st.DpiStrategy = cbStrategy.SelectedItem as string ?? "general"; st.Save(); Logger.Write(LogLevel.Info, Tx("Стратегия DPI: ") + st.DpiStrategy); router.RestartDpi(); };
-            cbGame = new DarkCombo(); cbGame.Items.AddRange(new object[] { Tx("Игры: выкл"), Tx("Игры: TCP+UDP"), Tx("Игры: TCP"), Tx("Игры: UDP") });
-            cbGame.SelectedIndexChanged += (s, e) => { if (loadingConnect) return; st.GameFilter = Math.Max(0, cbGame.SelectedIndex); st.Save(); router.RestartDpi(); };
-            cDpi.Controls.AddRange(new Control[] { cbStrategy, cbGame });
 
             // --- аварийное переключение: одна компактная строка ---
             var cFail = new CardPanel();
@@ -180,38 +161,34 @@ namespace NetProbe
             cAutoConnect = Ui.Check(Tx("Автоподключение"), st.AutoConnect); cAutoConnect.BackColor = Theme.Card;
             cAutoConnect.CheckedChanged += (s, e) => { if (loadingConnect) return; st.AutoConnect = cAutoConnect.Checked; st.Save(); };
             var tip = Ui.Tip();
-            tip.SetToolTip(btnRoute, Tx("Куда идёт домен или приложение: VPN, DPI или напрямую"));
+            tip.SetToolTip(btnRoute, Tx("Куда идёт домен или приложение: VPN, DPI или напрямую — по тому, что реально запущено"));
             tip.SetToolTip(cKill, Tx("Блокировать приложения «Строго VPN», пока VPN недоступен"));
             tip.SetToolTip(lF, Tx("VPN не отвечает дольше — переключение")); tip.SetToolTip(lR, Tx("VPN стабилен столько — возврат с DPI"));
             cFail.Controls.AddRange(new Control[] { lF, nFailover, lR, nRecover, lT, nRetry, cKill, cDnsTun, cAutoConnect });
 
-            // --- списки include / exclude ---
+            // строка-подсказка контракта маршрутизации
+            lRouteHint = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Color.Transparent, UseMnemonic = false, AutoEllipsis = true,
+                Text = Tx("DPI глобален: касается всего вне туннеля. Домены для DPI — на вкладке DPI  ·  Приоритет: «Строго VPN» > домен > приложение") };
+            tip.SetToolTip(lRouteHint, Tx("Списки принимают только приложения. Домен, вписанный сюда, остаётся серым и в туннель не передаётся. Приложение из Include при активном туннеле автоматически вне DPI."));
+
+            // --- списки приложений: Include · Строго VPN · Exclude ---
             listCards = new ListCard[3];
             for (int i = 0; i < 3; i++)
             {
                 var lc = new ListCard(); listCards[i] = lc;
                 lc.BAdd.Click += (s, e) =>
                 {
-                    if (lc.Key == AppLists.DpiDomains)
-                    {
-                        string v = Prompt(lc.Title, Tx("Домены через DPI (через запятую):"), "");
-                        if (!string.IsNullOrWhiteSpace(v)) foreach (var x in v.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries)) AppLists.Add(lc.Key, x.Trim());
-                        return;
-                    }
                     using (var d = new ProcPicker(lc.Title, AppLists.Recent().Where(r => !AppLists.Get(lc.Key).Contains(r, StringComparer.OrdinalIgnoreCase)).ToList()))
                         if (d.ShowDialog(this) == DialogResult.OK) foreach (var x in d.Result) AddToList(lc.Key, x);
                 };
                 lc.Box.DoubleClick += (s, e) => lc.BAdd.PerformClick2();
                 lc.BPaste.Click += (s, e) => PasteToList(lc.Key, lc.Box);
+                lc.Box.DimReason = AppLists.NotAppReason; // домен/IP в списке приложений: серым + причина
                 AttachPathMenu(lc.Box, this);
                 var lcRef = lc;
-                lc.Box.RightText = n => n == ListCard.BuiltIn ? Tx("встроено") : DomainTag(lcRef.Key, n);
+                lc.Box.RightText = n => n == ListCard.BuiltIn ? Tx("встроено") : AppLists.IsAppEntry(n) ? null : Tx("не работает");
                 var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
                 miRen.Click += (s, e) => { var old = lcRef.Box.SelectedItem; if (old != null && old != ListCard.BuiltIn) RenameInList(lcRef.Key, old); };
-                var miDom = new ToolStripMenuItem(Tx("Домены через DPI…"));
-                miDom.Click += (s, e) => AddDomainsTo(lcRef.Key, lcRef.Box.SelectedItem);
-                lc.Box.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.DomKey(lcRef.Key) != null;
-                lc.Box.ContextMenuStrip.Items.Add(miDom);
                 var miRoute = new ToolStripMenuItem(Tx("Проверить маршрут…"));
                 miRoute.Click += (s, e) => ShowRouteFor(lcRef.Box.SelectedItem);
                 lc.Box.ContextMenuStrip.Items.Add(miRoute);
@@ -231,26 +208,21 @@ namespace NetProbe
                 p.Controls.Add(lc);
             }
 
-            p.Controls.AddRange(new Control[] { board, cPrim, cBack, cDpi, cFail });
+            p.Controls.AddRange(new Control[] { board, cPrim, cBack, cFail, lRouteHint });
+            p.Controls.Add(btnRoute); btnRoute.BringToFront();
             Action lay = () =>
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
-                btnConnect.Location = new Point(p.ClientSize.Width - L - btnConnect.Width, Theme.S(22));
-                btnDpi.Location = new Point(btnConnect.Left - Theme.S(8) - btnDpi.Width, Theme.S(22));
-                btnRoute.Location = new Point(btnDpi.Left - Theme.S(8) - btnRoute.Width, Theme.S(22));
+                segRoute.Location = new Point(p.ClientSize.Width - L - segRoute.Width, Theme.S(22));
                 int y = Theme.S(80);
-                board.SetBounds(L, y, W, Theme.S(84)); y = board.Bottom + gap;
-                int mw = (W - gap * 2) / 3, lastW = W - 2 * (mw + gap);
-                for (int i = 0; i < 3; i++) modeCards[i].SetBounds(L + i * (mw + gap), y, i == 2 ? lastW : mw, Theme.S(64));
-                y += Theme.S(64) + gap;
-                int ch = Theme.S(92), ip = Theme.S(16);
-                cPrim.SetBounds(L, y, mw, ch); cBack.SetBounds(L + mw + gap, y, mw, ch); cDpi.SetBounds(L + 2 * (mw + gap), y, lastW, ch);
-                cbPrimary.SetBounds(ip, Theme.S(48), mw - ip * 2, cbPrimary.Height);
-                tgBackup.Location = new Point(mw - ip - tgBackup.Width, Theme.S(12));
-                cbBackup.SetBounds(ip, Theme.S(48), mw - ip * 2, cbBackup.Height);
-                int dw = lastW - ip * 2, gw = Theme.S(120);
-                cbStrategy.SetBounds(ip, Theme.S(48), dw - gw - Theme.S(8), cbStrategy.Height);
-                cbGame.SetBounds(ip + dw - gw, Theme.S(48), gw, cbGame.Height);
+                board.SetBounds(L, y, W, Theme.S(84));
+                btnRoute.Location = new Point(board.Right - Theme.S(14) - btnRoute.Width, board.Top + Theme.S(14));
+                y = board.Bottom + gap;
+                int ch = Theme.S(92), ip = Theme.S(16), hw = (W - gap) / 2;
+                cPrim.SetBounds(L, y, hw, ch); cBack.SetBounds(L + hw + gap, y, W - hw - gap, ch);
+                cbPrimary.SetBounds(ip, Theme.S(48), hw - ip * 2, cbPrimary.Height);
+                tgBackup.Location = new Point(cBack.Width - ip - tgBackup.Width, Theme.S(12));
+                cbBackup.SetBounds(ip, Theme.S(48), cBack.Width - ip * 2, cbBackup.Height);
                 y += ch + gap;
                 cFail.SetBounds(L, y, W, Theme.S(48));
                 int x = ip, cy = Theme.S(12);
@@ -260,7 +232,8 @@ namespace NetProbe
                     pair.Item2.Location = new Point(x, cy); x = pair.Item2.Right + Theme.S(14);
                 }
                 foreach (var c in new Control[] { cKill, cDnsTun, cAutoConnect }) { c.Location = new Point(x, cy + Theme.S(2)); x = c.Right + Theme.S(10); }
-                y += Theme.S(48) + gap;
+                y += Theme.S(48) + Theme.S(6);
+                lRouteHint.SetBounds(L + Theme.S(2), y, W, Theme.S(18)); y += Theme.S(18) + Theme.S(6);
                 var vis = listCards.Where(c => c.Key != null || listCards.All(k => k.Key == null)).ToList();
                 int n = Math.Max(1, vis.Count), lw = (W - gap * (n - 1)) / n, lh = Math.Max(Theme.S(90), p.ClientSize.Height - Theme.S(18) - y);
                 for (int i = 0; i < vis.Count; i++) vis[i].SetBounds(L + i * (lw + gap), y, i == n - 1 ? W - (n - 1) * (lw + gap) : lw, lh);
@@ -320,39 +293,6 @@ namespace NetProbe
             if (isApp) ShowRoute(item, null); else if (!ExclusionSet.IsIp(item)) ShowRoute(null, item); else ShowRoute(null, null);
         }
 
-        // ПКМ → «Домены через DPI…»: домены под приложением. Приложение может быть и в Include VPN —
-        // тогда через VPN идёт всё, кроме этих доменов (они мимо туннеля, под DPI)
-        void AddDomainsTo(string key, string item)
-        {
-            key = AppLists.DomKey(key);
-            if (item == null || item == ListCard.BuiltIn || key == null) return;
-            string app = AppLists.ParentOf(item);
-            if (ExclusionSet.IsIp(app) || (!app.Contains("\\") && !app.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && app.Contains("."))) return; // это домен, а не приложение
-            string how = key == AppLists.SrvDpiApps
-                ? Tx("Если приложение есть и в Include: всё через сервер, кроме этих доменов — они напрямую под DPI (в TUN — только для этого приложения).")
-                : Tx("Если приложение есть и в Include VPN: всё через VPN, кроме этих доменов — они мимо туннеля под DPI. WireSock исключает IP доменов для всех приложений в туннеле; новые IP — при переподключении или раз в 10 мин.");
-            string v = Prompt(Tx("Домены через DPI"), app + Tx(" — домены через DPI (через запятую), например youtube.com") + "\r\n\r\n" + how, "");
-            if (string.IsNullOrWhiteSpace(v)) return;
-            var added = new List<string>();
-            foreach (var x in v.Split(new[] { ',', ';', ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries))
-                if (AppLists.AddDomain(key, app, x)) added.Add(AppLists.ChildOf(AppLists.Get(key).Last()));
-            if (added.Count > 0) Logger.Write(LogLevel.Info, AppLists.Title(key) + " · " + app + Tx(": домены через DPI ") + string.Join(", ", added));
-        }
-
-        // метка справа в Include DPI: как на самом деле пойдёт приложение и его домены
-        string DomainTag(string key, string item)
-        {
-            if (key == null || item == null) return null;
-            if (AppLists.IsChild(item)) return "→ DPI";
-            if (!AppLists.HasDomains(key)) return null;
-            bool srv = key == AppLists.SrvDpiApps;
-            var inc = srv ? AppLists.Get(AppLists.SrvApps) : AppLists.Get(AppLists.HybridApps).Concat(AppLists.Get(AppLists.VpnOnlyApps)).ToList();
-            bool viaTunnel = inc.Count == 0 || AppLists.InList(inc, item);
-            if (!viaTunnel) return null;
-            bool hasDom = AppLists.Domains(key).Any(d => d.Key.Equals(item, StringComparison.OrdinalIgnoreCase));
-            return srv ? (hasDom ? Tx("сервер, кроме доменов") : Tx("через сервер")) : (hasDom ? Tx("VPN, кроме доменов") : Tx("через VPN"));
-        }
-
         // домены под приложением в Include VPN лежат в Include DPI — удаляются оттуда
         void RemoveFromList(string key, List<string> sel)
         {
@@ -377,28 +317,18 @@ namespace NetProbe
 
         void SetupListCards()
         {
-            string[] keys; string[][] titles;
-            switch (st.RMode)
-            {
-                case RouteMode.DpiOnly:
-                    keys = new[] { AppLists.DpiApps, AppLists.DpiDomains, AppLists.DpiOnlyExcl };
-                    titles = new[] { new[] { Tx("Через VPN"), Tx("приложения мимо VPN под DPI · ПКМ → домены приложения через DPI, остальное через VPN") }, new[] { Tx("Домены"), Tx("домены через DPI") }, new[] { Tx("Исключения"), Tx("мимо DPI") } };
-                    break;
-                case RouteMode.VpnOnly:
-                    keys = new[] { AppLists.HybridApps, AppLists.VpnOnlyApps, AppLists.VpnOnlyExcl };
-                    titles = new[] { new[] { Tx("Через VPN"), Tx("пусто = весь трафик") }, new[] { Tx("Строго VPN"), Tx("kill switch при обрыве") }, new[] { Tx("Исключения"), Tx("мимо VPN") } };
-                    break;
-                default:
-                    keys = new[] { AppLists.HybridApps, AppLists.VpnOnlyApps, AppLists.HybridExcl };
-                    titles = new[] { new[] { Tx("Через VPN"), Tx("при сбое — DPI · пусто = всё") }, new[] { Tx("Строго VPN"), Tx("даже при сбое") }, new[] { Tx("Исключения"), Tx("мимо VPN и DPI") } };
-                    break;
-            }
+            var m = st.RunMode;
+            string exKey = Router.TunExclKey(st);
+            string[] keys = { AppLists.HybridApps, AppLists.VpnOnlyApps, exKey };
+            string[][] titles = m == RouteMode.VpnOnly
+                ? new[] { new[] { "Include", Tx("в туннель · пусто = весь трафик") }, new[] { Tx("Строго VPN"), Tx("kill switch при обрыве") }, new[] { "Exclude", Tx("мимо туннеля (DisallowedApps); DPI на них действует — он глобален") } }
+                : new[] { new[] { "Include", Tx("в туннель, при сбое — DPI · пусто = всё") }, new[] { Tx("Строго VPN"), Tx("всегда туннель, никогда DPI · kill switch при обрыве") }, new[] { "Exclude", Tx("мимо туннеля (DisallowedApps); DPI на них действует — он глобален") } };
+            string dpiNote = m == RouteMode.DpiOnly ? "  ·  " + Tx("в режиме DPI списки туннеля не применяются") : "";
             for (int i = 0; i < 3; i++)
             {
                 var c = listCards[i];
-                c.Key = keys[i]; c.Visible = keys[i] != null;
-                if (keys[i] == null) continue;
-                c.Title = titles[i][0]; c.Sub = null; listTip.SetToolTip(c, titles[i][1]); c.Box.ShowIcons = st.ShowAppIcons && c.Key != AppLists.DpiDomains; c.Fill(); c.Invalidate();
+                c.Key = keys[i]; c.Visible = true;
+                c.Title = titles[i][0]; c.Sub = null; listTip.SetToolTip(c, titles[i][1] + dpiNote); c.Box.ShowIcons = st.ShowAppIcons; c.Fill(); c.Invalidate();
             }
             if (relayConnect != null) relayConnect();
         }
@@ -416,11 +346,6 @@ namespace NetProbe
                 cbBackup.SelectedItem = names.Contains(st.BackupTunnel) ? st.BackupTunnel : null;
                 tgBackup.On = st.BackupEnabled;
                 cbBackup.Enabled = st.BackupEnabled; nRetry.Enabled = st.BackupEnabled;
-                var strat = DpiConfigs.Names();
-                cbStrategy.Items.Clear(); foreach (var n in strat) cbStrategy.Items.Add(n);
-                cbStrategy.SelectedItem = strat.Contains(st.DpiStrategy) ? st.DpiStrategy : null;
-                cbGame.SelectedIndex = st.GameFilter;
-                for (int i = 0; i < 3; i++) modeCards[i].Selected = st.Mode == i;
                 nFailover.Value = st.FailoverSec; nRecover.Value = st.RecoverSec; nRetry.Value = st.RetryPrimaryMin;
                 cKill.Checked = st.KillSwitch; cDnsTun.Checked = st.DnsViaTunnel; cAutoConnect.Checked = st.AutoConnect;
                 SetupListCards();
@@ -435,9 +360,6 @@ namespace NetProbe
         {
             if (board == null || board.IsDisposed) return;
             var s = router.State;
-            // одинаковые кнопки-переключатели: заливка = включено, контур = выключено
-            btnConnect.Primary = router.Active; btnConnect.Text = "VPN  ·  " + (router.Active ? Tx("ВКЛ") : Tx("ВЫКЛ")); btnConnect.Glyph = "\uE7E8"; btnConnect.Invalidate();
-            btnDpi.Primary = router.ManualDpi || router.Dpi.Running; btnDpi.Text = "DPI  ·  " + (btnDpi.Primary ? Tx("ВКЛ") : Tx("ВЫКЛ")); btnDpi.Glyph = "\uE7E8"; btnDpi.Invalidate();
             board.State = Router.StateName(s) + (router.Active ? "  ·  " + Router.ModeName(st.RunMode) : "");
             board.Lv = s == RouteState.Off ? Level.Off : s == RouteState.Connecting ? Level.Wait : s == RouteState.Vpn || s == RouteState.DpiOnly ? Level.Good : s == RouteState.VpnDown ? Level.Down : Level.Fair;
             if (!router.Active)
@@ -448,11 +370,14 @@ namespace NetProbe
             }
             else
             {
+                // только факты: процессы (PID), стратегия, ответ пробника; неизвестно — «—»
                 var now = DateTime.Now;
-                string tun = router.Wg.Running ? "VPN «" + router.Wg.TunnelName + "»" + (router.StrictOnly ? Tx(" (строго VPN)") : "") + " " + Dur(now - router.Wg.StartedAt) : Tx("VPN выкл");
-                string dpi = router.Dpi.Running ? "DPI «" + router.Dpi.Strategy + "» " + Dur(now - router.Dpi.StartedAt) : Tx("DPI выкл");
-                board.Line1 = tun + "  ·  " + dpi + Tx("  ·  переключений: ") + router.Failovers + (KillSwitch.Active ? "  ·  kill switch: " + KillSwitch.Count : "");
-                board.Line2 = "VPN " + chs["vpn"].Val + Tx(" · напрямую ") + chs["direct"].Val + (router.Detail != "" && s != RouteState.Vpn && s != RouteState.Backup ? "  ·  " + router.Detail : "");
+                int wp = router.Wg.Pid, dp = router.Dpi.Pid;
+                string tun = wp > 0 ? "WireSock «" + router.Wg.TunnelName + "» PID " + wp + (router.StrictOnly ? Tx(" (строго VPN)") : "") + " · " + Dur(now - router.Wg.StartedAt) : "WireSock —";
+                string dpi = dp > 0 ? "winws «" + router.Dpi.Strategy + "» PID " + dp + " · " + Dur(now - router.Dpi.StartedAt) : "winws —";
+                string probe = router.LastVpnOk == DateTime.MinValue ? Tx("пробник VPN: —") : Tx("пробник VPN: ответ ") + Dur(now - router.LastVpnOk) + Tx(" назад");
+                board.Line1 = tun + "  ·  " + dpi + "  ·  " + probe + (KillSwitch.Active ? "  ·  kill switch: " + KillSwitch.Count : "");
+                board.Line2 = "VPN " + chs["vpn"].Val + Tx(" · напрямую ") + chs["direct"].Val + Tx("  ·  переключений: ") + router.Failovers + (router.Detail != "" && s != RouteState.Vpn && s != RouteState.Backup ? "  ·  " + router.Detail : "");
             }
             board.Invalidate();
         }

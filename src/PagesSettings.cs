@@ -13,6 +13,7 @@ namespace NetProbe
     public partial class MainForm
     {
         Panel setBody; ScrollHost setHost; bool loadingSettings; readonly System.Windows.Forms.Timer autoSave = new System.Windows.Forms.Timer { Interval = 700 };
+        Label lZapretWarn; ThemedCheck cHybrid;
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
         Spin nTimeout, nPingCount, nDown, nUp, nStreams, nGood, nWarn, nExclRefresh;
         DarkCombo cbLang, cbMode, cbAdapter, cbTheme, cbWsLog, cbRetSet;
@@ -96,12 +97,12 @@ namespace NetProbe
             };
 
             section(Tx("Оформление"));
-            cbTheme = new DarkCombo(); cbTheme.Items.AddRange(new object[] { Tx("Тёмная (монохром)"), Tx("Светлая (монохром)"), Tx("Классическая Windows") });
+            cbTheme = new DarkCombo(); cbTheme.Items.AddRange(new object[] { Tx("Тёмная (монохром)"), Tx("Светлая (монохром)"), Tx("Классическая Windows"), "Chisa (Personal)", "Kurumi Tokisaki (Personal)" });
             row(Tx("Тема"), cbTheme, null);
             var accent = new AccentPicker { Value = Theme.AccentColor };
             accent.Picked += c => { st.Accent = Theme.ColorStr(c); st.Save(); Theme.AccentColor = c; BeginInvoke((Action)(() => { Theme.Apply((ThemeKind)st.Theme); RebuildUi(); SelectPage(PgSettings); })); };
             row(Tx("Цвет акцента"), accent, null);
-            cbLang = new DarkCombo(); cbLang.Items.AddRange(new object[] { "English", Tx("Русский") });
+            cbLang = new DarkCombo(); cbLang.Items.AddRange(Tr.Names);
             row(Tx("Язык / Language"), cbLang, null);
             Func<string, string, Action<string>, FlatButton> pick = (label, filter, set) =>
             {
@@ -120,7 +121,7 @@ namespace NetProbe
             pick(Tx("Иконка приложения"), Tx("Иконки и картинки") + " (*.ico;*.png;*.jpg;*.exe)|*.ico;*.png;*.jpg;*.jpeg;*.exe", f => { st.AppIconPath = f; st.Save(); ApplyAppIcon(); });
             var cIcons = Ui.Check(Tx("Иконки приложений в списках"), st.ShowAppIcons); check(cIcons);
             cIcons.CheckedChanged += (s, e) => { st.ShowAppIcons = cIcons.Checked; st.Save(); SetupListCards(); };
-            cbLang.SelectedIndexChanged += (s, e) => { if (!cbLang.UserPick) return; string l = cbLang.SelectedIndex == 1 ? "ru" : "en"; if (l == st.Lang) return; st.Lang = l; st.Save(); Tr.Ru = l == "ru"; BeginInvoke((Action)(() => { RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings); })); };
+            cbLang.SelectedIndexChanged += (s, e) => { if (!cbLang.UserPick) return; string l = Tr.Codes[Math.Max(0, cbLang.SelectedIndex)]; if (l == st.Lang) return; st.Lang = l; st.Save(); Tr.Set(l); BeginInvoke((Action)(() => { RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings); })); }; // применяется без перезапуска
             cbTheme.SelectedIndexChanged += (s, e) => { if (cbTheme.UserPick && cbTheme.SelectedIndex != st.Theme) { st.Theme = cbTheme.SelectedIndex; st.Save(); BeginInvoke((Action)(() => { Theme.Apply((ThemeKind)st.Theme); RebuildUi(); SelectPage(PgSettings); })); } };
 
             section("VPN · WireSock");
@@ -139,12 +140,29 @@ namespace NetProbe
             row(Tx("Служба TunnlTo"), bSvc, null);
 
             section("DPI · zapret");
-            tbZapret = Ui.TextBox(); row(Tx("Папка zapret"), tbZapret, null);
+            tbZapret = Ui.TextBox(); ((ThemedTextBox)tbZapret).Cue = System.IO.Path.Combine(Settings.Root, "zapret");
+            row(Tx("Папка zapret"), tbZapret, null);
             browse(tbZapret, true);
+            // не найдено → жёлтая плашка (по умолчанию — папка zapret рядом с NetProbe.exe)
+            lZapretWarn = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Yellow, BackColor = Theme.Mix(Theme.Yellow, Theme.Bg, 0.86), UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(Theme.S(8), 0, 0, 0) };
+            lZapretWarn.SetBounds(lw, y - Theme.S(6), cw, Theme.S(24)); setBody.Controls.Add(lZapretWarn); y += Theme.S(24);
             tbGameTcp = Ui.TextBox(); row(Tx("Игровой фильтр · TCP порты"), tbGameTcp, null);
             tbGameUdp = Ui.TextBox(); row(Tx("Игровой фильтр · UDP порты"), tbGameUdp, null);
             nExclRefresh = Ui.Num(3, 300, 10); row(Tx("Обновлять IP исключённых приложений, с"), nExclRefresh, null);
-            section(Tx("Серверы"));
+            section(Tx("Источники"));
+            cHybrid = Ui.Check(Tx("Режим гибрида"), st.HybridMode); check(cHybrid);
+            var lHy = Ui.Hint(Tx("Primary VPN и подписки разрешены одновременно; на вкладке Subscriptions появляется тумблер «Primary VPN ⇄ Subscriptions». Выкл — авто: есть туннель → VPN, нет → подписки."), cw); lHy.BackColor = Theme.Bg;
+            lHy.Location = new Point(lw, y - Theme.S(4)); setBody.Controls.Add(lHy); y += lHy.Height + Theme.S(8);
+            cHybrid.CheckedChanged += (s, e) =>
+            {
+                if (cHybrid.Checked == st.HybridMode) return;
+                if (cHybrid.Checked && !ConfirmHybrid()) { cHybrid.Checked = false; return; }
+                st.HybridMode = cHybrid.Checked; st.Save();
+                Logger.Write(LogLevel.Info, Tx("Режим гибрида ") + (st.HybridMode ? Tx("включён") : Tx("выключен")));
+                if (!st.HybridMode && xm.Active && TunnelCount > 0) xm.Disconnect(); // вне гибрида при наличии туннелей подписки выключены
+                UpdateModeUi(); UpdateServersUi();
+            };
+            section(Tx("Подписки"));
             var bSrvView = new FlatButton(Tx("Сбросить вид таблицы")) { Glyph = "\uE777" }.AutoW();
             bSrvView.Click += (s, e) => ResetSrvColumns();
             row(Tx("Таблица серверов"), bSrvView, Tx("Ширина, порядок и видимость колонок — как по умолчанию"));
@@ -169,13 +187,26 @@ namespace NetProbe
             bApp.Click += (s, e) => CheckAppUpdate(true);
             row("NetProbe", bApp, null);
             lAppVer = Ui.Label("v" + Version, Theme.Small, Theme.Muted); lAppVer.Location = new Point(bApp.Right + Theme.S(12), bApp.Top + Theme.S(8)); setBody.Controls.Add(lAppVer);
-            var cNotifyUpd = Ui.Check(Tx("Уведомлять о новых версиях"), st.UpdNotify); cNotifyUpd.CheckedChanged += (s, e) => { st.UpdNotify = cNotifyUpd.Checked; st.Save(); }; check(cNotifyUpd);
+            var cNotifyUpd = Ui.Check(Tx("Уведомлять о новых версиях"), st.UpdNotify); check(cNotifyUpd);
+            var cbNotifyEvery = new DarkCombo(); cbNotifyEvery.Items.AddRange(new object[] { Tx("Сразу"), Tx("День"), Tx("Неделя"), Tx("Месяц") });
+            cbNotifyEvery.SelectedIndex = st.AppNotifyEvery;
+            cbNotifyEvery.SelectedIndexChanged += (s, e) => { if (!cbNotifyEvery.UserPick) return; st.AppNotifyEvery = Math.Max(0, cbNotifyEvery.SelectedIndex); st.Save(); ScheduleAppNotify(); };
+            row(Tx("Частота уведомлений"), cbNotifyEvery, Tx("Одно уведомление на версию. «Сразу» — как только версия вышла; День / Неделя / Месяц — не чаще этого. Кнопка «Обновить» в меню слева остаётся, пока не обновишься."));
+            var cDelay = Ui.Check(Tx("Уведомлять с задержкой после выхода версии, мин"), st.AppNotifyDelayOn);
+            var nDelay = Ui.Num(0, 1440, st.AppNotifyDelayMin); nDelay.Width = Theme.S(80);
+            cDelay.BackColor = Theme.Bg; cDelay.Location = new Point(lw, y); setBody.Controls.Add(cDelay);
+            nDelay.Location = new Point(lw + cDelay.PreferredSize.Width + Theme.S(12), y - Theme.S(2)); setBody.Controls.Add(nDelay); y += Theme.S(34);
+            nDelay.Enabled = st.AppNotifyDelayOn && st.UpdNotify; cbNotifyEvery.Enabled = cDelay.Enabled = st.UpdNotify;
+            cDelay.CheckedChanged += (s, e) => { st.AppNotifyDelayOn = cDelay.Checked; st.Save(); nDelay.Enabled = cDelay.Checked; ScheduleAppNotify(); };
+            nDelay.ValueChanged += (s, e) => { st.AppNotifyDelayMin = (int)nDelay.Value; st.Save(); ScheduleAppNotify(); };
+            Ui.Tip().SetToolTip(cDelay, Tx("Уведомление придёт не раньше чем через N мин после публикации релиза — чтобы не ловить релиз, к которому ещё не загрузился exe или который сразу заменили хотфиксом"));
+            cNotifyUpd.CheckedChanged += (s, e) => { st.UpdNotify = cNotifyUpd.Checked; st.Save(); cbNotifyEvery.Enabled = cDelay.Enabled = st.UpdNotify; nDelay.Enabled = st.UpdNotify && st.AppNotifyDelayOn; ScheduleAppNotify(); };
             var cAutoUpd = Ui.Check(Tx("Проверять обновления автоматически"), st.CheckUpdates); cAutoUpd.CheckedChanged += (s, e) => { st.CheckUpdates = cAutoUpd.Checked; st.Save(); }; check(cAutoUpd);
             var cUz = Ui.Check(Tx("Следить за zapret"), st.UpdZapret); cUz.CheckedChanged += (s, e) => { st.UpdZapret = cUz.Checked; st.Save(); }; check(cUz);
             var cUx = Ui.Check(Tx("Следить за xray"), st.UpdXray); cUx.CheckedChanged += (s, e) => { st.UpdXray = cUx.Checked; st.Save(); }; check(cUx);
             var cbEvery = new DarkCombo(); cbEvery.Items.AddRange(new object[] { Tx("Только при запуске"), Tx("Каждые 6 часов"), Tx("Каждые 12 часов"), Tx("Раз в день"), Tx("Раз в неделю") });
             cbEvery.SelectedIndex = st.UpdEvery; cbEvery.SelectedIndexChanged += (s, e) => { st.UpdEvery = Math.Max(0, cbEvery.SelectedIndex); st.Save(); };
-            row(Tx("Как часто"), cbEvery, null);
+            row(Tx("Как часто (zapret / xray / sing-box)"), cbEvery, null);
 
 
             section(Tx("Мониторинг · канал VPN"));
@@ -351,9 +382,11 @@ namespace NetProbe
 
         void LoadSettingsCore()
         {
-            cbTheme.SelectedIndex = st.Theme; cbLang.SelectedIndex = st.Lang == "ru" ? 1 : 0;
+            cbTheme.SelectedIndex = st.Theme; cbLang.SelectedIndex = Tr.IndexOf(st.Lang);
             tbWiresock.Text = st.WiresockPath; cbWsLog.SelectedItem = st.WiresockLogLevel; if (cbWsLog.SelectedIndex < 0) cbWsLog.SelectedIndex = 1; cWsAdapter.Checked = st.WiresockAdapter;
-            tbZapret.Text = st.ZapretDir; tbGameTcp.Text = st.GameTcp; tbGameUdp.Text = st.GameUdp; nExclRefresh.Value = st.ExclRefreshSec;
+            tbZapret.Text = st.ZapretDir;
+            string zc = ZapretRunner.Check(st.ZapretPath); lZapretWarn.Visible = zc != null; lZapretWarn.Text = zc != null ? "⚠  " + Tx("zapret не найден: ") + st.ZapretPath : "";
+            cHybrid.Checked = st.HybridMode; tbGameTcp.Text = st.GameTcp; tbGameUdp.Text = st.GameUdp; nExclRefresh.Value = st.ExclRefreshSec;
             tbCurl.Text = st.CurlPath; tbProxy.Text = st.VpnProxy; cbMode.SelectedIndex = st.DirectMode;
             FillAdapters(st.DirectInterface);
             tbProbe.Text = st.ProbeUrl; nTimeout.Value = st.TimeoutSec;
@@ -393,7 +426,7 @@ namespace NetProbe
         {
             router.Disconnect(); xm.Disconnect();
             st = Settings.Load();
-            Theme.AccentColor = Theme.ParseColor(st.Accent); Tr.Ru = st.Lang == "ru"; Theme.Apply((ThemeKind)st.Theme);
+            Theme.AccentColor = Theme.ParseColor(st.Accent); Tr.Set(st.Lang); Theme.Apply((ThemeKind)st.Theme);
             AppLists.ZapretLists = Path.Combine(st.ZapretPath, "lists");
             Logger.Dir = st.LogPath; Logger.Retention = st.Retention; Logger.ToFile = st.LogToFile;
             ServerStore.Load();

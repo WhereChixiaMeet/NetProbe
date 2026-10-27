@@ -13,7 +13,8 @@ namespace NetProbe
     public partial class MainForm
     {
         ThemedList lbStrat; TextBox tbStratName, tbStratArgs, tbZList; DarkCombo cbZList; Label lStratInfo, lZInfo;
-        Panel dpiStratTab, dpiListTab; FlatButton tabStrat, tabLists, bStratUse;
+        Panel dpiStratTab, dpiListTab, dpiSitesTab; FlatButton tabStrat, tabLists, tabSites, bStratUse;
+        ListCard dpiSites, dpiNoTouch; DarkCombo cbGame; Toggle tgDpiPar; Label lDpiState;
         string zListLoaded; bool loadingStrat, loadingZ;
         readonly System.Windows.Forms.Timer stratSave = new System.Windows.Forms.Timer { Interval = 900 }, zSave = new System.Windows.Forms.Timer { Interval = 900 };
         static readonly string[] ZLists = { "list-general-user.txt", "list-exclude-user.txt", "ipset-exclude-user.txt", "list-general.txt", "list-google.txt", "list-exclude.txt", "ipset-exclude.txt", "ipset-all.txt" };
@@ -70,9 +71,61 @@ namespace NetProbe
             // ---- справа: вкладки «Стратегия» / «Списки zapret» ----
             var right = new CardPanel();
             tabStrat = new FlatButton(Tx("Стратегия")).AutoW(); tabLists = new FlatButton(Tx("Списки zapret")).AutoW();
-            tabStrat.Click += (s, e) => ShowDpiTab(0); tabLists.Click += (s, e) => ShowDpiTab(1);
-            dpiStratTab = new Panel { BackColor = Theme.Card }; dpiListTab = new Panel { BackColor = Theme.Card };
-            right.Controls.AddRange(new Control[] { tabStrat, tabLists, dpiStratTab, dpiListTab });
+            tabSites = new FlatButton(Tx("Сайты")).AutoW();
+            tabStrat.Click += (s, e) => ShowDpiTab(0); tabLists.Click += (s, e) => ShowDpiTab(1); tabSites.Click += (s, e) => ShowDpiTab(2);
+            dpiStratTab = new Panel { BackColor = Theme.Card }; dpiListTab = new Panel { BackColor = Theme.Card }; dpiSitesTab = new Panel { BackColor = Theme.Card };
+            right.Controls.AddRange(new Control[] { tabStrat, tabLists, tabSites, dpiStratTab, dpiListTab, dpiSitesTab });
+
+            // ---- «Сайты»: что трогает DPI и что не трогать (домены / IP / CIDR), порты, DPI рядом с туннелем ----
+            dpiSites = new ListCard { Title = Tx("Сайты для DPI") };
+            dpiNoTouch = new ListCard { Title = Tx("Не трогать эти сайты") };
+            foreach (var lc in new[] { dpiSites, dpiNoTouch })
+            {
+                var c = lc;
+                c.Key = c == dpiSites ? AppLists.DpiDomains : AppLists.DpiOnlyExcl;
+                c.Box.ShowIcons = false;
+                c.BAdd.Click += (s, e) =>
+                {
+                    string v = Prompt(c.Title, Tx("Домены, IP или подсети (через запятую или пробел), например youtube.com, 1.2.3.0/24"), "");
+                    if (string.IsNullOrWhiteSpace(v)) return;
+                    var add = v.Split(new[] { ',', ';', ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim().ToLowerInvariant()).Where(x => x.Length > 0 && !AppLists.IsAppEntry(x)).ToList();
+                    if (add.Count == 0) { lZInfo.Text = Tx("Приложения сюда не добавляются — исключение приложений перенесено в списки VPN (вкладка Routing)"); return; }
+                    if (c == dpiNoTouch) AppLists.SetDpiSitesExcl(AppLists.DpiSitesExcl().Concat(add));
+                    else AppLists.Set(c.Key, AppLists.Get(c.Key).Concat(add));
+                    Logger.Write(LogLevel.Info, c.Title + Tx(": добавлено ") + string.Join(", ", add));
+                };
+                c.BDel.Click += (s, e) =>
+                {
+                    var sel = c.Box.SelectedItems; if (sel.Count == 0) return;
+                    if (c == dpiNoTouch) AppLists.SetDpiSitesExcl(AppLists.DpiSitesExcl().Where(x => !sel.Contains(x, StringComparer.OrdinalIgnoreCase)));
+                    else AppLists.Remove(c.Key, sel);
+                };
+                c.BPaste.Click += (s, e) =>
+                {
+                    string t = ""; try { t = Clipboard.GetText(); } catch { }
+                    var add = AppLists.ParseClipboard(t).Where(x => !AppLists.IsAppEntry(x)).Select(x => x.ToLowerInvariant()).ToList();
+                    if (add.Count == 0) return;
+                    if (c == dpiNoTouch) AppLists.SetDpiSitesExcl(AppLists.DpiSitesExcl().Concat(add)); else AppLists.Set(c.Key, AppLists.Get(c.Key).Concat(add));
+                };
+                c.Box.DoubleClick += (s, e) => c.BAdd.PerformClick2();
+                c.Box.RightText = n => DpiSiteTag(n);
+                tt.SetToolTip(c.BAdd, Tx("Добавить")); tt.SetToolTip(c.BDel, Tx("Удалить")); tt.SetToolTip(c.BPaste, Tx("Добавить список из буфера (по строкам или через запятую)"));
+            }
+            tt.SetToolTip(dpiSites, Tx("Домен важнее приложения: DPI применяется к этим сайтам для любого приложения, которого нет в туннеле (list-general-user.txt)"));
+            tt.SetToolTip(dpiNoTouch, Tx("Нативное исключение winws (--ipset-exclude / --hostlist-exclude). Исключение приложений перенесено в списки VPN"));
+            var lGame = new Label { Text = Tx("Порты (игры)"), AutoSize = true, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false };
+            cbGame = new DarkCombo { Width = Theme.S(150) }; cbGame.Items.AddRange(new object[] { Tx("Игры: выкл"), Tx("Игры: TCP+UDP"), Tx("Игры: TCP"), Tx("Игры: UDP") });
+            cbGame.SelectedIndex = Math.Max(0, Math.Min(3, st.GameFilter));
+            cbGame.SelectedIndexChanged += (s, e) => { if (!cbGame.UserPick) return; st.GameFilter = Math.Max(0, cbGame.SelectedIndex); st.Save(); router.RestartDpi(); };
+            tt.SetToolTip(cbGame, Tx("GameFilter: диапазоны портов TCP/UDP — второй способ сузить DPI без приложений"));
+            tt.SetToolTip(lGame, Tx("GameFilter: диапазоны портов TCP/UDP — второй способ сузить DPI без приложений"));
+            var lPar = new Label { Text = Tx("DPI вместе с туннелем"), AutoSize = true, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
+            tgDpiPar = new Toggle { On = st.DpiButton != 2 };
+            tgDpiPar.Changed += (s, e) => { if ((st.DpiButton != 2) == tgDpiPar.On) return; st.DpiButton = tgDpiPar.On ? 0 : 2; st.Save(); router.SetManualDpiParallel(tgDpiPar.On); };
+            tt.SetToolTip(tgDpiPar, Tx("Режим ROUTE: winws работает одновременно с туннелем для всего, что не в туннеле. Выкл — DPI только как аварийный режим"));
+            lDpiState = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false, AutoEllipsis = true };
+            dpiSitesTab.Controls.AddRange(new Control[] { dpiSites, dpiNoTouch, lGame, cbGame, lPar, tgDpiPar, lDpiState });
+            FillDpiSites();
 
             var lName = new Label { Text = Tx("Имя:"), AutoSize = true, ForeColor = Theme.Muted, BackColor = Theme.Card };
             tbStratName = Ui.TextBox();
@@ -114,7 +167,7 @@ namespace NetProbe
                 lbStrat.SetBounds(Theme.S(8), Theme.S(44), lw - Theme.S(16), H - Theme.S(52));
                 right.SetBounds(L + lw + gap, 0, W - lw - gap, H);
                 int rw = right.Width;
-                tabStrat.Location = new Point(ip, Theme.S(10)); tabLists.Location = new Point(tabStrat.Right + Theme.S(6), Theme.S(10));
+                tabStrat.Location = new Point(ip, Theme.S(10)); tabLists.Location = new Point(tabStrat.Right + Theme.S(6), Theme.S(10)); tabSites.Location = new Point(tabLists.Right + Theme.S(6), Theme.S(10));
                 dpiStratTab.SetBounds(ip, Theme.S(50), rw - ip * 2, H - Theme.S(60));
                 dpiListTab.SetBounds(ip, Theme.S(50), rw - ip * 2, H - Theme.S(60));
                 int tw = dpiStratTab.Width, th = dpiStratTab.Height;
@@ -126,6 +179,12 @@ namespace NetProbe
                 bZFolder.Location = new Point(tw - bZFolder.Width, 0); cbZList.SetBounds(0, 0, Math.Min(Theme.S(300), tw - bZFolder.Width - Theme.S(8)), cbZList.Height);
                 lZInfo.SetBounds(0, th - Theme.S(18), tw, Theme.S(18));
                 tbZList.SetBounds(0, Theme.S(38), tw, th - Theme.S(62));
+                dpiSitesTab.SetBounds(ip, Theme.S(50), rw - ip * 2, H - Theme.S(60));
+                int sh = th - Theme.S(66), sw = (tw - Theme.S(10)) / 2;
+                lGame.Location = new Point(0, Theme.S(8)); cbGame.Location = new Point(lGame.Right + Theme.S(8), Theme.S(2));
+                tgDpiPar.Location = new Point(tw - tgDpiPar.Width, Theme.S(4)); lPar.Location = new Point(tgDpiPar.Left - Theme.S(8) - lPar.PreferredWidth, Theme.S(8));
+                dpiSites.SetBounds(0, Theme.S(40), sw, sh); dpiNoTouch.SetBounds(sw + Theme.S(10), Theme.S(40), tw - sw - Theme.S(10), sh);
+                lDpiState.SetBounds(0, th - Theme.S(20), tw, Theme.S(18));
             };
             p.Resize += (s, e) => lay(); lay();
             FillStrategies(st.DpiStrategy);
@@ -135,8 +194,44 @@ namespace NetProbe
 
         void ShowDpiTab(int i)
         {
-            dpiStratTab.Visible = i == 0; dpiListTab.Visible = i == 1;
-            tabStrat.Primary = i == 0; tabLists.Primary = i == 1; tabStrat.Invalidate(); tabLists.Invalidate();
+            dpiStratTab.Visible = i == 0; dpiListTab.Visible = i == 1; dpiSitesTab.Visible = i == 2;
+            tabStrat.Primary = i == 0; tabLists.Primary = i == 1; tabSites.Primary = i == 2; tabStrat.Invalidate(); tabLists.Invalidate(); tabSites.Invalidate();
+            if (i == 2) FillDpiSites();
+        }
+
+        // списки сайтов вкладки DPI (в «Не трогать» показываем только домены/IP; процессы 2.x работают фоном)
+        void FillDpiSites()
+        {
+            if (dpiSites == null || dpiSites.IsDisposed) return;
+            dpiSites.Box.BeginUpdate(); dpiSites.Box.Items.Clear(); dpiSites.Box.Items.AddRange(AppLists.Get(AppLists.DpiDomains)); dpiSites.Box.EndUpdate();
+            dpiNoTouch.Box.BeginUpdate(); dpiNoTouch.Box.Items.Clear(); dpiNoTouch.Box.Items.AddRange(AppLists.DpiSitesExcl()); dpiNoTouch.Box.EndUpdate();
+            int legacy = AppLists.Get(AppLists.DpiOnlyExcl).Count(AppLists.IsAppEntry);
+            dpiNoTouch.Sub = null;
+            UpdateDpiState(legacy);
+        }
+
+        // честный статус DPI: только факты (процесс winws), под полным туннелем — серый
+        void UpdateDpiState(int legacy = -1)
+        {
+            if (lDpiState == null || lDpiState.IsDisposed) return;
+            if (legacy < 0) legacy = AppLists.Get(AppLists.DpiOnlyExcl).Count(AppLists.IsAppEntry);
+            bool fullTunnel = router.Wg.Running && !router.StrictOnly && AppLists.AppsOnly(AppLists.HybridApps).Count == 0;
+            bool viaProxy = xm.Active && !st.TunMode && st.SysProxy;
+            string s = router.Dpi.Pid > 0 ? "winws «" + router.Dpi.Strategy + "» PID " + router.Dpi.Pid : Tx("winws не запущен");
+            if (fullTunnel) s += "  ·  " + Tx("весь трафик в туннеле — DPI не участвует");
+            else if (viaProxy) s += "  ·  " + Tx("браузеры идут через прокси подписки — для них DPI не работает");
+            if (legacy > 0) s += "  ·  " + Tx("процессов из 2.x в исключениях: ") + legacy + Tx(" (работают фоном, только TCP)");
+            lDpiState.Text = s;
+            lDpiState.ForeColor = router.Dpi.Pid > 0 && !fullTunnel ? Theme.Muted : Theme.Dim;
+            if (dpiSites != null) { dpiSites.Box.Invalidate(); dpiNoTouch.Box.Invalidate(); }
+        }
+
+        // метка справа у сайта: серая честность — что реально будет с этим сайтом сейчас
+        string DpiSiteTag(string site)
+        {
+            if (router.Dpi.Pid <= 0) return Tx("DPI выкл");
+            if (router.Wg.Running && !router.StrictOnly && AppLists.AppsOnly(AppLists.HybridApps).Count == 0) return Tx("в туннеле");
+            return null;
         }
 
         void FillStrategies(string select)
@@ -147,7 +242,7 @@ namespace NetProbe
             lbStrat.EndUpdate();
             if (select != null && lbStrat.Items.Contains(select)) lbStrat.SelectedItem = select;
             else if (lbStrat.Items.Count > 0) lbStrat.SelectedIndex = 0;
-            if (cbStrategy != null && !cbStrategy.IsDisposed) LoadConnectUi();
+            if (cbPrimary != null && !cbPrimary.IsDisposed) LoadConnectUi();
         }
 
         void LoadStrategy()

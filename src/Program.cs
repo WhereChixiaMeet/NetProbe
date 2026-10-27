@@ -42,6 +42,7 @@ namespace NetProbe
                 AppDomain.CurrentDomain.UnhandledException += (s, e) => Crash(e.ExceptionObject as Exception);
                 bool min = Array.Exists(args, a => a.Equals("--minimized", StringComparison.OrdinalIgnoreCase));
                 MainForm.Updated = Array.Exists(args, a => a == "--updated");
+                MainForm.Reapply3 = Array.Exists(args, a => a == "--reapply");
                 int ti = Array.FindIndex(args, a => a == "--selftest");
                 if (ti >= 0 && ti + 1 < args.Length) { SelfTest.Run(args[ti + 1]); return; }
                 int sp = Array.FindIndex(args, a => a == "--speedtest");

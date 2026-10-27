@@ -45,13 +45,13 @@ namespace NetProbe
         int curPage;
         bool monitoringWanted;
 
-        public const int PgConnect = 0, PgServers = 1, PgConfigs = 2, PgMonitor = 3, PgTests = 4, PgSites = 5, PgLog = 6, PgSettings = 7, PgTasks = 99;
+        public const int PgConnect = 0, PgServers = 1, PgMonitor = 2, PgConfigs = 3, PgTests = 4, PgSites = 5, PgLog = 6, PgSettings = 7, PgTasks = 99;
 
         public MainForm(bool startMinimized)
         {
             st = Settings.Load();
             Theme.AccentColor = Theme.ParseColor(st.Accent);
-            Tr.Ru = st.Lang == "ru";
+            Tr.Set(st.Lang);
             AppLists.ZapretLists = Path.Combine(st.ZapretPath, "lists");
             Theme.Apply((ThemeKind)st.Theme);
             startHidden = startMinimized || st.StartMinimized;
@@ -74,11 +74,20 @@ namespace NetProbe
             router.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)OnRouteChanged); } catch { } };
             // несколько правок подряд (добавить + убрать из соседнего списка) = один перезапуск туннеля
             reapplyTimer.Tick += (s, e) => { reapplyTimer.Stop(); if (router.Active) router.Reapply(); };
-            AppLists.Changed += key => { if (IsHandleCreated) try { BeginInvoke((Action)(() => { if (AppLists.IsServers(key)) { FillSrvLists(); return; } reapplyTimer.Stop(); reapplyTimer.Start(); RefreshListsUi(); })); } catch { } }; // списки «Серверов» не трогают туннель WireSock
+            // списки сайтов DPI не трогают туннель (и наоборот): DPI — обновить исключения winws; приложения — перезапуск туннеля с новыми правилами
+            AppLists.Changed += key => { if (IsHandleCreated) try { BeginInvoke((Action)(() =>
+            {
+                if (AppLists.IsServers(key)) return;
+                if (key == AppLists.DpiDomains || key == AppLists.DpiOnlyExcl) { router.RefreshDpiExclusions(); FillDpiSites(); return; }
+                if (key == AppLists.DpiApps) return; // 3.0: dpi-apps больше не читается
+                reapplyTimer.Stop(); reapplyTimer.Start(); RefreshListsUi();
+            })); } catch { } };
 
             InitXray();
             BuildUi();
             BuildTray();
+            if (ShotsDir == null) { Toast.Init(appIconBmp); Toast.Activated += OnToast; }
+            appNotifyTimer.Tick += (s2, e2) => { appNotifyTimer.Stop(); ScheduleAppNotify(); };
 
             monVpn.GetSettings = monDir.GetSettings = () => st;
             monVpn.GetProber = () => pVpn;
@@ -130,16 +139,15 @@ namespace NetProbe
                 t.Stop();
                 Directory.CreateDirectory(ShotsDir);
                 int keep = st.Theme;
-                foreach (ThemeKind k in new[] { ThemeKind.Dark, ThemeKind.Light, ThemeKind.Classic })
+                Action<string> shot = name => { Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); using (var bmp = new Bitmap(Width, Height)) { DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height)); bmp.Save(Path.Combine(ShotsDir, name + ".png")); } };
+                foreach (ThemeKind k in new[] { ThemeKind.Dark, ThemeKind.Light, ThemeKind.Classic, ThemeKind.Chisa, ThemeKind.Kurumi })
                 {
                     Theme.Apply(k); st.Theme = (int)k; RebuildUi();
-                    for (int i = 0; i < pages.Count; i++)
-                    {
-                        SelectPage(i); Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents();
-                        using (var bmp = new Bitmap(Width, Height)) { DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height)); bmp.Save(Path.Combine(ShotsDir, k + "-" + i + ".png")); }
-                    }
+                    string pre = Tr.Code + "-" + k + "-";
+                    for (int i = 0; i < pages.Count; i++) { SelectPage(i); shot(pre + i); }
+                    SelectPage(PgConfigs); ShowCfgTab(1); ShowDpiTab(2); shot(pre + "dpi-sites"); ShowDpiTab(0); ShowCfgTab(0);
+                    using (var bmp = new Bitmap(widget.Width, widget.Height)) { widget.DrawToBitmap(bmp, new Rectangle(0, 0, widget.Width, widget.Height)); bmp.Save(Path.Combine(ShotsDir, pre + "widget.png")); }
                 }
-                using (var bmp = new Bitmap(widget.Width, widget.Height)) { widget.DrawToBitmap(bmp, new Rectangle(0, 0, widget.Width, widget.Height)); bmp.Save(Path.Combine(ShotsDir, "widget.png")); }
                 st.Theme = keep; ExitApp();
             };
             t.Start();
@@ -154,18 +162,33 @@ namespace NetProbe
             ThreadPool.QueueUserWorkItem(_ => { CheckCurl(); Logger.Prune(); });
             if (st.AutoStartMonitor) StartMonitoring();
             if (autorunApplied == null) { autorunApplied = st.Autorun; if (st.Autorun) ThreadPool.QueueUserWorkItem(_ => SetAutorun(true)); }
+            // 3.0: домены из карточек приложений → общий список DPI (один раз, с одним диалогом)
+            if (!st.DomainsMigrated)
+            {
+                List<string> moved = null;
+                try { moved = AppLists.MigrateAppDomains(); } catch (Exception ex) { Logger.Write(LogLevel.Error, Tx("Перенос доменов: ") + ex.Message); }
+                st.DomainsMigrated = true; st.Save();
+                if (moved != null && moved.Count > 0)
+                {
+                    Logger.Write(LogLevel.Info, Tx("Домены из карточек приложений перенесены в общий список DPI: ") + string.Join(", ", moved));
+                    BeginInvoke((Action)(() => Notice.Show(this, Tx("Перенос доменов"), Tx("Домены из карточек приложений переехали в общие списки DPI (вкладка Конфиги → DPI → Сайты): ") + string.Join(", ", moved.Take(12)) + (moved.Count > 12 ? " …" : ""))));
+                }
+            }
             var handoff = Updated ? SelfUpdate.TakeHandoff() : null;
+            if (Updated && Settings.MigratedFrom2 && st.UpdatedFrom == "") { st.UpdatedFrom = "2.x"; st.Save(); LayoutNav(); } // обновились со старой версии, которая не умеет ставить флаг
             if (handoff != null)
             {
                 StartMonitoring();
                 router.Adopt(handoff);
                 xm.Adopt(handoff.ContainsKey("xray") && handoff["xray"] == "1");
+                if (Reapply3) { router.Reapply(); xm.Reapply(); Logger.Write(LogLevel.Route, Tx("Перезапуск: конфиги перестроены по новой логике")); }
+                else if (NeedsManualRestart) BeginInvoke((Action)ShowRestartNotice);
             }
             else if (st.DpiButton == 1) router.SetManualDpi(true); // DPI был включён кнопкой до перезапуска
             // автоподключение: без диалогов, если туннель ещё не настроен (например, чистая установка)
             if (handoff == null && st.AutoConnect)
             {
-                if (Tunnels.Exists(st.PrimaryTunnel)) Connect();
+                if (st.RunMode == RouteMode.DpiOnly || ActiveSource() == Source.Vpn) ConnectCurrent(false);
                 else Logger.Write(LogLevel.Info, Tx("Автоподключение пропущено: основной VPN-туннель не выбран"));
             }
             ScheduledUpdateCheck(true);
@@ -183,8 +206,8 @@ namespace NetProbe
             BuildShell();
             BuildConnectPage();
             BuildServersPage();
-            BuildConfigsPage();
             BuildMonitorPage();
+            BuildConfigsPage();
             BuildTestsPage();
             BuildSitesPage();
             BuildLogPage();
@@ -248,12 +271,17 @@ namespace NetProbe
                 else using (var p = new Pen(Theme.Border)) g.DrawLine(p, side.Width - 1, 0, side.Width - 1, side.Height);
             };
             string[][] items = {
-                new[] { "", Tx("Подключение") }, new[] { "\uE753", Tx("Серверы") }, new[] { "", Tx("Конфиги") },
-                new[] { "", Tx("Мониторинг") }, new[] { "", Tx("Тесты") }, new[] { "", Tx("Сайты") }, new[] { "", Tx("Лог и опрос") }, new[] { "", Tx("Настройки") } };
+                new[] { "", Tx("Маршрутизация") }, new[] { "\uE753", Tx("Подписки") }, new[] { "", Tx("Мониторинг") },
+                new[] { "", Tx("Конфиги") }, new[] { "", Tx("Тесты") }, new[] { "", Tx("Сайты") }, new[] { "", Tx("Лог и опрос") }, new[] { "", Tx("Настройки") } };
             btnAppUpd = new FlatButton(Tx("Обновить NetProbe"), true) { Glyph = "\uE896", Visible = false, Height = Theme.S(30) };
             btnAppUpd.SetBounds(Theme.S(16), Theme.S(70), side.Width - Theme.S(34), Theme.S(30));
             btnAppUpd.Click += (s, e) => DoAppUpdate();
             side.Controls.Add(btnAppUpd);
+            btnRestart = new FlatButton(Tx("Перезапустить сейчас"), true) { Glyph = "\uE72C", Visible = false, Height = Theme.S(30) };
+            btnRestart.SetBounds(Theme.S(16), Theme.S(70), side.Width - Theme.S(34), Theme.S(30));
+            btnRestart.Click += (s, e) => RestartNow();
+            Ui.Tip().SetToolTip(btnRestart, Tx("NetProbe обновлён → изменилась логика маршрутизации → перезапусти приложение вручную"));
+            side.Controls.Add(btnRestart);
             int y = Theme.S(80);
             for (int i = 0; i < items.Length; i++)
             {
@@ -513,19 +541,9 @@ namespace NetProbe
         }
 
         // ================= Route control =================
-        void Connect()
-        {
-            if (!Tunnels.Exists(st.PrimaryTunnel))
-            {
-                RestoreFromTray(); SelectPage(PgConfigs); ShowCfgTab(0);
-                MessageBox.Show(this, Tx("Не выбран основной VPN-туннель. Добавьте его в «Конфиги»."), "NetProbe", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            StartMonitoring();
-            router.Connect();
-        }
+        void Connect() { ConnectCurrent(true); }
 
-        void Disconnect() { router.Disconnect(); }
+        void Disconnect() { DisconnectAll(); }
 
         RouteState lastState = RouteState.Off;
         void OnRouteChanged()
@@ -543,10 +561,11 @@ namespace NetProbe
                 lastState = s;
                 if (s == RouteState.Off && !monitoringWanted && monVpn.Running) StopMonitoring(false);
             }
-            if (miConnect != null) miConnect.Text = router.Active ? Tx("Отключить") : Tx("Подключить");
+            if (miConnect != null) miConnect.Text = AnyActive ? Tx("Отключить") : Tx("Подключить");
             UpdateConnectUi();
             UpdateServersUi();
-            UpdateSide();
+            UpdateModeUi();
+            UpdateDpiState();
             UpdateTray();
             if (widget != null) { widget.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : ""; widget.Invalidate(); }
         }
@@ -581,7 +600,7 @@ namespace NetProbe
             trayMenu = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body, ShowImageMargin = true };
             trayMenu.Items.Add(Tx("Открыть NetProbe"), null, (s, e) => RestoreFromTray());
             miConnect = new ToolStripMenuItem(Tx("Подключить"));
-            miConnect.Click += (s, e) => { if (router.Active) Disconnect(); else Connect(); };
+            miConnect.Click += (s, e) => { if (AnyActive) Disconnect(); else Connect(); };
             trayMenu.Items.Add(miConnect);
             var miMode = new ToolStripMenuItem(Tx("Режим"));
             miModes = new ToolStripMenuItem[3];
@@ -617,18 +636,6 @@ namespace NetProbe
 
         // Карточки режимов выбирают, чьи списки настраиваются; VPN при этом не переподключается.
         // DPI/VPN и Только VPN заодно задают поведение кнопки VPN (с переключением на DPI или без).
-        void SetMode(RouteMode m)
-        {
-            if (st.RMode == m) return;
-            st.Mode = (int)m;
-            bool runChanged = false;
-            if (m != RouteMode.DpiOnly && st.VpnMode != (m == RouteMode.VpnOnly ? 1 : 0)) { st.VpnMode = m == RouteMode.VpnOnly ? 1 : 0; runChanged = true; }
-            st.Save();
-            if (miModes != null) for (int i = 0; i < 3; i++) miModes[i].Checked = i == st.Mode;
-            LoadConnectUi();
-            if (runChanged && router.Active) router.Reapply();
-            UpdateSide();
-        }
 
         // Иконка приложения: своя из настроек или встроенная; она же — основа значка в трее
         Bitmap appIconBmp;
@@ -790,6 +797,7 @@ namespace NetProbe
             bool show = appRelease != null && SelfUpdate.Newer(appRelease.Tag);
             btnAppUpd.Visible = show;
             if (show && btnAppUpd.Enabled) btnAppUpd.Text = Tx("Обновить до ") + appRelease.Tag; // во время загрузки там статус
+            if (btnRestart != null) { btnRestart.Visible = NeedsManualRestart && !show; if (btnRestart.Visible) show = true; }
             int y = Theme.S(show ? 112 : 80);
             foreach (var nb in navs) { nb.Top = y; y += nb.Height + Theme.S(1); }
         }
@@ -805,7 +813,8 @@ namespace NetProbe
                     BeginInvoke((Action)(() =>
                     {
                         // фоновая проверка: при ошибке (сеть ещё не поднялась, туннель переподключается) повтор через 2 мин, иначе через час
-                        if (!manual) { appUpdTimer.Stop(); appUpdTimer.Interval = err != null ? 2 * 60 * 1000 : 60 * 60 * 1000; appUpdTimer.Start(); }
+                        // «Сразу» — опрос раз в 15 мин, иначе раз в час (лимит GitHub API 60/ч с IP)
+                        if (!manual) { appUpdTimer.Stop(); appUpdTimer.Interval = err != null ? 2 * 60 * 1000 : (st.AppNotifyEvery == 0 ? 15 : 60) * 60 * 1000; appUpdTimer.Start(); }
                         if (rel == null && appRelease != null) rel = appRelease; // ошибка сети не прячет уже найденную кнопку
                         bool newer = rel != null && rel.AssetUrl != "" && SelfUpdate.Newer(rel.Tag);
                         bool found = newer && (appRelease == null || appRelease.Tag != rel.Tag);
@@ -813,12 +822,74 @@ namespace NetProbe
                         LayoutNav();
                         if (lAppVer != null && !lAppVer.IsDisposed) lAppVer.Text = "v" + Version + (newer ? "  →  " + rel.Tag + " " + Tx("доступна") : err != null ? "  ·  " + err : "  ·  " + Tx("последняя"));
                         if (found) Logger.Write(LogLevel.Info, Tx("Доступна новая версия NetProbe: ") + rel.Tag);
-                        if (found && !manual && st.UpdNotify && tray != null) try { tray.ShowBalloonTip(5000, Tx("NetProbe: есть обновления"), "NetProbe " + rel.Tag, ToolTipIcon.Info); } catch { }
+                        if (newer) ScheduleAppNotify(); // одно уведомление на версию — по частоте и задержке из Настроек
                         if (manual && !newer) MessageBox.Show(this, err != null ? err : Tx("Установлена последняя версия: ") + "v" + Version, "NetProbe");
                     }));
                 }
                 catch { }
             });
+        }
+
+        // ===== уведомление о новой версии (ТЗ, раздел 13): одно на версию, частота Сразу/День/Неделя/Месяц, задержка после публикации =====
+        readonly System.Windows.Forms.Timer appNotifyTimer = new System.Windows.Forms.Timer();
+        static readonly int[] NotifyPeriodDays = { 0, 1, 7, 30 };
+        void ScheduleAppNotify()
+        {
+            appNotifyTimer.Stop();
+            var rel = appRelease;
+            if (rel == null || !st.UpdNotify || !SelfUpdate.Newer(rel.Tag) || st.AppNotifiedTag == rel.Tag) return;
+            var now = DateTime.Now;
+            var pub = rel.PublishedAt == DateTime.MinValue ? now : rel.PublishedAt.ToLocalTime();
+            var due = pub.AddMinutes(st.AppNotifyDelayOn ? st.AppNotifyDelayMin : 0);
+            var last = st.AppNotifiedAt > 0 ? DateTime.FromOADate(st.AppNotifiedAt) : DateTime.MinValue;
+            int days = NotifyPeriodDays[Math.Max(0, Math.Min(3, st.AppNotifyEvery))];
+            if (days > 0 && last != DateTime.MinValue && last.AddDays(days) > due) due = last.AddDays(days);
+            if (due > now)
+            {
+                // таймер не дольше суток за раз: дальше просто пересчитаем
+                double ms = Math.Min((due - now).TotalMilliseconds + 5000 + new Random().Next(25000), 24 * 3600 * 1000.0);
+                appNotifyTimer.Interval = (int)Math.Max(1000, ms);
+                appNotifyTimer.Start();
+                return;
+            }
+            st.AppNotifiedTag = rel.Tag; st.AppNotifiedAt = now.ToOADate(); st.Save();
+            Logger.Write(LogLevel.Info, Tx("Уведомление о новой версии NetProbe ") + rel.Tag);
+            string title = "NetProbe " + rel.Tag + " " + Tx("доступна");
+            string text = Tx("Обновление сохраняет VPN и DPI. После обновления перезапусти приложение вручную — изменилась логика маршрутизации.");
+            if (!Toast.Show(title, text, Tuple.Create(Tx("Обновить"), "update"), Tuple.Create(Tx("Позже"), "later")) && tray != null)
+                try { tray.ShowBalloonTip(6000, title, text, ToolTipIcon.Info); } catch { }
+        }
+
+        // ===== критическое обновление (ТЗ, раздел 8): после обновления — перезапуск вручную, по кнопке, без тихой замены =====
+        FlatButton btnRestart;
+        public static bool Reapply3; // запуск после «Перезапустить сейчас»: перестроить конфиги туннеля/winws/xray по новой логике
+        bool NeedsManualRestart { get { return st.UpdatedFrom != "" && st.UpdatedFrom != Version; } }
+        void ShowRestartNotice()
+        {
+            if (!NeedsManualRestart) return;
+            bool d;
+            int r = Notice.Show(this, Tx("NetProbe обновлён до ") + "v" + Version, Tx("Изменилась логика маршрутизации — перезапусти приложение вручную. VPN, DPI и xray при перезапуске не отключатся."),
+                new[] { Tx("Перезапустить сейчас"), Tx("Позже") }, null, out d);
+            if (r == 0) RestartNow();
+        }
+        void RestartNow()
+        {
+            try
+            {
+                var h = router.Handoff(); h["xray"] = xm.Active ? "1" : "0";
+                SelfUpdate.SaveHandoff(h);
+                st.UpdatedFrom = ""; st.Save();
+                Logger.Write(LogLevel.Info, Tx("Перезапуск NetProbe по кнопке (VPN/DPI/xray продолжают работать)"));
+                SelfUpdate.LaunchRestart();
+                exitForUpdate = true; ExitApp();
+            }
+            catch (Exception ex) { Logger.Write(LogLevel.Error, Tx("Перезапуск: ") + ex.Message); }
+        }
+
+        void OnToast(string arg)
+        {
+            if (!IsHandleCreated) return;
+            try { BeginInvoke((Action)(() => { if (arg == "later") return; RestoreFromTray(); if (arg == "update" && appRelease != null) DoAppUpdate(); })); } catch { }
         }
 
         void DoAppUpdate()
@@ -833,6 +904,7 @@ namespace NetProbe
                     string exe = SelfUpdate.Download(rel, m => { try { BeginInvoke((Action)(() => btnAppUpd.Text = m)); } catch { } });
                     var h = router.Handoff(); h["xray"] = xm.Active ? "1" : "0";
                     SelfUpdate.SaveHandoff(h);
+                    st.UpdatedFrom = Version; st.Save(); // новая версия покажет «перезапусти вручную»
                     Logger.Write(LogLevel.Info, Tx("Установка NetProbe ") + rel.Tag + "…");
                     SelfUpdate.LaunchSwap(exe);
                     BeginInvoke((Action)(() => { exitForUpdate = true; ExitApp(); }));

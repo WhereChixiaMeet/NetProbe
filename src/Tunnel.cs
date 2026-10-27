@@ -186,6 +186,7 @@ namespace NetProbe
         readonly object lk = new object();
         public string TunnelName = "";
         public DateTime StartedAt, LastHandshake;
+        public int Pid { get { lock (lk) { try { return proc != null && !proc.HasExited ? proc.Id : 0; } catch { return 0; } } } }
         public event Action<string> Output;
         public event Action<int> Exited;
         public bool Running { get { lock (lk) { try { return proc != null && !proc.HasExited; } catch { return false; } } } }

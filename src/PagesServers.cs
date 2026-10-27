@@ -14,8 +14,8 @@ namespace NetProbe
     public partial class MainForm
     {
         readonly XrayManager xm = new XrayManager();
-        StatusBoard xBoard; FlatButton btnXConnect, btnXDpi, btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
-        TabStrip srvTabs, srvListTabs; ThemedList srvListBox; Toggle tgTun; ToolTip srvTip;
+        StatusBoard xBoard; FlatButton btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
+        TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; ModeSegment segSrv;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb, btnTest, btnSpeed; ServerEntry speedNow;
         readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
         static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
@@ -28,7 +28,7 @@ namespace NetProbe
             xm.GetSettings = () => st;
             xm.GetCurl = () => curlPath;
             XState lastX = XState.Off;
-            xm.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if ((xm.State == XState.Off) != (lastX == XState.Off)) RebuildProbers(); lastX = xm.State; UpdateServersUi(); UpdateSide(); })); } catch { } };
+            xm.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if ((xm.State == XState.Off) != (lastX == XState.Off)) RebuildProbers(); lastX = xm.State; UpdateServersUi(); UpdateModeUi(); if (miConnect != null) miConnect.Text = AnyActive ? Tx("Отключить") : Tx("Подключить"); })); } catch { } };
             // DPI «Серверов» не зависит от кнопки VPN: запасной вариант автосвитча и приложения «через DPI»
             xm.DpiFallback = on => router.StandaloneDpi(on);
             // 3.0: DPI для подписок — тот же глобальный winws: нужен в режиме ROUTE (DPI/VPN), кнопка DPI «выкл» его глушит
@@ -57,14 +57,12 @@ namespace NetProbe
 
         void BuildServersPage()
         {
-            var p = NewPage(Tx("Серверы"), Tx("xray · подписки · автосвитч"));
+            var p = NewPage(Tx("Подписки"), Tx("xray · подписки · автосвитч"));
             var tt = Ui.Tip(); srvTip = tt;
             // отдельно от VPN на «Подключении»: xray работает и при выключенном VPN
-            btnXConnect = new FlatButton(Tx("Подключить"), true) { Glyph = "", Width = Theme.S(170), Height = Theme.S(36) };
-            btnXConnect.Click += (s, e) => XConnectClick();
-            btnXDpi = new FlatButton("DPI") { Glyph = "", Width = Theme.S(150), Height = Theme.S(36) };
-            btnXDpi.Click += (s, e) => ToggleDpi();
-            tt.SetToolTip(btnXDpi, Tx("DPI (zapret) — тот же, что на «Подключении»"));
+            segSrv = NewSegment(); // тот же сегмент ROUTE | VPN | DPI, что на Routing (синхронно)
+            srcSwitch = new SourceSwitch();
+            srcSwitch.Picked += PickSource;
             xBoard = new StatusBoard();
 
             // панель кнопок
@@ -180,16 +178,15 @@ namespace NetProbe
             int ry = BuildSrvLists(asBody);
             BuildAutoSwitch(asBody, ry);
 
-            p.Controls.AddRange(new Control[] { btnXDpi, btnXConnect, xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, bFav, bDel, tbSrvSearch, btnCore, btnSb, srvTabs, lSrvInfo, gridCard, asHost });
+            p.Controls.AddRange(new Control[] { segSrv, xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, srvTabs, lSrvInfo, gridCard, asHost });
             Action lay = () =>
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
-                btnXConnect.Location = new Point(p.ClientSize.Width - L - btnXConnect.Width, Theme.S(22));
-                btnXDpi.Location = new Point(btnXConnect.Left - Theme.S(8) - btnXDpi.Width, Theme.S(22));
+                segSrv.Location = new Point(p.ClientSize.Width - L - segSrv.Width, Theme.S(22));
                 int y = Theme.S(80);
                 xBoard.SetBounds(L, y, W, Theme.S(84)); y = xBoard.Bottom + gap;
                 int x = L;
-                foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, bFav, bDel }) { b.Location = new Point(x, y); x = b.Right + Theme.S(6); }
+                foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel }) { b.Location = new Point(x, y + (b == srcSwitch ? (bImp.Height - srcSwitch.Height) / 2 : 0)); x = b.Right + Theme.S(6); }
                 btnCore.Location = new Point(L + W - btnCore.Width, y);
                 btnSb.Location = new Point(btnCore.Left - Theme.S(6) - btnSb.Width, y);
                 // строка состояния — в свободном месте панели кнопок; поиск — справа от вкладок, над правой колонкой
@@ -224,8 +221,11 @@ namespace NetProbe
             XConnect(pick.Id);
         }
 
-        void XConnect(string id)
+        void XConnect(string id) { XConnect(id, false); }
+        void XConnect(string id, bool fromSource)
         {
+            string blocked = fromSource ? null : SubsBlockedReason();
+            if (blocked != null) { lSrvInfo.Text = blocked; return; }
             if (!File.Exists(XrayProcess.Exe(st)))
             {
                 // без ядра кнопка раньше «ничего не делала» — ставим xray и подключаемся
@@ -239,72 +239,29 @@ namespace NetProbe
         string pendingXConnect;
 
         // ---------- списки приложений «Серверов» (компактно, по аналогии с «Подключением») ----------
+        // 3.0: карточек приложений здесь нет (управление приложениями — только на Routing). Остался режим TUN.
         int BuildSrvLists(Panel body)
         {
             int w = Theme.S(344);
-            var card = new CardPanel { Title = Tx("Приложения") };
-            var lTun = new Label { Text = "TUN", AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false };
+            var card = new CardPanel { Title = "TUN" };
             tgTun = new Toggle { On = st.TunMode };
             tgTun.Changed += (s, e) => SetTun(tgTun.On);
-            srvTip.SetToolTip(tgTun, Tx("TUN: списки работают для всех программ (sing-box). Выкл — только системный прокси"));
-            srvTip.SetToolTip(lTun, Tx("TUN: списки работают для всех программ (sing-box). Выкл — только системный прокси"));
-            var bPaste = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
-            var bAdd = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
-            var bDel = new FlatButton("") { Glyph = "", Width = Theme.S(30), Height = Theme.S(26) };
-            srvTip.SetToolTip(bPaste, Tx("Добавить список из буфера (по строкам или через запятую)")); srvTip.SetToolTip(bAdd, Tx("Добавить")); srvTip.SetToolTip(bDel, Tx("Удалить"));
-            srvListTabs = new TabStrip { Segmented = true, Font = Theme.Small, Height = Theme.S(26) };
-            srvListBox = new ThemedList { MultiSelect = true, ShowIcons = st.ShowAppIcons };
-            srvListBox.RightText = n => DomainTag(SrvListKey(), n);
-            srvListTabs.Selected += k => { st.SrvListTab = Math.Max(0, Array.IndexOf(SrvListKeys, k)); st.Save(); FillSrvLists(); };
-            bAdd.Click += (s, e) =>
-            {
-                string key = SrvListKey();
-                using (var d = new ProcPicker(AppLists.Title(key), AppLists.Recent().Where(r => !AppLists.Get(key).Contains(r, StringComparer.OrdinalIgnoreCase)).ToList()))
-                    if (d.ShowDialog(this) == DialogResult.OK) foreach (var x in d.Result) AddToSrvList(key, x);
-            };
-            bPaste.Click += (s, e) => PasteToList(SrvListKey(), srvListBox);
-            bDel.Click += (s, e) => { var sel = srvListBox.SelectedItems; if (sel.Count > 0) RemoveFromList(SrvListKey(), sel); };
-            srvListBox.DoubleClick += (s, e) => bAdd.PerformClick2();
-            srvListBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Delete) bDel.PerformClick2(); if (e.KeyCode == Keys.V && e.Control) bPaste.PerformClick2(); };
-            AttachPathMenu(srvListBox, this);
-            var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
-            miRen.Click += (s, e) => { var old = srvListBox.SelectedItem; if (old != null) RenameInList(SrvListKey(), old); };
-            var miDom = new ToolStripMenuItem(Tx("Домены через DPI…"));
-            miDom.Click += (s, e) => AddDomainsTo(SrvListKey(), srvListBox.SelectedItem);
-            srvListBox.ContextMenuStrip.Opening += (s, e) => miDom.Visible = AppLists.DomKey(SrvListKey()) != null;
-            srvListBox.ContextMenuStrip.Items.Add(new ToolStripSeparator());
-            srvListBox.ContextMenuStrip.Items.Add(miRen);
-            srvListBox.ContextMenuStrip.Items.Add(miDom);
-            var miRoute = new ToolStripMenuItem(Tx("Проверить маршрут…"));
-            miRoute.Click += (s, e) => ShowRouteFor(srvListBox.SelectedItem);
-            srvListBox.ContextMenuStrip.Items.Add(miRoute);
-            card.Controls.AddRange(new Control[] { lTun, tgTun, bPaste, bAdd, bDel, srvListTabs, srvListBox });
-            int ip = Theme.S(10), lh = Theme.S(130);
-            bDel.Location = new Point(w - ip - bDel.Width, Theme.S(10));
-            bAdd.Location = new Point(bDel.Left - Theme.S(4) - bAdd.Width, Theme.S(10));
-            bPaste.Location = new Point(bAdd.Left - Theme.S(4) - bPaste.Width, Theme.S(10));
-            tgTun.Location = new Point(bPaste.Left - Theme.S(10) - tgTun.Width, Theme.S(11));
-            lTun.Location = new Point(tgTun.Left - Theme.S(4) - lTun.PreferredWidth, Theme.S(15));
-            srvListTabs.SetBounds(ip, Theme.S(46), w - ip * 2, Theme.S(26));
-            srvListBox.SetBounds(ip, Theme.S(78), w - ip * 2, lh);
-            card.SetBounds(0, 0, w, srvListBox.Bottom + Theme.S(10));
+            srvTip.SetToolTip(tgTun, Tx("TUN: списки приложений вкладки Routing работают для всех программ (sing-box). Выкл — только системный прокси"));
+            var note = Ui.Hint(Tx("Приложения (Include / «Строго VPN» / Exclude) — на вкладке Routing; для подписок они действуют в режиме TUN."), w - Theme.S(32));
+            note.BackColor = Theme.Card;
+            var bGo = new FlatButton("Routing") { Glyph = "" }.AutoW();
+            bGo.Click += (s, e) => SelectPage(PgConnect);
+            card.Controls.AddRange(new Control[] { tgTun, note, bGo });
+            int ip = Theme.S(16);
+            tgTun.Location = new Point(w - ip - tgTun.Width, Theme.S(12));
+            note.Location = new Point(ip, Theme.S(44));
+            bGo.Location = new Point(ip, note.Bottom + Theme.S(8));
+            card.SetBounds(0, 0, w, bGo.Bottom + Theme.S(12));
             body.Controls.Add(card);
-            FillSrvLists();
             return card.Bottom + Theme.S(12);
         }
 
-        string SrvListKey() { return SrvListKeys[Math.Max(0, Math.Min(SrvListKeys.Length - 1, st.SrvListTab))]; }
-
-        void FillSrvLists()
-        {
-            if (srvListTabs == null || srvListTabs.IsDisposed) return;
-            string[] names = { "Include", "Exclude", "Include DPI", "Exclude DPI" };
-            string[] tips = { Tx("Через сервер · пусто = весь трафик"), Tx("Мимо сервера, напрямую"), Tx("Мимо сервера, под DPI — zapret включается сам · ПКМ → домены приложения через DPI, остальное через сервер"), Tx("Мимо DPI") };
-            srvListTabs.SelectedKey = SrvListKey();
-            srvListTabs.SetTabs(SrvListKeys.Select((k, i) => { int n = AppLists.Apps(k).Count; return new TabStrip.Tab { Key = k, Text = names[i], Badge = n > 0 ? n.ToString() : null, Tip = tips[i] }; }));
-            var items = AppLists.Display(SrvListKey());
-            srvListBox.BeginUpdate(); srvListBox.Items.Clear(); srvListBox.Items.AddRange(items); srvListBox.EndUpdate();
-        }
+        void FillSrvLists() { }
 
         // Exclude не совмещается с Include / «через DPI»; «через DPI» и «мимо DPI» — тоже
         void AddToSrvList(string key, string item)
@@ -570,16 +527,13 @@ namespace NetProbe
             if (xBoard == null || xBoard.IsDisposed) return;
             var s = xm.State;
             var cur = ServerStore.Find(st.ActiveServer);
-            btnXConnect.Text = xm.Active ? Tx("Отключить") : Tx("Подключить"); btnXConnect.Primary = !xm.Active; btnXConnect.Glyph = xm.Active ? "" : ""; btnXConnect.Invalidate();
-            bool dpi = router.ManualDpi || router.Dpi.Running;
-            btnXDpi.Primary = dpi; btnXDpi.Text = "DPI  ·  " + (dpi ? Tx("ВКЛ") : Tx("ВЫКЛ")); btnXDpi.Invalidate();
             if (tgTun != null && tgTun.On != st.TunMode) tgTun.On = st.TunMode;
             xBoard.State = XrayManager.StateName(s) + (cur != null && xm.Active ? "  ·  " + cur.Name : "");
             xBoard.Lv = s == XState.Off ? Level.Off : s == XState.Connected ? (xm.LastDelay == -2 ? Level.Slow : Level.Good) : s == XState.AllDown ? Level.Down : Level.Wait;
             string traffic = xm.SessionDown + xm.SessionUp > 0 ? "  ·  ↓ " + Bytes(xm.SessionDown) + " ↑ " + Bytes(xm.SessionUp) : "";
             xBoard.Line1 = xm.Active
                 ? (cur != null ? (cur.Country != "" ? cur.Country + " · " : "") + cur.Transport + " · " + cur.Endpoint : "") + "  ·  " + Tx("задержка ") + (xm.LastDelay > 0 ? xm.LastDelay + Tx(" мс") : xm.LastDelay == -2 ? Tx("нет ответа") : "…") + traffic + "  ·  " + Tx("переключений: ") + xm.Switches + (st.AsEnabled ? "" : "  ·  " + Tx("автосвитч выкл"))
-                : xm.Detail != "" ? xm.Detail : Tx("Выберите сервер и нажмите «Подключить» (или двойной клик) — работает и без VPN");
+                : xm.Detail != "" ? xm.Detail : SubsBlockedReason() ?? Tx("Двойной клик по серверу или чип VPN / ROUTE сверху — подключить");
             string tun = st.TunMode ? "  ·  TUN" + (xm.Active ? (xm.TunRunning ? " ✓" : " ✗") : "") : st.SysProxy ? "  ·  " + Tx("системный прокси") : "";
             string blocked = st.TunMode && xm.Active && !xm.TunRunning && xm.TunBlocked != null ? xm.TunBlocked() : null;
             xBoard.Line2 = "SOCKS 127.0.0.1:" + st.SocksPort + "  ·  HTTP 127.0.0.1:" + st.HttpPort + tun + (xm.DpiWanted ? "  ·  DPI" : "") + (blocked != null ? "  ·  " + blocked : xm.Detail != "" && s != XState.Connected && xm.Active ? "  ·  " + xm.Detail : "");

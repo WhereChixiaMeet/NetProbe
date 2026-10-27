@@ -262,6 +262,7 @@ namespace NetProbe
             return sb.ToString();
         }
 
+        public static bool MigratedFrom2;
         public static Settings Load()
         {
             var st = new Settings();
@@ -293,6 +294,7 @@ namespace NetProbe
                 // 2.x: Mode был только «какие списки редактируем», запускался VpnMode (0 DPI/VPN, 1 только VPN)
                 st.Mode = st.VpnMode == 1 ? 1 : 0;
                 st.V3Migrated = true;
+                MigratedFrom2 = File.Exists(FilePath); // был settings.ini от 2.x (а не чистая установка)
             }
             st.Clamp();
             return st;
