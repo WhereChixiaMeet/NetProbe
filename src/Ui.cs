@@ -165,7 +165,7 @@ namespace NetProbe
 
         public FlatButton(string text, bool primary = false)
         {
-            Text = text; Primary = primary; Cursor = Cursors.Hand; Font = Theme.Bold;
+            Text = text; Primary = primary; Cursor = Cursors.Hand; Font = Theme.Button;
             Size = new Size(Theme.S(120), Theme.S(32)); ForeColor = Theme.Text;
         }
 

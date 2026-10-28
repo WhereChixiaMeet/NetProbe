@@ -23,6 +23,7 @@ namespace NetProbe
         protected override void Dispose(bool disposing) { if (disposing) Application.RemoveMessageFilter(this); base.Dispose(disposing); }
         protected override void OnBackColorChanged(EventArgs e) { Content.BackColor = BackColor; base.OnBackColorChanged(e); }
 
+        public void ScrollToTop() { offset = 0; bar.Value = 0; Content.Top = 0; }
         public void Relayout()
         {
             int w = bar.Visible ? Width - bar.Width - 4 : Width;

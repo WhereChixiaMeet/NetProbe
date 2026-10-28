@@ -15,6 +15,7 @@ namespace NetProbe
     {
         readonly XrayManager xm = new XrayManager();
         StatusBoard xBoard; FlatButton btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
+        FlatButton bSortAll; bool applyingSort;
         TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; TopButtons topSrv; Toggle cXAutoTun;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb, btnTest, btnSpeed; ServerEntry speedNow;
         readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
@@ -105,6 +106,13 @@ namespace NetProbe
             srvTabs = new TabStrip { SelectedKey = st.SrvTab };
             srvTabs.Selected += k => { st.SrvTab = k; st.Save(); srvGrid.ClearSelection(); FillServers(); };
             srvTabs.RightClicked += (k, pt) => SrvTabMenu(k).Show(srvTabs, pt);
+            // порядок подписок — перетаскиванием вкладок (или ПКМ → влево / вправо)
+            srvTabs.CanDrag = k => ServerStore.Subs.Any(x => x.Id == k);
+            srvTabs.Dropped += (what, before) => MoveSub(what, before);
+            // одна сортировка для всех вкладок: берётся сортировка открытой вкладки
+            bSortAll = new FlatButton("") { Glyph = "\uE8CB", IconOnly = true, Width = Theme.S(32), Height = Theme.S(28) };
+            bSortAll.Click += (s, e) => SortAllLikeThis();
+            srvTip.SetToolTip(bSortAll, Tx("Сортировку этой вкладки — на все подписки"));
 
             // таблица серверов
             var gridCard = new CardPanel();
@@ -146,6 +154,12 @@ namespace NetProbe
             foreach (var c in new[] { "t", "a", "p", "g", "td" }) srvGrid.Columns[c].DefaultCellStyle.ForeColor = Theme.Muted;
             srvGrid.Columns["cc"].DefaultCellStyle.ForeColor = Theme.Text;
             srvGrid.CellDoubleClick += (s, e) => { if (e.RowIndex < 0) return; var x = srvGrid.Rows[e.RowIndex].Tag as ServerEntry; if (x != null) XConnect(x.Id); };
+            srvGrid.Sorted += (s, e) =>
+            {
+                if (applyingSort || srvGrid.SortedColumn == null) return;
+                var m = SortMap(); m[SortTabKey()] = srvGrid.SortedColumn.Name + ":" + (srvGrid.SortOrder == SortOrder.Descending ? "d" : "a");
+                SaveSortMap(m);
+            };
             srvGrid.SortCompare += (s, e) =>
             {
                 string c = e.Column.Name;
@@ -179,7 +193,7 @@ namespace NetProbe
             int ry = BuildSrvLists(asBody);
             BuildAutoSwitch(asBody, ry);
 
-                        p.Controls.AddRange(new Control[] { xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, btnCoresUpd, srvTabs, lSrvInfo, gridCard, asHost });
+                        p.Controls.AddRange(new Control[] { xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, btnCoresUpd, srvTabs, bSortAll, lSrvInfo, gridCard, asHost });
             tt.SetToolTip(bImp, Tx("Из буфера")); tt.SetToolTip(bSubs, Tx("Подписки"));
             var rowBtns = new FlatButton[] { bImp, bSubs, btnUpdSub, bTest, bSpeed };
             Action lay = () =>
@@ -214,7 +228,8 @@ namespace NetProbe
                 y += bImp.Height + Theme.S(6);
                 // вторая строка: вкладки подписок слева, поиск справа (над правой колонкой)
                 int rw = Theme.S(360), lw = W - rw - gap; // правая колонка (автосвитч) — фиксированной ширины, чтобы поля не обрезались
-                srvTabs.SetBounds(L, y, lw, Theme.S(32));
+                srvTabs.SetBounds(L, y, lw - bSortAll.Width - Theme.S(6), Theme.S(32));
+                bSortAll.Location = new Point(L + lw - bSortAll.Width, y + (Theme.S(32) - bSortAll.Height) / 2);
                 tbSrvSearch.SetBounds(L + W - rw, y + (Theme.S(32) - tbSrvSearch.Height) / 2, rw, tbSrvSearch.Height); y += Theme.S(36);
                 int h = p.ClientSize.Height - Theme.S(18) - y;
                 gridCard.SetBounds(L, y, lw, h);
@@ -418,6 +433,44 @@ namespace NetProbe
             }
         }
 
+        string SortTabKey() { return srvTabs != null && srvTabs.SelectedKey != null ? srvTabs.SelectedKey : "all"; }
+        Dictionary<string, string> SortMap()
+        {
+            var m = new Dictionary<string, string>();
+            foreach (var part in (st.SrvSorts ?? "").Split(';'))
+            {
+                int i = part.IndexOf('='); if (i <= 0) continue;
+                m[part.Substring(0, i)] = part.Substring(i + 1);
+            }
+            return m;
+        }
+        void SaveSortMap(Dictionary<string, string> m) { st.SrvSorts = string.Join(";", m.Select(kv => kv.Key + "=" + kv.Value)); st.Save(); }
+        string SavedSort()
+        {
+            var m = SortMap(); string v;
+            if (m.TryGetValue(SortTabKey(), out v) || m.TryGetValue("*", out v)) return v;
+            return null;
+        }
+        void SortAllLikeThis()
+        {
+            string cur = srvGrid.SortedColumn != null ? srvGrid.SortedColumn.Name + ":" + (srvGrid.SortOrder == SortOrder.Descending ? "d" : "a") : SavedSort();
+            var m = new Dictionary<string, string>();
+            if (cur != null) m["*"] = cur;
+            SaveSortMap(m);
+            Logger.Write(LogLevel.Info, Tx("Сортировка открытой вкладки применена ко всем подпискам"));
+            FillServers();
+        }
+        // переставить подписку: before — id подписки, перед которой встать (null — в конец)
+        void MoveSub(string id, string before)
+        {
+            var sub = ServerStore.Subs.FirstOrDefault(x => x.Id == id); if (sub == null) return;
+            ServerStore.Subs.Remove(sub);
+            int at = before != null ? ServerStore.Subs.FindIndex(x => x.Id == before) : -1;
+            if (at < 0) ServerStore.Subs.Add(sub); else ServerStore.Subs.Insert(at, sub);
+            ServerStore.Save();
+            FillServers();
+        }
+
         ContextMenuStrip SrvTabMenu(string key)
         {
             var cm = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body };
@@ -426,6 +479,10 @@ namespace NetProbe
             {
                 cm.Items.Add(Tx("Обновить подписку"), null, (s, e) => UpdateSubs(new List<Subscription> { sub }));
                 cm.Items.Add(sub.Enabled ? Tx("Не обновлять со всеми") : Tx("Обновлять со всеми"), null, (s, e) => { sub.Enabled = !sub.Enabled; ServerStore.Save(); });
+                int si = ServerStore.Subs.IndexOf(sub);
+                var mL = new ToolStripMenuItem(Tx("Сдвинуть влево"), null, (s, e) => { int i = ServerStore.Subs.IndexOf(sub); if (i > 0) MoveSub(sub.Id, ServerStore.Subs[i - 1].Id); }) { Enabled = si > 0 };
+                var mR = new ToolStripMenuItem(Tx("Сдвинуть вправо"), null, (s, e) => { int i = ServerStore.Subs.IndexOf(sub); if (i >= 0 && i < ServerStore.Subs.Count - 1) MoveSub(sub.Id, i + 2 < ServerStore.Subs.Count ? ServerStore.Subs[i + 2].Id : null); }) { Enabled = si < ServerStore.Subs.Count - 1 };
+                cm.Items.Add(mL); cm.Items.Add(mR);
             }
             cm.Items.Add(Tx("Замер"), null, (s, e) => TestServers(TabServers(key)));
             cm.Items.Add(Tx("Скорость"), null, (s, e) => SpeedServers(TabServers(key).Where(x => x.Delay > 0).ToList()));
@@ -510,7 +567,15 @@ namespace NetProbe
             string q = tbSrvSearch.Text.Trim();
             Func<string, bool> has = v => (v ?? "").IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0;
             var list = TabServers().Where(x => q == "" || has(x.Name) || has(x.Address) || has(x.Country) || has(ServerStore.GroupName(x.Group))).ToList();
-            var sc = srvGrid.SortedColumn; var so = srvGrid.SortOrder;
+            // сортировка запоминается для каждой вкладки (иначе — общая, заданная кнопкой «для всех»)
+            DataGridViewColumn sc = null; var so = SortOrder.None;
+            string want = SavedSort();
+            if (want != null)
+            {
+                var pr = want.Split(':');
+                if (srvGrid.Columns.Contains(pr[0])) { sc = srvGrid.Columns[pr[0]]; so = pr.Length > 1 && pr[1] == "d" ? SortOrder.Descending : SortOrder.Ascending; }
+            }
+            if (sc == null) foreach (DataGridViewColumn c0 in srvGrid.Columns) c0.HeaderCell.SortGlyphDirection = SortOrder.None;
             srvGrid.Columns["g"].Visible = CurSub() == null; // на вкладке подписки группа одна и та же
             srvGrid.Rows.Clear();
             foreach (var x in list)
@@ -520,7 +585,12 @@ namespace NetProbe
                 PaintRow(row, x);
                 if (sel.Contains(x.Id)) row.Selected = true;
             }
-            if (sc != null && so != SortOrder.None) srvGrid.Sort(sc, so == SortOrder.Ascending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending);
+            if (sc != null && so != SortOrder.None)
+            {
+                applyingSort = true;
+                try { srvGrid.Sort(sc, so == SortOrder.Ascending ? System.ComponentModel.ListSortDirection.Ascending : System.ComponentModel.ListSortDirection.Descending); }
+                finally { applyingSort = false; }
+            }
             if (first >= 0 && first < srvGrid.Rows.Count) try { srvGrid.FirstDisplayedScrollingRowIndex = first; } catch { }
             if (sel.Count == 0) srvGrid.ClearSelection();
             if (!xTesting) lSrvInfo.Text = Tx("Серверов: ") + list.Count + "  ·  " + Tx("двойной клик — подключить, Ctrl+V — импорт");

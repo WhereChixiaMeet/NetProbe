@@ -23,7 +23,7 @@ namespace NetProbe
 
         public ModeSegment()
         {
-            Size = new Size(Theme.S(276), Theme.S(36)); Cursor = Cursors.Hand; Font = Theme.Bold;
+            Size = new Size(Theme.S(276), Theme.S(36)); Cursor = Cursors.Hand; Font = Theme.Button;
             anim.Tick += (s, e) =>
             {
                 double t = Math.Min(1, (DateTime.Now - animStart).TotalMilliseconds / AnimMs);

@@ -13,23 +13,58 @@ namespace NetProbe
     // Картинки — только локально: config\themes\<chisa|kurumi>\widget.png / frame.png (в git и в exe их нет).
     public class CharOverlay : Form
     {
-        readonly Form host; readonly bool widget;
+        readonly Form host; readonly bool widget; readonly string slot;
+        // 3.1: до 4 картинок — слоты frame / widget / pic3 / pic4 (файл <слот>.png в папке темы), у каждой свой хозяин: окно или виджет
+        public static readonly string[] Slots = { "frame", "widget", "pic3", "pic4" };
+        public Form Host { get { return host; } }
         Bitmap art; string artKey;
         public int Opacity255 = 220;
         // 3.0.6: своё положение и размер (перетаскивание мышкой, колёсико — размер). Хранится в Settings.CharLayout.
         public static Func<string, int[]> GetLayout;          // ключ "chisa.frame" → { dx, dy, h } (смещение от левого верхнего угла окна-хозяина, высота) или null
         public static Action<string, int[]> SetLayout;
-        public event Action EditEnded;
-        bool edit; int curH; string renderKey;
-        public string Slot { get { return widget ? "widget" : "frame"; } }
+        // ПКМ по персонажу: "pick" — другой PNG, "reset" — положение и размер по умолчанию, "hide" — убрать
+        public event Action<CharOverlay, string> MenuPicked;
+        bool edit, hover; int curH; string renderKey;
+        public string Slot { get { return slot; } }
         string Key { get { return (Theme.Kurumi ? "kurumi." : "chisa.") + Slot; } }
 
-        public CharOverlay(Form host, bool widget)
+        public CharOverlay(Form host, bool widget, string slot = null)
         {
-            this.host = host; this.widget = widget;
+            this.host = host; this.widget = widget; this.slot = slot ?? (widget ? "widget" : "frame");
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; AutoScaleMode = AutoScaleMode.None;
             Text = "NetProbe character";
+            Cursor = Cursors.SizeAll;
         }
+        // скрыли — при следующем показе картинка рисуется заново (раньше у виджета персонаж появлялся «через раз»)
+        protected override void OnVisibleChanged(EventArgs e) { if (!Visible) { renderKey = null; hover = false; } base.OnVisibleChanged(e); }
+        protected override void OnHandleCreated(EventArgs e) { renderKey = null; base.OnHandleCreated(e); }
+
+        // 3.1: персонажа можно сразу тянуть мышкой (ловятся только непрозрачные пиксели, сквозь пустые места клики проходят).
+        // Навёл — рамка и подсказка; колёсико — размер; ПКМ — меню.
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); if (edit && !hover) { hover = true; Redraw(); } }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if (hover && !RectangleToScreen(ClientRectangle).Contains(Cursor.Position)) { hover = false; Redraw(); } }
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (!edit) return;
+            if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero); } // тянуть, как за заголовок окна
+            else if (e.Button == MouseButtons.Right) ShowMenu();
+        }
+        void Redraw() { renderKey = null; if (host != null && !host.IsDisposed && host.Visible) Place(lastOpacity); }
+        void ShowMenu()
+        {
+            var cm = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body };
+            Action<string, string> add = (t, k) => cm.Items.Add(t, null, (s, e) => { var h = MenuPicked; if (h != null) h(this, k); });
+            add(Tr.Tx("Другая картинка (PNG)…"), "pick");
+            add(Tr.Tx("Сбросить положение и размер"), "reset");
+            add(Tr.Tx("Убрать картинку"), "hide");
+            cm.Items.Add(new ToolStripSeparator());
+            add(Tr.Tx("Готово — выйти из редактора"), "done");
+            cm.Closed += (s, e) => { hover = false; BeginInvoke((Action)(() => { cm.Dispose(); Redraw(); })); };
+            cm.Show(Cursor.Position);
+        }
+        [DllImport("user32.dll")] static extern bool ReleaseCapture();
+        [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr h, int msg, IntPtr w, IntPtr l);
 
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams
@@ -43,14 +78,14 @@ namespace NetProbe
         }
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == 0x84) { m.Result = (IntPtr)(edit ? 2 : -1); return; } // WM_NCHITTEST: в режиме размещения — HTCAPTION (тянуть мышкой), иначе клики насквозь
-            if (edit && m.Msg == 0x232) { SaveLayout(); return; }            // WM_EXITSIZEMOVE — отпустили после перетаскивания
-            if (edit && (m.Msg == 0x020A))                                    // WM_MOUSEWHEEL — размер
+            if (m.Msg == 0x84) { m.Result = (IntPtr)(edit ? 1 : -1); return; } // WM_NCHITTEST: в редакторе — ловим мышь, иначе клики насквозь
+            if (m.Msg == 0x21) { m.Result = (IntPtr)3; return; }             // WM_MOUSEACTIVATE → MA_NOACTIVATE: клик не забирает фокус
+            if (m.Msg == 0x232) { SaveLayout(); hover = RectangleToScreen(ClientRectangle).Contains(Cursor.Position); base.WndProc(ref m); return; } // WM_EXITSIZEMOVE — отпустили после перетаскивания
+            if (edit && (m.Msg == 0x020A))                         // WM_MOUSEWHEEL — размер
             {
                 int delta = (short)((long)m.WParam >> 16);
                 Rescale(delta > 0 ? 1.08 : 1 / 1.08); return;
             }
-            if (edit && (m.Msg == 0xA4 || m.Msg == 0x205)) { SetEdit(false); var h = EditEnded; if (h != null) h(); return; } // ПКМ — готово
             base.WndProc(ref m);
         }
 
@@ -61,9 +96,9 @@ namespace NetProbe
             edit = on;
             if (!IsHandleCreated) CreateHandle();
             int ex = GetWindowLong(Handle, -20);
-            ex = on ? ex & ~0x20 & ~0x08000000 : ex | 0x20 | 0x08000000; // WS_EX_TRANSPARENT / WS_EX_NOACTIVATE
+            ex = on ? ex & ~0x20 & ~0x08000000 : ex | 0x20 | 0x08000000; // вне редактора — клики насквозь (кнопки под персонажем всегда нажимаются)
             SetWindowLong(Handle, -20, ex);
-            Cursor = on ? Cursors.SizeAll : Cursors.Default; renderKey = null;
+            Cursor = Cursors.SizeAll; renderKey = null;
             if (host != null && !host.IsDisposed && host.Visible) Place(lastOpacity);
         }
         public bool Editing { get { return edit; } }
@@ -77,7 +112,7 @@ namespace NetProbe
 
         void Rescale(double k)
         {
-            var img = Art(widget ? "widget.png" : "frame.png"); if (img == null) return;
+            var img = Art(slot + ".png"); if (img == null) return;
             int oldH = curH > 0 ? curH : Height, oldW = Width;
             int nh = (int)Math.Max(Theme.S(60), Math.Min(Theme.S(2400), oldH * k));
             int nw = nh * img.Width / img.Height;
@@ -127,7 +162,7 @@ namespace NetProbe
         public bool Place(int opacityPercent)
         {
             if (!Theme.Personal || host == null || host.IsDisposed || !host.Visible || host.WindowState != FormWindowState.Normal) return false;
-            var img = Art(widget ? "widget.png" : "frame.png");
+            var img = Art(slot + ".png");
             if (img == null) return false;
             var hb = host.Bounds;
             bool kurumi = Theme.Kurumi; // Kurumi — сбоку (слева), Chisa — сверху
@@ -149,6 +184,8 @@ namespace NetProbe
                 // правее середины, но левее кнопок заголовка (свернуть/развернуть/закрыть)
                 x = widget ? hb.Right - w - Theme.S(8) : Math.Min(hb.Left + (int)(hb.Width * 0.55), hb.Right - Theme.S(150) - w);
             }
+            // доп. картинки по умолчанию — зеркально основной (с другой стороны окна / виджета); дальше двигаются в редакторе
+            if (slot == "pic3" || slot == "pic4") x = hb.Left + hb.Right - (x + w);
             var lay = GetLayout != null ? GetLayout(Key) : null;
             bool custom = lay != null && lay.Length >= 3 && lay[2] > 8;
             if (custom) { h = lay[2]; w = h * img.Width / img.Height; x = hb.Left + lay[0]; y = hb.Top + lay[1]; }
@@ -161,7 +198,8 @@ namespace NetProbe
             curH = h; lastOpacity = opacityPercent;
             Opacity255 = edit ? 255 : (int)(255 * Math.Max(20, Math.Min(100, opacityPercent)) / 100.0);
             // та же картинка того же размера — только сдвигаем окно (без перерисовки): плавно при перетаскивании окна/виджета
-            string rk = artKey + "|" + w + "x" + h + "|" + Opacity255 + "|" + edit + "|" + Theme.Accent.ToArgb();
+            bool frameOn = edit;
+            string rk = artKey + "|" + w + "x" + h + "|" + Opacity255 + "|" + frameOn + "|" + hover + "|" + Theme.Accent.ToArgb();
             if (rk == renderKey && IsHandleCreated)
             {
                 if (Left != x || Top != y) SetWindowPos(Handle, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004 | 0x0010); // NOSIZE | NOZORDER | NOACTIVATE
@@ -173,12 +211,12 @@ namespace NetProbe
                 using (var g = Graphics.FromImage(bmp))
                 {
                     g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality; g.DrawImage(img, new Rectangle(0, 0, w, h));
-                    if (edit)
+                    if (frameOn)
                     {
                         // рамка + подсказка; почти прозрачная заливка, чтобы мышь ловилась по всему прямоугольнику
                         using (var f = new SolidBrush(Color.FromArgb(18, Theme.Accent))) g.FillRectangle(f, 0, 0, w, h);
                         using (var pn = new Pen(Theme.Accent, 2) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(pn, 1, 1, w - 3, h - 3);
-                        string tipText = Tr.Tx("Тяни мышкой · колёсико — размер · ПКМ — готово");
+                        string tipText = edit ? Tr.Tx("Тяни мышкой · колёсико — размер · ПКМ — готово") : Tr.Tx("Тяни мышкой · колёсико — размер · ПКМ — меню");
                         using (var bg = new SolidBrush(Color.FromArgb(200, 0, 0, 0))) g.FillRectangle(bg, 4, 4, Math.Min(w - 8, Theme.S(300)), Theme.S(22));
                         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
                         using (var tb = new SolidBrush(Color.White)) g.DrawString(tipText, Theme.Small, tb, new RectangleF(8, 7, Math.Min(w - 12, Theme.S(296)), Theme.S(18)), new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap });

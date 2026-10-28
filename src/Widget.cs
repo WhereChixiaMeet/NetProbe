@@ -26,6 +26,7 @@ namespace NetProbe
             Invalidate();
         }
         public event EventHandler OpenRequested, Moved;
+        public event Action<string> FileDropped; // PNG из Проводника — картинка персонажа у виджета
         readonly bool win11;
 
         public WidgetForm(ContextMenuStrip menu)
@@ -39,12 +40,23 @@ namespace NetProbe
         }
 
         protected override bool ShowWithoutActivation { get { return true; } }
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == FileDrop.WM_DROPFILES)
+            {
+                foreach (var f in FileDrop.Files(m.WParam))
+                    if (f.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) { var h = FileDropped; if (h != null) BeginInvoke((Action)(() => h(f))); break; }
+                return;
+            }
+            base.WndProc(ref m);
+        }
         protected override CreateParams CreateParams { get { var cp = base.CreateParams; cp.ExStyle |= 0x80; return cp; } }
 
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
             ApplyShape();
+            FileDrop.Enable(Handle);
         }
         void ApplyShape()
         {
@@ -188,8 +200,12 @@ namespace NetProbe
             Gfx.Text(g, "MONITOR", Theme.Small, Theme.Dim, new Rectangle(pad, Theme.S(4), Theme.S(70), Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             if (Header != "") Gfx.Text(g, Header, Theme.Small, Theme.Muted, new Rectangle(pad + Theme.S(66), Theme.S(4), Width - pad * 2 - Theme.S(66), Theme.S(18)), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             int y = Theme.S(22), rh = Theme.S(25);
-            int nameW = Theme.S(60), valW = Theme.S(58);
+            int valW = Theme.S(58);
             var vis = MonRows.Visible(showPing, showSpeed);
+            // ширина подписей — по самой длинной (чтобы «↓ Download» не обрезалось), но не больше 45% ширины
+            int nameW = Theme.S(40);
+            foreach (var vi in vis) nameW = Math.Max(nameW, TextRenderer.MeasureText(rows[vi].Name, Theme.Small).Width + Theme.S(2));
+            nameW = Math.Min(nameW, (int)(Width * 0.45));
             for (int k = 0; k < vis.Length; k++)
             {
                 var r = rows[vis[k]];

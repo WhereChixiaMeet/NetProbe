@@ -16,6 +16,11 @@ namespace NetProbe
         public string SelectedKey;
         public event Action<string> Selected;
         public event Action<string, Point> RightClicked;
+        // перетаскивание вкладок мышкой: CanDrag решает, какие можно двигать (подписки — да, «Все/Рабочие/…» — нет),
+        // Dropped(что, перед какой вкладкой встать; null — в конец)
+        public Func<string, bool> CanDrag;
+        public event Action<string, string> Dropped;
+        int dragIdx = -1, dropAt = -1; Point dragFrom; bool dragging;
 
         readonly List<Rectangle> rects = new List<Rectangle>();
         readonly ToolTip tip = Ui.Tip();
@@ -94,8 +99,40 @@ namespace NetProbe
             return -1;
         }
 
+        // куда встанет перетаскиваемая вкладка: индекс вкладки, перед которой вставить (Tabs.Count — в конец)
+        int DropIndex(Point p)
+        {
+            for (int i = 0; i < rects.Count; i++) { var r = Shown(i); if (p.X < r.Left + r.Width / 2) return i; }
+            return rects.Count;
+        }
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (dragging && dragIdx >= 0 && dropAt >= 0 && dropAt != dragIdx && dropAt != dragIdx + 1)
+            {
+                string what = Tabs[dragIdx].Key, before = dropAt < Tabs.Count ? Tabs[dropAt].Key : null;
+                if (before == null || CanDrag == null || CanDrag(before) || dropAt > dragIdx)
+                {
+                    var h = Dropped; if (h != null) h(what, before);
+                }
+            }
+            dragIdx = -1; dragging = false; dropAt = -1; Cursor = Cursors.Hand; Invalidate();
+        }
         protected override void OnMouseMove(MouseEventArgs e)
         {
+            if (dragIdx >= 0 && e.Button == MouseButtons.Left)
+            {
+                if (!dragging && Math.Abs(e.X - dragFrom.X) > Theme.S(8)) { dragging = true; Cursor = Cursors.SizeWE; }
+                if (dragging)
+                {
+                    int d = DropIndex(e.Location);
+                    // нельзя поставить перед несдвигаемыми вкладками (Все / Рабочие / Избранные / Вручную)
+                    while (d < Tabs.Count && CanDrag != null && !CanDrag(Tabs[d].Key)) d++;
+                    if (d != dropAt) { dropAt = d; Invalidate(); }
+                    if (Overflow && e.X < Arrow) Scroll(-Theme.S(20)); else if (Overflow && e.X > Width - Arrow) Scroll(Theme.S(20));
+                    return;
+                }
+            }
             int h = HitTest(e.Location);
             if (h != hover) { hover = h; Invalidate(); }
             string t = h >= 0 ? Tabs[h].Tip : null;
@@ -115,6 +152,7 @@ namespace NetProbe
             if (Overflow && e.X >= Width - Arrow) { Scroll(Theme.S(140)); return; }
             int i = HitTest(e.Location); if (i < 0) return;
             if (e.Button == MouseButtons.Right) { var r = RightClicked; if (r != null) r(Tabs[i].Key, e.Location); return; }
+            dragIdx = CanDrag != null && CanDrag(Tabs[i].Key) ? i : -1; dragFrom = e.Location; dragging = false; dropAt = -1;
             if (Tabs[i].Key != SelectedKey) Select(Tabs[i].Key);
         }
 
@@ -138,6 +176,11 @@ namespace NetProbe
                 if (!string.IsNullOrEmpty(t.Badge))
                     Gfx.Text(g, t.Badge, BadgeFont, sel ? Theme.Accent : Theme.Dim, new Rectangle(x + tw + Theme.S(6), 0, Theme.S(60), Height - Theme.S(2)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 if (sel) using (var b = new SolidBrush(Theme.Accent)) g.FillRectangle(b, r.X + Theme.S(6), Height - Theme.S(3), r.Width - Theme.S(12), Theme.S(3));
+            }
+            if (dragging && dropAt >= 0 && rects.Count > 0)
+            {
+                int dx = dropAt < rects.Count ? Shown(dropAt).Left - Theme.S(2) : Shown(rects.Count - 1).Right;
+                using (var b = new SolidBrush(Theme.Accent)) g.FillRectangle(b, dx, Theme.S(4), Theme.S(3), Height - Theme.S(8));
             }
             g.ResetClip();
             if (Overflow)

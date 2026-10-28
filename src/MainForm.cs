@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.0.9";
+        public const string Version = "3.1.0";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -53,6 +53,7 @@ namespace NetProbe
             Theme.AccentColor = Theme.ParseColor(st.Accent);
             Tr.Set(st.Lang);
             AppLists.ZapretLists = Path.Combine(st.ZapretPath, "lists");
+            PushFonts();
             Theme.Apply((ThemeKind)st.Theme);
             startHidden = startMinimized || st.StartMinimized;
             Logger.ToFile = st.LogToFile; Logger.Dir = st.LogPath; Logger.Retention = st.Retention;
@@ -61,6 +62,8 @@ namespace NetProbe
             Size = new Size(Theme.S(1220), Theme.S(800));
             MinimumSize = new Size(Theme.S(1040), Theme.S(680));
             StartPosition = FormStartPosition.CenterScreen;
+            RestoreWindowBounds();
+            curPage = st.LastPage >= 0 && st.LastPage <= PgSettings ? st.LastPage : 0;
             ApplyAppIcon();
             DoubleBuffered = true;
 
@@ -121,7 +124,7 @@ namespace NetProbe
             catch (Exception ex) { Logger.Write(LogLevel.Warn, Tx("Первичная настройка: ") + ex.Message); }
         }
 
-        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Native.TitleTheme(Handle, Theme.IsDark); DwmTheme.Apply(Handle); }
+        protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); Native.TitleTheme(Handle, Theme.IsDark); DwmTheme.Apply(Handle); FileDrop.Enable(Handle); }
 
         protected override void SetVisibleCore(bool value)
         {
@@ -295,7 +298,8 @@ namespace NetProbe
         void BuildShell()
         {
             content = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg };
-            side = new Panel { Dock = DockStyle.Left, Width = Theme.S(214), BackColor = Theme.Side };
+            side = new Panel { Dock = DockStyle.Left, Width = Theme.S(st.SideWidth), BackColor = Theme.Side };
+            HookSideResize();
             Controls.Add(content); Controls.Add(side);
             side.Paint += (s, e) =>
             {
@@ -326,7 +330,7 @@ namespace NetProbe
             for (int i = 0; i < items.Length; i++)
             {
                 int idx = i;
-                var nb = new NavButton(items[i][0], items[i][1]) { Location = new Point(0, y), Width = side.Width - 2 };
+                var nb = new NavButton(items[i][0], items[i][1]) { Location = new Point(0, y), Width = side.Width - Theme.S(6) };
                 nb.Click += (s, e) => SelectPage(idx);
                 side.Controls.Add(nb); navs.Add(nb);
                 y += nb.Height + Theme.S(1);
@@ -352,6 +356,67 @@ namespace NetProbe
         }
         Label sideStatus; MiniMonitor miniMon; Action laySide;
 
+        // ширина левой панели: тянуть мышкой за правый край (полоса 6 px), сохраняется
+        bool sideDrag;
+        void HookSideResize()
+        {
+            int grip = Theme.S(6);
+            side.MouseMove += (s, e) =>
+            {
+                if (sideDrag)
+                {
+                    int w = Math.Max(Theme.S(150), Math.Min(Theme.S(380), e.X));
+                    if (w != side.Width) SetSideWidth(w);
+                    return;
+                }
+                side.Cursor = e.X >= side.Width - grip ? Cursors.SizeWE : Cursors.Default;
+            };
+            side.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left && e.X >= side.Width - grip) { sideDrag = true; side.Capture = true; } };
+            side.MouseUp += (s, e) =>
+            {
+                if (!sideDrag) return;
+                sideDrag = false; side.Capture = false;
+                st.SideWidth = (int)Math.Round(side.Width / Theme.Scale); st.Save();
+            };
+            side.MouseLeave += (s, e) => { if (!sideDrag) side.Cursor = Cursors.Default; };
+        }
+        void SetSideWidth(int w)
+        {
+            side.Width = w;
+            foreach (var nb in navs) nb.Width = w - Theme.S(6);
+            if (btnAppUpd != null) btnAppUpd.Width = w - Theme.S(34);
+            if (btnRestart != null) btnRestart.Width = w - Theme.S(34);
+            if (laySide != null) laySide();
+            side.Invalidate();
+        }
+
+        // ===== положение и размер окна =====
+        void RestoreWindowBounds()
+        {
+            if (ShotsDir != null || st.WinW <= 0 || st.WinH <= 0) return;
+            var r = new Rectangle(st.WinX, st.WinY, Math.Max(MinimumSize.Width, st.WinW), Math.Max(MinimumSize.Height, st.WinH));
+            bool visible = false;
+            foreach (var sc in Screen.AllScreens)
+            {
+                var i = Rectangle.Intersect(sc.WorkingArea, r);
+                if (i.Width >= Theme.S(200) && i.Height >= Theme.S(120)) visible = true;
+            }
+            if (visible) { StartPosition = FormStartPosition.Manual; Bounds = r; }
+            else Size = r.Size;
+            if (st.WinMax) WindowState = FormWindowState.Maximized;
+        }
+        void SaveWindowBounds()
+        {
+            if (ShotsDir != null || st == null || WindowState == FormWindowState.Minimized || !Visible) return;
+            var r = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            bool max = WindowState == FormWindowState.Maximized;
+            if (r.Width <= 0 || r.Height <= 0) return;
+            if (st.WinX == r.X && st.WinY == r.Y && st.WinW == r.Width && st.WinH == r.Height && st.WinMax == max) return;
+            st.WinX = r.X; st.WinY = r.Y; st.WinW = r.Width; st.WinH = r.Height; st.WinMax = max; st.Save();
+        }
+        protected override void OnResizeEnd(EventArgs e) { base.OnResizeEnd(e); SaveWindowBounds(); }
+        FormWindowState lastWinState = FormWindowState.Normal;
+
         Panel NewPage(string title, string subtitle)
         {
             var p = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Visible = false };
@@ -368,6 +433,7 @@ namespace NetProbe
         void SelectPage(int i)
         {
             curPage = i;
+            if (ShotsDir == null && i >= 0 && i <= PgSettings && st.LastPage != i) { st.LastPage = i; st.Save(); }
             for (int k = 0; k < pages.Count; k++) { pages[k].Visible = k == i; navs[k].Selected = k == i; }
             if (i == PgSettings) LoadSettingsUi();
             if (i == PgTasks) RefreshTasks();
@@ -694,7 +760,11 @@ namespace NetProbe
             trayMenu.Items.Add(new ToolStripSeparator());
             miWidget = new ToolStripMenuItem(Tx("Виджет на рабочем столе")) { Checked = st.ShowWidget };
             miWidget.Click += (s, e) => { st.ShowWidget = !st.ShowWidget; miWidget.Checked = st.ShowWidget; st.Save(); ApplyWidgetVisibility(); };
+            miCharEdit = new ToolStripMenuItem(Tx("Редактор персонажей")) { Checked = charEdit };
+            miCharEdit.Click += (s, e) => SetCharEdit(!charEdit);
+            trayMenu.Opening += (s, e) => { if (miCharEdit != null) { miCharEdit.Visible = Theme.Personal; miCharEdit.Checked = charEdit; } };
             trayMenu.Items.Add(miWidget);
+            trayMenu.Items.Add(miCharEdit);
             miMonitor = new ToolStripMenuItem(Tx("Мониторинг"));
             miMonitor.Click += (s, e) => { if (monVpn.Running) StopMonitoring(); else StartMonitoring(); };
             trayMenu.Items.Add(miMonitor);
@@ -880,6 +950,7 @@ namespace NetProbe
 
         void HideToTray(bool silent)
         {
+            SaveWindowBounds();
             hiddenToTray = true;
             Hide();
             ApplyWidgetVisibility();
@@ -902,6 +973,7 @@ namespace NetProbe
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
+            if (WindowState != lastWinState) { lastWinState = WindowState; if (WindowState != FormWindowState.Minimized && IsHandleCreated) BeginInvoke((Action)SaveWindowBounds); }
             if (WindowState == FormWindowState.Minimized && st != null && st.MinimizeToTray && !hiddenToTray && Visible)
                 BeginInvoke((Action)(() => HideToTray(false)));
         }
@@ -913,6 +985,7 @@ namespace NetProbe
                 e.Cancel = true; HideToTray(false); return;
             }
             exiting = true;
+            SaveWindowBounds();
             monVpn.Stop(); monDir.Stop();
             if (runner != null) runner.Cf.Cancelled = true;
             if (!exitForUpdate) // при самообновлении VPN/DPI/xray продолжают работать, новая версия их подхватит
@@ -1060,6 +1133,13 @@ namespace NetProbe
         {
             if (m.Msg == Program.WM_SHOWME && Program.WM_SHOWME != 0) { RestoreFromTray(); return; }
             if (m.Msg == Program.WM_QUITME && Program.WM_QUITME != 0) { ExitApp(); return; }
+            if (m.Msg == FileDrop.WM_DROPFILES)
+            {
+                // PNG из Проводника на окно — картинка персонажа у окна
+                var f = FileDrop.Files(m.WParam).FirstOrDefault(x => x.EndsWith(".png", StringComparison.OrdinalIgnoreCase));
+                if (f != null) BeginInvoke((Action)(() => DropCharPicture(f, false)));
+                return;
+            }
             base.WndProc(ref m);
         }
     }

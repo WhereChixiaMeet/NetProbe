@@ -66,7 +66,10 @@ namespace NetProbe
         void Set(XState s, string d) { State = s; Detail = d; Fire(); }
 
         public void Connect(string id) { Post(() => DoConnect(id, true)); }
-        public void Disconnect() { Post(DoDisconnect); }
+        // Отключение не ждёт фоновых замеров автосвитча: они прерываются сразу (раньше кнопка VPN «не выключала»,
+        // пока поток xray проверял до 60 кандидатов — Disconnect стоял в очереди за ними).
+        readonly CancelFlag abort = new CancelFlag();
+        public void Disconnect() { abort.Cancelled = true; Post(DoDisconnect); }
         public void Reapply() { Post(() => { if (Active) { var st = GetSettings(); StartOn(ServerStore.Find(st.ActiveServer)); } }); }
         public void ShutdownSync() { DoDisconnect(); }
 
@@ -184,6 +187,7 @@ namespace NetProbe
         bool StartOn(ServerEntry s)
         {
             var st = GetSettings();
+            if (abort.Cancelled) { lastErr = Tx("Отключено"); return false; }
             if (s == null) { lastErr = Tx("Сервер не выбран"); Logger.Write(LogLevel.Error, lastErr); return false; }
             PollStats(true); // трафик до переключения — предыдущему серверу
             statsId = null;
@@ -242,6 +246,7 @@ namespace NetProbe
             SysProxy.Clear(); // снимает только прокси, поставленный NetProbe
             if (dpiOn || dpiApps) { dpiOn = false; dpiApps = false; if (DpiFallback != null) DpiFallback(false); }
             if (was) Logger.Write(LogLevel.Route, "xray " + Tx("отключён"));
+            abort.Cancelled = false;
             Set(XState.Off, "");
         }
 
@@ -274,7 +279,7 @@ namespace NetProbe
             {
                 Set(XState.Switching, Tx("замер кандидатов: ") + pool.Count);
                 Testing = true;
-                try { DelayTester.TestMany(st, GetCurl(), pool.Take(60).ToList(), s => { }, null); } finally { Testing = false; }
+                try { DelayTester.TestMany(st, GetCurl(), pool.Take(60).ToList(), s => { }, abort); } finally { Testing = false; }
                 ServerStore.Save();
             }
             var alive = pool.Where(s => s.Delay > 0 && (st.AsMaxLatency == 0 || s.Delay <= st.AsMaxLatency)).OrderBy(s => s.Delay).ToList();
@@ -298,6 +303,7 @@ namespace NetProbe
             if (!st.AsEnabled) { Set(XState.AllDown, why); return; }
             if (!CanSwitch(st)) { Set(XState.AllDown, why + " · " + Detail); return; }
             var next = Choose(st, cur);
+            if (abort.Cancelled) return;
             if (next == null)
             {
                 Logger.Write(LogLevel.Route, Tx("Автосвитч: рабочих серверов нет") + " (" + why + ")");
@@ -313,6 +319,7 @@ namespace NetProbe
 
         void Tick()
         {
+            if (abort.Cancelled) return;
             var st = GetSettings();
             var now = DateTime.Now;
             var cur = ServerStore.Find(st.ActiveServer);
@@ -368,7 +375,7 @@ namespace NetProbe
                 var pref = ServerStore.Find(st.PreferredServer);
                 if (pref != null)
                 {
-                    DelayTester.TestMany(st, GetCurl(), new List<ServerEntry> { pref }, s => { }, null);
+                    DelayTester.TestMany(st, GetCurl(), new List<ServerEntry> { pref }, s => { }, abort);
                     if (pref.Delay > 0 && (st.AsMaxLatency == 0 || pref.Delay <= st.AsMaxLatency))
                     {
                         Logger.Write(LogLevel.Route, Tx("Возврат на выбранный сервер «") + pref.Name + "» · " + pref.Delay + Tx(" мс"));
@@ -383,7 +390,7 @@ namespace NetProbe
             {
                 lastBgTest = now;
                 var pool = Pool(st, cur).Take(60).ToList();
-                if (pool.Count > 0) { Testing = true; try { DelayTester.TestMany(st, GetCurl(), pool, s => { }, null); } finally { Testing = false; } ServerStore.Save(); }
+                if (pool.Count > 0) { Testing = true; try { DelayTester.TestMany(st, GetCurl(), pool, s => { }, abort); } finally { Testing = false; } ServerStore.Save(); }
             }
         }
 

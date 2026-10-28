@@ -47,8 +47,7 @@ namespace NetProbe
             Gfx.Panel(g, r, Theme.R(12), Theme.Card);
             int pad = Theme.S(20);
             Gfx.Dot(g, Theme.LevelColor(Lv), pad + Theme.S(10), Theme.S(30), Theme.S(10), Lv != Level.Off);
-            using (var f = new Font(Theme.H1.FontFamily, Theme.Classic ? 13f : 15f, Theme.Classic ? FontStyle.Bold : FontStyle.Regular))
-                Gfx.Text(g, State, f, Theme.Text, new Rectangle(pad + Theme.S(32), Theme.S(12), Width - pad * 2 - Theme.S(32) - Reserve, Theme.S(36)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            Gfx.Text(g, State, Theme.H1, Theme.Text, new Rectangle(pad + Theme.S(32), Theme.S(12), Width - pad * 2 - Theme.S(32) - Reserve, Theme.S(36)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             Gfx.Text(g, Line1, Theme.Small, Theme.Text, new Rectangle(pad, Theme.S(48), Width - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
             Gfx.Text(g, Line2, Theme.Small, Theme.Muted, new Rectangle(pad, Theme.S(64), Width - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
         }
@@ -212,6 +211,14 @@ namespace NetProbe
                 miIcoReset.Click += (s, e) => { var it = lcRef.Box.SelectedItem; if (it != null) { AppIcons.SetCustom(it, null); lcRef.Box.Invalidate(); } };
                 lc.Box.ContextMenuStrip.Items.Add(new ToolStripSeparator());
                 lc.Box.ContextMenuStrip.Items.AddRange(new ToolStripItem[] { miRen, miIco, miIcoReset });
+                // копирование выделенных строк (Ctrl+C) и перетаскивание между Include / «Строго VPN» / Exclude
+                Func<List<string>, List<string>> movable = l => l.Where(x => x != ListCard.BuiltIn && !AppLists.IsChild(x)).ToList();
+                lc.Box.CopyItems = movable; lc.Box.DragItems = movable; lc.Box.AllowDrop = true;
+                lc.Box.ItemsDropped += (from, items) => MoveBetweenLists(from, lcRef, items);
+                var miCopySel = new ToolStripMenuItem(Tx("Копировать выделенное") + "   Ctrl+C");
+                miCopySel.Click += (s, e) => lcRef.Box.CopySelected();
+                lc.Box.ContextMenuStrip.Items.Insert(0, miCopySel);
+                lc.Box.ContextMenuStrip.Items.Insert(1, new ToolStripSeparator());
                 lc.BDel.Click += (s, e) => { var sel = lc.Box.SelectedItems.Where(x => x != ListCard.BuiltIn).ToList(); if (sel.Count > 0) RemoveFromList(lc.Key, sel); };
                 tip.SetToolTip(lc.BAdd, Tx("Добавить")); tip.SetToolTip(lc.BDel, Tx("Удалить")); tip.SetToolTip(lc.BPaste, Tx("Добавить список из буфера (по строкам или через запятую)"));
                 p.Controls.Add(lc);
@@ -311,6 +318,19 @@ namespace NetProbe
         }
 
         // домены под приложением в Include VPN лежат в Include DPI — удаляются оттуда
+        // перетаскивание строк между списками Routing: в новом списке добавить (AddToList сам убирает конфликты), из старого убрать
+        void MoveBetweenLists(ThemedList from, ListCard to, List<string> items)
+        {
+            var src = listCards.FirstOrDefault(c => c.Box == from);
+            if (src == null || src.Key == null || to.Key == null || src.Key == to.Key || items.Count == 0) return;
+            foreach (var x in items) AddToList(to.Key, x);
+            var left = AppLists.Get(src.Key);
+            var still = items.Where(x => left.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (still.Count > 0) AppLists.Remove(src.Key, still);
+            Logger.Write(LogLevel.Info, AppLists.Title(src.Key) + " → " + AppLists.Title(to.Key) + ": " + string.Join(", ", items));
+            RefreshListsUi();
+        }
+
         void RemoveFromList(string key, List<string> sel)
         {
             var kids = sel.Where(AppLists.IsChild).ToList(); var rest = sel.Where(x => !AppLists.IsChild(x)).ToList();

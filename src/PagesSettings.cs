@@ -13,6 +13,29 @@ namespace NetProbe
     public partial class MainForm
     {
         Action loadProxyUi; System.Windows.Forms.Timer charRebuild;
+        readonly System.Windows.Forms.Timer fontTimer = new System.Windows.Forms.Timer { Interval = 600 };
+        bool fontTimerHooked;
+        // шрифты, которые есть в системе (из короткого списка удобных для интерфейса)
+        static List<string> FontChoices()
+        {
+            string[] want = { "Segoe UI", "Segoe UI Variable Text", "Segoe UI Variable Display", "Arial", "Calibri", "Tahoma", "Verdana", "Trebuchet MS", "Bahnschrift", "Inter", "Roboto", "Open Sans", "Noto Sans", "Ubuntu", "Montserrat", "JetBrains Mono", "Consolas", "Cascadia Code", "Microsoft YaHei UI", "Yu Gothic UI", "Malgun Gothic" };
+            var have = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            try { using (var ifc = new System.Drawing.Text.InstalledFontCollection()) foreach (var f in ifc.Families) have.Add(f.Name); } catch { }
+            var l = new List<string>();
+            foreach (var w in want) if (w == "Segoe UI" || have.Contains(w)) l.Add(w);
+            return l;
+        }
+        // Settings → Theme: шрифты из настроек
+        void PushFonts()
+        {
+            Theme.FamBtn = st.FontBtnFamily; Theme.FamLarge = st.FontLargeFamily; Theme.FamMed = st.FontMedFamily; Theme.FamSmall = st.FontSmallFamily;
+            Theme.SizeBtn = (float)st.FontBtnSize; Theme.SizeLarge = (float)st.FontLargeSize; Theme.SizeMed = (float)st.FontMedSize; Theme.SizeSmall = (float)st.FontSmallSize;
+        }
+        void ApplyFontsNow()
+        {
+            PushFonts(); Theme.MakeFonts();
+            RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings);
+        }
         Panel setBody; ScrollHost setHost; bool loadingSettings; readonly System.Windows.Forms.Timer autoSave = new System.Windows.Forms.Timer { Interval = 700 };
         Label lZapretWarn; ThemedCheck cHybrid;
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
@@ -21,6 +44,62 @@ namespace NetProbe
         ThemedCheck cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
         ThemedCheck cMinTray, cCloseTray, cWidget, cWidgetTop, cNotify, cAutoMon, cAutorun, cStartMin, cLogFile, cWsAdapter;
         Slider sOpacity; Label lOpacity, lSvc;
+
+        // ---- вкладки настроек: разделы раскладываются по панелям, видна одна вкладка (без бесконечной прокрутки) ----
+        TabStrip setTabs;
+        readonly Dictionary<string, Panel> setPanels = new Dictionary<string, Panel>();
+        void BuildSettingsTabs(List<Tuple<string, int>> secs, int endY)
+        {
+            // раздел → вкладка
+            var tabOf = new Dictionary<string, string>
+            {
+                { Tx("Оформление"), "look" }, { Tx("Шрифты"), "look" }, { Tx("Персонаж"), "char" },
+                { "VPN · WireSock", "vpn" }, { "DPI · zapret", "vpn" }, { Tx("Источники"), "vpn" },
+                { Tx("Подписки"), "subs" },
+                { Tx("Мониторинг · канал VPN"), "mon" }, { Tx("Мониторинг · канал напрямую"), "mon" }, { Tx("Тесты"), "mon" }, { Tx("Мониторы: пинг и скорость"), "mon" },
+                { Tx("Окно, трей и виджет"), "win" }, { Tx("Обновления"), "upd" }, { Tx("Лог"), "log" }
+            };
+            var tabs = new List<TabStrip.Tab>
+            {
+                new TabStrip.Tab { Key = "look", Text = Tx("Оформление") }, new TabStrip.Tab { Key = "char", Text = Tx("Персонаж") }, new TabStrip.Tab { Key = "vpn", Text = "VPN · DPI" },
+                new TabStrip.Tab { Key = "subs", Text = Tx("Подписки") }, new TabStrip.Tab { Key = "mon", Text = Tx("Мониторинг") },
+                new TabStrip.Tab { Key = "win", Text = Tx("Окно и виджет") }, new TabStrip.Tab { Key = "upd", Text = Tx("Обновления") },
+                new TabStrip.Tab { Key = "log", Text = Tx("Лог") }
+            };
+            setPanels.Clear();
+            var all = setBody.Controls.Cast<Control>().ToList();
+            var acc = new Dictionary<string, int>();
+            foreach (var t in tabs) { var pn = new Panel { BackColor = Theme.Bg, Location = Point.Empty, Width = setBody.Width, Visible = false, Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right }; setPanels[t.Key] = pn; acc[t.Key] = 0; }
+            for (int i = 0; i < secs.Count; i++)
+            {
+                int start = secs[i].Item2, end = i + 1 < secs.Count ? secs[i + 1].Item2 - Theme.S(18) : endY;
+                string key; if (!tabOf.TryGetValue(secs[i].Item1, out key)) key = "look";
+                var pn = setPanels[key]; int off = acc[key] - start + (acc[key] > 0 ? Theme.S(18) : 0);
+                foreach (var c in all.Where(c => c.Top >= start && c.Top < end).ToList())
+                {
+                    int top = c.Top + off;
+                    setBody.Controls.Remove(c); pn.Controls.Add(c); c.Top = top;
+                }
+                acc[key] = end + off;
+            }
+            foreach (var t in tabs) { var pn = setPanels[t.Key]; pn.Height = acc[t.Key] + Theme.S(20); setBody.Controls.Add(pn); }
+            tabs.RemoveAll(t => acc[t.Key] == 0);
+            setTabs.SetTabs(tabs);
+            string want = setPanels.ContainsKey(st.SetTab ?? "") ? st.SetTab : "look";
+            setTabs.SelectedKey = want;
+            setTabs.Selected += k => ShowSettingsTab(k);
+            ShowSettingsTab(want);
+        }
+        void ShowSettingsTab(string key)
+        {
+            Panel cur;
+            if (!setPanels.TryGetValue(key, out cur)) return;
+            foreach (var pn in setPanels.Values) pn.Visible = pn == cur;
+            cur.Width = setBody.Width;
+            setBody.Height = cur.Height;
+            setHost.ScrollToTop(); setHost.Relayout();
+            if (st.SetTab != key) { st.SetTab = key; st.Save(); }
+        }
 
         class AdItem { public string Id, Text; public override string ToString() { return Text; } }
 
@@ -61,12 +140,15 @@ namespace NetProbe
                     ReloadAll();
                 }
             };
-            p.Controls.AddRange(new Control[] { bReset, bData, bExp, bImpAll, setHost });
+            setTabs = new TabStrip();
+            p.Controls.AddRange(new Control[] { bReset, bData, bExp, bImpAll, setTabs, setHost });
 
             int y = 0; int lw = Theme.S(270), cw = Theme.S(420); // влезает и в минимальное окно (1040 px)
+            var secs = new List<Tuple<string, int>>(); // заголовок раздела и его y — для вкладок настроек
             Action<string> section = t =>
             {
                 y += y == 0 ? 0 : Theme.S(18);
+                secs.Add(Tuple.Create(t, y));
                 var l = Ui.Label(t.ToUpper(), Theme.Bold, Theme.Muted); l.Location = new Point(0, y); setBody.Controls.Add(l);
                 var line = new Label { BackColor = Theme.Border, Location = new Point(0, y + Theme.S(22)), Size = new Size(lw + cw, 1) }; setBody.Controls.Add(line);
                 y += Theme.S(32);
@@ -121,52 +203,85 @@ namespace NetProbe
             var nOp = Ui.Num(20, 100, st.CardOpacity); nOp.ValueChanged += (s, e) => { st.CardOpacity = (int)nOp.Value; st.Save(); bgDimTimer.Stop(); bgDimTimer.Start(); };
             row(Tx("Непрозрачность карточек, %"), nOp, null);
             pick(Tx("Иконка приложения"), Tx("Иконки и картинки") + " (*.ico;*.png;*.jpg;*.exe)|*.ico;*.png;*.jpg;*.jpeg;*.exe", f => { st.AppIconPath = f; st.Save(); ApplyAppIcon(); });
-            if (Theme.Personal)
+            var cIcons = Ui.Check(Tx("Иконки приложений в списках"), st.ShowAppIcons); check(cIcons);
+            cIcons.CheckedChanged += (s, e) => { st.ShowAppIcons = cIcons.Checked; st.Save(); SetupListCards(); };
+
+            // ---- персонаж: отдельная вкладка настроек; до 4 картинок, редактор размещения ----
+            section(Tx("Персонаж"));
+            if (!Theme.Personal)
             {
-                // Personal-темы: персонаж — картинки только локально (config\themes\<chisa|kurumi>\), в git и в exe их нет.
-                // 3.0.6: картинку выбираешь сам (любой PNG копируется в папку темы), положение — мышкой («Разместить»).
-                // пересборка страниц (картинка внутри окна живёт в фоне страниц) — отложенно, вне обработчика нажатия
+                var lNo = Ui.Hint(Tx("Персонажи работают в темах Chisa и Kurumi — выбери тему на вкладке «Оформление»."), lw + cw); lNo.BackColor = Theme.Bg;
+                lNo.Location = new Point(0, y); setBody.Controls.Add(lNo); y += lNo.Height + Theme.S(12);
+            }
+            else
+            {
+                // картинки только локально (config\themes\<chisa|kurumi>\), в git и в exe их нет
                 if (charRebuild == null) { charRebuild = new System.Windows.Forms.Timer { Interval = 300 }; charRebuild.Tick += (s2, e2) => { charRebuild.Stop(); if (IsDisposed) return; ResetPageBackground(); RebuildUi(); SelectPage(PgSettings); }; }
                 Action rebuild = () => { charRebuild.Stop(); charRebuild.Start(); };
-                Func<string, Panel> artRow = file =>
+                // редактор: все картинки у окна и у виджета тянутся мышкой; вне редактора они не мешают кликам
+                var pEd = new Panel { BackColor = Color.Transparent, Height = Theme.S(34), Width = cw };
+                var bEdit = new FlatButton(Tx("Режим редактора")) { Glyph = "\uE70F", Height = Theme.S(32) }.AutoW();
+                var bResetPos = new FlatButton(Tx("Сбросить положение")) { Glyph = "\uE777", Height = Theme.S(32) }.AutoW();
+                bEdit.Click += (s, e) => SetCharEdit(!charEdit);
+                Action editText = () => { bEdit.Text = charEdit ? Tx("Готово") : Tx("Режим редактора"); bEdit.Primary = charEdit; bEdit.AutoW(); bResetPos.Left = bEdit.Right + Theme.S(8); bEdit.Invalidate(); };
+                bResetPos.Click += (s, e) => { foreach (var sl in CharOverlay.Slots) st.SetCharLayout((Theme.Kurumi ? "kurumi." : "chisa.") + sl, null); st.Save(); UpdateChars(); };
+                bResetPos.Location = new Point(bEdit.Right + Theme.S(8), 0);
+                pEd.Controls.AddRange(new Control[] { bEdit, bResetPos });
+                row(Tx("Размещение"), pEd, Tx("В редакторе тяни картинки мышкой, колёсико — размер, ПКМ — меню. PNG можно просто перетащить из Проводника на окно или виджет."));
+                editText();
+                var cCI = Ui.Check(Tx("Показывать у окна"), st.CharWindow); check(cCI);
+                cCI.CheckedChanged += (s, e) => { if (loadingSettings) return; st.CharWindow = cCI.Checked; st.Save(); UpdateChars(); if (!st.CharFrame) rebuild(); };
+                var cCW = Ui.Check(Tx("Показывать у виджета"), st.CharWidget); check(cCW);
+                cCW.CheckedChanged += (s, e) => { if (loadingSettings) return; st.CharWidget = cCW.Checked; st.Save(); UpdateChars(); };
+                // 4 картинки: файл + у кого (окно / виджет)
+                var infos = new List<Action>(); var ctip = Ui.Tip();
+                for (int k = 0; k < CharOverlay.Slots.Length; k++)
                 {
-                    var pn = new Panel { BackColor = Color.Transparent, Height = Theme.S(30) };
-                    var bPick = new FlatButton(Tx("Выбрать PNG…")) { Glyph = "\uE8B9" }.AutoW();
-                    var bDel = new FlatButton(Tx("Убрать")) { Glyph = "\uE74D" }.AutoW();
+                    string slot = CharOverlay.Slots[k];
+                    var pn = new Panel { BackColor = Color.Transparent, Height = Theme.S(30), Width = cw };
+                    var bPick = new FlatButton(Tx("PNG…")) { Glyph = "\uE8B9" }.AutoW();
+                    var bDel = new FlatButton("") { Glyph = "\uE74D", IconOnly = true, Width = Theme.S(32) };
+                    var cbHost = new DarkCombo { Width = Theme.S(130) }; cbHost.Items.AddRange(new object[] { Tx("у окна"), Tx("у виджета") });
+                    cbHost.SelectedIndex = SlotOnWidget(slot) ? 1 : 0;
                     var lInfo = new Label { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Color.Transparent, UseMnemonic = false };
-                    Action info = () => { lInfo.Text = CharOverlay.HasArt(Theme.Kind, file) ? Tx("есть") : Tx("нет картинки"); };
+                    Action info = () => { if (!lInfo.IsDisposed) lInfo.Text = File.Exists(Path.Combine(CharOverlay.Folder(Theme.Kind), slot + ".png")) ? Tx("есть") : Tx("нет картинки"); };
+                    infos.Add(info);
                     bPick.Click += (s2, e2) =>
                     {
                         using (var d = new OpenFileDialog { Filter = "PNG (*.png)|*.png", Title = Tx("Картинка персонажа (PNG с прозрачностью)") })
-                        {
-                            if (d.ShowDialog(this) != DialogResult.OK) return;
-                            try
-                            {
-                                using (var test = new Bitmap(d.FileName)) { } // битый файл — сразу понятная ошибка, а не падение потом
-                                File.Copy(d.FileName, Path.Combine(CharOverlay.Folder(Theme.Kind), file), true);
-                                Logger.Write(LogLevel.Info, Tx("Персонаж: ") + Path.GetFileName(d.FileName) + " → " + file);
-                            }
-                            catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); return; }
-                        }
-                        info(); UpdateChars(); if (file == "window.png" || !st.CharFrame) rebuild();
+                            if (d.ShowDialog(this) == DialogResult.OK) SetCharPicture(slot, d.FileName);
+                        info();
                     };
-                    bDel.Click += (s2, e2) =>
-                    {
-                        try { File.Delete(Path.Combine(CharOverlay.Folder(Theme.Kind), file)); } catch { }
-                        info(); UpdateChars(); if (file == "window.png" || !st.CharFrame) rebuild();
-                    };
-                    bDel.Location = new Point(bPick.Right + Theme.S(8), 0); lInfo.Location = new Point(bDel.Right + Theme.S(10), Theme.S(6));
-                    pn.Controls.AddRange(new Control[] { bPick, bDel, lInfo }); pn.Width = cw; info();
-                    return pn;
-                };
-                var cCI = Ui.Check(Tx("Персонаж у окна"), st.CharWindow); check(cCI);
-                cCI.CheckedChanged += (s, e) => { if (loadingSettings) return; st.CharWindow = cCI.Checked; st.Save(); UpdateChars(); if (!st.CharFrame) rebuild(); };
+                    bDel.Click += (s2, e2) => { try { File.Delete(Path.Combine(CharOverlay.Folder(Theme.Kind), slot + ".png")); } catch { } info(); UpdateChars(); };
+                    cbHost.SelectedIndexChanged += (s2, e2) => { if (!cbHost.UserPick) return; SetSlotHost(slot, cbHost.SelectedIndex == 1); UpdateChars(); };
+                    bDel.Location = new Point(bPick.Right + Theme.S(6), 0); cbHost.Location = new Point(bDel.Right + Theme.S(10), Theme.S(1));
+                    lInfo.Location = new Point(cbHost.Right + Theme.S(10), Theme.S(7));
+                    pn.Controls.AddRange(new Control[] { bPick, bDel, cbHost, lInfo }); info();
+                    ctip.SetToolTip(bDel, Tx("Убрать картинку"));
+                    row(Tx("Картинка ") + (k + 1), pn, null);
+                }
+                charEditChanged = () => { if (!bEdit.IsDisposed) { editText(); foreach (var f in infos) f(); } };
                 var cbWhere = new DarkCombo(); cbWhere.Items.AddRange(new object[] { Tx("За рамкой окна (можно двигать мышкой)"), Tx("Внутри окна, за карточками") });
                 cbWhere.SelectedIndex = st.CharFrame ? 0 : 1;
                 cbWhere.SelectedIndexChanged += (s, e) => { if (!cbWhere.UserPick) return; st.CharFrame = cbWhere.SelectedIndex == 0; st.Save(); UpdateChars(); rebuild(); };
-                row(Tx("Где"), cbWhere, null);
-                row(Tx("Картинка за рамкой"), artRow("frame.png"), null);
-                row(Tx("Картинка внутри окна"), artRow("window.png"), Tx("Нет своей — берётся картинка «за рамкой»"));
+                row(Tx("Картинки у окна"), cbWhere, null);
+                // «внутри окна» — фон страниц (картинка window.png), за карточками: кнопки не перекрывает никогда
+                var pIn = new Panel { BackColor = Color.Transparent, Height = Theme.S(30), Width = cw };
+                var bInPick = new FlatButton(Tx("PNG…")) { Glyph = "\uE8B9" }.AutoW();
+                var bInDel = new FlatButton("") { Glyph = "\uE74D", IconOnly = true, Width = Theme.S(32) };
+                var lIn = new Label { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Color.Transparent, UseMnemonic = false };
+                Action inInfo = () => { lIn.Text = CharOverlay.HasArt(Theme.Kind, "window.png") ? Tx("есть") : Tx("нет — берётся картинка 1"); };
+                bInPick.Click += (s2, e2) =>
+                {
+                    using (var d = new OpenFileDialog { Filter = "PNG (*.png)|*.png" })
+                        if (d.ShowDialog(this) == DialogResult.OK)
+                            try { string dst = Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png"); File.Copy(d.FileName, dst, true); File.SetLastWriteTimeUtc(dst, DateTime.UtcNow); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); }
+                    inInfo(); if (!st.CharFrame) rebuild();
+                };
+                bInDel.Click += (s2, e2) => { try { File.Delete(Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png")); } catch { } inInfo(); if (!st.CharFrame) rebuild(); };
+                bInDel.Location = new Point(bInPick.Right + Theme.S(6), 0); lIn.Location = new Point(bInDel.Right + Theme.S(10), Theme.S(7));
+                pIn.Controls.AddRange(new Control[] { bInPick, bInDel, lIn }); inInfo();
+                row(Tx("Внутри окна: картинка"), pIn, null);
                 var nIn = Ui.Num(10, 100, st.CharInsideSize > 0 ? st.CharInsideSize : (Theme.Kurumi ? 78 : 55));
                 nIn.ValueChanged += (s, e) => { if (loadingSettings) return; st.CharInsideSize = (int)nIn.Value; st.Save(); if (!st.CharFrame) rebuild(); };
                 row(Tx("Внутри: высота, % окна"), nIn, null);
@@ -174,25 +289,41 @@ namespace NetProbe
                 cbAnchor.SelectedIndex = st.CharInsideAnchor >= 0 ? st.CharInsideAnchor : (Theme.Kurumi ? 0 : 2);
                 cbAnchor.SelectedIndexChanged += (s, e) => { if (!cbAnchor.UserPick) return; st.CharInsideAnchor = cbAnchor.SelectedIndex; st.Save(); if (!st.CharFrame) rebuild(); };
                 row(Tx("Внутри: угол"), cbAnchor, null);
-                var cCW = Ui.Check(Tx("Персонаж у виджета"), st.CharWidget); check(cCW); cCW.CheckedChanged += (s, e) => { if (loadingSettings) return; st.CharWidget = cCW.Checked; st.Save(); UpdateChars(); };
-                row(Tx("Картинка у виджета"), artRow("widget.png"), null);
-                // положение мышкой (за рамкой окна и у виджета)
-                var pPos = new Panel { BackColor = Color.Transparent, Height = Theme.S(30), Width = cw };
-                var bPlace = new FlatButton(Tx("Разместить мышкой")) { Glyph = "\uE7C2" }.AutoW();
-                var bResetPos = new FlatButton(Tx("Сбросить положение")) { Glyph = "\uE777" }.AutoW();
-                bPlace.Click += (s, e) => SetCharEdit(!charEdit);
-                Action placeText = () => { bPlace.Text = charEdit ? Tx("Готово") : Tx("Разместить мышкой"); bPlace.Primary = charEdit; bPlace.AutoW(); bResetPos.Left = bPlace.Right + Theme.S(8); bPlace.Invalidate(); };
-                charEditChanged = () => { if (!bPlace.IsDisposed) placeText(); };
-                bResetPos.Click += (s, e) => { st.SetCharLayout((Theme.Kurumi ? "kurumi." : "chisa.") + "frame", null); st.SetCharLayout((Theme.Kurumi ? "kurumi." : "chisa.") + "widget", null); st.Save(); UpdateChars(); };
-                bResetPos.Location = new Point(bPlace.Right + Theme.S(8), 0);
-                pPos.Controls.AddRange(new Control[] { bPlace, bResetPos });
-                row(Tx("Положение"), pPos, Tx("Тяни персонажа мышкой, колёсико — размер, правая кнопка или «Готово» — закончить"));
-                placeText();
                 var nCO = Ui.Num(20, 100, st.CharOpacity); nCO.ValueChanged += (s, e) => { if (loadingSettings) return; st.CharOpacity = (int)nCO.Value; st.Save(); UpdateChars(); };
-                row(Tx("Непрозрачность персонажа, %"), nCO, null);
+                row(Tx("Непрозрачность, %"), nCO, null);
             }
-            var cIcons = Ui.Check(Tx("Иконки приложений в списках"), st.ShowAppIcons); check(cIcons);
-            cIcons.CheckedChanged += (s, e) => { st.ShowAppIcons = cIcons.Checked; st.Save(); SetupListCards(); };
+
+            // ---- шрифты: 4 группы (кнопки / крупные / средние / мелкие), шрифт + размер; применяются сразу ----
+            if (!fontTimerHooked) { fontTimerHooked = true; fontTimer.Tick += (s2, e2) => { fontTimer.Stop(); if (!IsDisposed) ApplyFontsNow(); }; }
+            section(Tx("Шрифты"));
+            var fams = FontChoices();
+            Action<string, Func<string>, Action<string>, Func<double>, Action<double>, decimal, decimal> fontRow = (label, getF, setF, getS, setS, mn, mx) =>
+            {
+                var box = new Panel { BackColor = Theme.Bg, Size = new Size(cw, Theme.S(28)) };
+                var cb = new DarkCombo { Width = Theme.S(220) };
+                foreach (var f in fams) cb.Items.Add(f);
+                if (!fams.Contains(getF())) cb.Items.Add(getF());
+                cb.SelectedIndex = Math.Max(0, cb.Items.IndexOf(getF()));
+                var sz = Ui.Num(mn, mx, (decimal)getS(), 1);
+                cb.Location = new Point(0, 0); sz.Location = new Point(cb.Right + Theme.S(10), 0);
+                var pt = Ui.Label("pt", Theme.Small, Theme.Muted); pt.Location = new Point(sz.Right + Theme.S(6), Theme.S(5));
+                box.Controls.AddRange(new Control[] { cb, sz, pt });
+                cb.SelectedIndexChanged += (s2, e2) => { if (!cb.UserPick) return; setF((string)cb.SelectedItem); st.Save(); fontTimer.Stop(); fontTimer.Start(); };
+                sz.ValueChanged += (s2, e2) => { if (loadingSettings) return; setS((double)sz.Value); st.Save(); fontTimer.Stop(); fontTimer.Start(); };
+                row(label, box, null);
+            };
+            fontRow(Tx("Кнопки"), () => st.FontBtnFamily, v => st.FontBtnFamily = v, () => st.FontBtnSize, v => st.FontBtnSize = v, 7, 14);
+            fontRow(Tx("Крупные (заголовки)"), () => st.FontLargeFamily, v => st.FontLargeFamily = v, () => st.FontLargeSize, v => st.FontLargeSize = v, 8, 20);
+            fontRow(Tx("Средние (основной текст)"), () => st.FontMedFamily, v => st.FontMedFamily = v, () => st.FontMedSize, v => st.FontMedSize = v, 7, 14);
+            fontRow(Tx("Мелкие (подписи, подсказки)"), () => st.FontSmallFamily, v => st.FontSmallFamily = v, () => st.FontSmallSize, v => st.FontSmallSize = v, 6, 12);
+            var bFontReset = new FlatButton(Tx("Шрифты по умолчанию")) { Glyph = "\uE72C" }.AutoW();
+            bFontReset.Click += (s2, e2) =>
+            {
+                st.FontBtnFamily = st.FontLargeFamily = st.FontMedFamily = st.FontSmallFamily = "Segoe UI";
+                st.FontBtnSize = 9; st.FontLargeSize = 11; st.FontMedSize = 9; st.FontSmallSize = 8; st.Save();
+                fontTimer.Stop(); fontTimer.Start();
+            };
+            bFontReset.Location = new Point(lw, y); setBody.Controls.Add(bFontReset); y += bFontReset.Height + Theme.S(12);
             cbLang.SelectedIndexChanged += (s, e) => { if (!cbLang.UserPick) return; string l = Tr.Codes[Math.Max(0, cbLang.SelectedIndex)]; if (l == st.Lang) return; st.Lang = l; st.Save(); Tr.Set(l); BeginInvoke((Action)(() => { RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings); })); }; // применяется без перезапуска
             cbTheme.SelectedIndexChanged += (s, e) => { if (cbTheme.UserPick && cbTheme.SelectedIndex != st.Theme) { st.Theme = cbTheme.SelectedIndex; st.Save(); BeginInvoke((Action)(() => { Theme.Apply((ThemeKind)st.Theme); RebuildUi(); SelectPage(PgSettings); })); } };
 
@@ -386,6 +517,7 @@ namespace NetProbe
                 else if (c is ThemedCheck) ((ThemedCheck)c).CheckedChanged += kick;
                 else if (c is Slider) ((Slider)c).ValueChanged += kick;
             }
+            BuildSettingsTabs(secs, y);
 
             Action lay = () =>
             {
@@ -394,7 +526,8 @@ namespace NetProbe
                 bData.Location = new Point(bReset.Left - Theme.S(8) - bData.Width, Theme.S(24));
                 bImpAll.Location = new Point(bData.Left - Theme.S(8) - bImpAll.Width, Theme.S(24));
                 bExp.Location = new Point(bImpAll.Left - Theme.S(8) - bExp.Width, Theme.S(24));
-                setHost.SetBounds(L, Theme.S(86), W, p.ClientSize.Height - Theme.S(86) - Theme.S(10));
+                setTabs.SetBounds(L, Theme.S(80), W, Theme.S(32));
+                setHost.SetBounds(L, Theme.S(122), W, p.ClientSize.Height - Theme.S(122) - Theme.S(10));
                 setHost.Relayout();
             };
             p.Resize += (s, e) => lay();
@@ -546,7 +679,7 @@ namespace NetProbe
         {
             router.Disconnect(); xm.Disconnect();
             st = Settings.Load();
-            Theme.AccentColor = Theme.ParseColor(st.Accent); Tr.Set(st.Lang); Theme.Apply((ThemeKind)st.Theme);
+            Theme.AccentColor = Theme.ParseColor(st.Accent); Tr.Set(st.Lang); PushFonts(); Theme.Apply((ThemeKind)st.Theme);
             AppLists.ZapretLists = Path.Combine(st.ZapretPath, "lists");
             Logger.Dir = st.LogPath; Logger.Retention = st.Retention; Logger.ToFile = st.LogToFile;
             ServerStore.Load();

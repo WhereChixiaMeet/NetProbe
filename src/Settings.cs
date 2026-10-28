@@ -167,7 +167,16 @@ namespace NetProbe
         public bool SidePing = true;         // мини-монитор в боковой панели: пинг
         public bool SideSpeed = true;       // мини-монитор в боковой панели: скорость
         public bool SpeedChart = true;       // график скорости на вкладке Monitor
-        public bool SpeedDefaults = false;   // 3.0.9: один раз включить скорость везде (в 3.0.8 по умолчанию была выключена)
+        public bool SpeedDefaults = false;
+        // ---- 3.1: окно, шрифты ----
+        public int WinX = -32000, WinY = -32000, WinW = 0, WinH = 0; // последнее положение/размер окна (0 — по умолчанию)
+        public bool WinMax = false;
+        public int LastPage = 0;             // вкладка, открытая при выходе
+        public int SideWidth = 214;
+        public string SetTab = "look";       // открытая вкладка настроек
+        public string SrvSorts = "";         // сортировка таблицы серверов по вкладкам: id=колонка:a|d;… («*» — общая)          // ширина левой панели (перетаскивается за край)
+        public string FontBtnFamily = "Segoe UI", FontLargeFamily = "Segoe UI", FontMedFamily = "Segoe UI", FontSmallFamily = "Segoe UI";
+        public double FontBtnSize = 9, FontLargeSize = 11, FontMedSize = 9, FontSmallSize = 8;   // 3.0.9: один раз включить скорость везде (в 3.0.8 по умолчанию была выключена)
         public bool AutoStartMonitor = true;
         public bool StartMinimized = false;
         public bool Autorun = true;          // по умолчанию запуск вместе с Windows
@@ -188,6 +197,7 @@ namespace NetProbe
         public double AppNotifiedAt = 0;     // OADate последнего уведомления
         public bool CharWidget = true;       // Personal-темы: персонаж у виджета
         public bool CharWindow = true;       // Personal-темы: персонаж у окна
+        public string CharHosts = "frame=w;widget=d;pic3=w;pic4=d"; // 3.1: у кого картинка: w — окно, d — виджет
         public bool CharFrame = true;        // Personal-темы: персонаж за рамкой окна (окно-компаньон)
         public int CharOpacity = 85;         // Personal-темы: непрозрачность персонажа, %
         public string CharLayout = "";       // 3.0.6: своё положение персонажей: "chisa.frame=dx,dy,h;kurumi.widget=…" (пусто — по умолчанию)
@@ -244,6 +254,9 @@ namespace NetProbe
 
         public void Clamp()
         {
+            SideWidth = Math.Max(150, Math.Min(380, SideWidth));
+            FontBtnSize = Math.Max(7, Math.Min(14, FontBtnSize)); FontMedSize = Math.Max(7, Math.Min(14, FontMedSize));
+            FontSmallSize = Math.Max(6, Math.Min(12, FontSmallSize)); FontLargeSize = Math.Max(8, Math.Min(20, FontLargeSize));
             if (!SpeedDefaults) { SpeedDefaults = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             PollRate = Math.Max(MinPollRate, Math.Min(MaxPollRate, PollRate));
             TimeoutSec = Math.Max(2, Math.Min(30, TimeoutSec));

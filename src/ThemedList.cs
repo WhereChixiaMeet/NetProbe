@@ -23,6 +23,14 @@ namespace NetProbe
         public Func<string, string> DimReason;
         ToolTip dimTip; string dimShown;
         public event EventHandler SelectedIndexChanged;
+        // перетаскивание строк в другой список (Include ⇄ «Строго VPN» ⇄ Exclude): DragItems отбирает, что можно тащить,
+        // ItemsDropped(откуда, что) — на списке-приёмнике
+        public Func<List<string>, List<string>> DragItems;
+        public event Action<ThemedList, List<string>> ItemsDropped;
+        // Ctrl+C: выделенные строки в буфер (CopyItems может отфильтровать/переписать)
+        public Func<List<string>, List<string>> CopyItems;
+        int pendingClick = -1; Point downAt; bool canDrag, dropHere;
+        sealed class DragData { public ThemedList From; public List<string> Items; }
 
         public ThemedList() { SetStyle(ControlStyles.Selectable, true); TabStop = true; Font = Theme.Body; }
 
@@ -31,7 +39,14 @@ namespace NetProbe
         int BarW { get { return Theme.S(6); } }
 
         public void BeginUpdate() { }
-        public void EndUpdate() { sel.RemoveWhere(i => i >= Items.Count); top = Math.Min(top, MaxTop); Invalidate(); }
+        public void EndUpdate() { sel.RemoveWhere(i => i >= Items.Count); if (anchor >= Items.Count) anchor = sel.Count > 0 ? sel.Min() : -1; top = Math.Min(top, MaxTop); Invalidate(); }
+
+        public void CopySelected()
+        {
+            var l = SelectedItems; if (CopyItems != null) l = CopyItems(l);
+            if (l == null || l.Count == 0) return;
+            try { Clipboard.SetText(string.Join("\r\n", l)); } catch { }
+        }
 
         public int SelectedIndex
         {
@@ -72,8 +87,17 @@ namespace NetProbe
             int i = top + e.Y / RowH;
             if (i >= Items.Count) { if (e.Button == MouseButtons.Left) { sel.Clear(); Invalidate(); Fire(); } return; }
             if (e.Button == MouseButtons.Right && sel.Contains(i)) return;
-            if (MultiSelect && (ModifierKeys & Keys.Control) != 0) { if (!sel.Remove(i)) sel.Add(i); anchor = i; }
-            else if (MultiSelect && (ModifierKeys & Keys.Shift) != 0 && anchor >= 0) { sel.Clear(); for (int k = Math.Min(anchor, i); k <= Math.Max(anchor, i); k++) sel.Add(k); }
+            var mods = ModifierKeys;
+            pendingClick = -1; downAt = e.Location; canDrag = e.Button == MouseButtons.Left && DragItems != null;
+            if (MultiSelect && (mods & Keys.Shift) != 0)
+            {
+                // диапазон от последней отмеченной строки; с Ctrl — добавить диапазон к выделению
+                if (anchor < 0 || anchor >= Items.Count) anchor = sel.Count > 0 ? sel.Min() : i;
+                if ((mods & Keys.Control) == 0) sel.Clear();
+                for (int k = Math.Min(anchor, i); k <= Math.Max(anchor, i); k++) sel.Add(k);
+            }
+            else if (MultiSelect && (mods & Keys.Control) != 0) { if (!sel.Remove(i)) sel.Add(i); anchor = i; }
+            else if (sel.Contains(i) && sel.Count > 1 && e.Button == MouseButtons.Left) { pendingClick = i; anchor = i; } // может быть начало перетаскивания нескольких строк
             else { sel.Clear(); sel.Add(i); anchor = i; }
             Invalidate(); Fire();
             base.OnMouseDown(e);
@@ -87,6 +111,20 @@ namespace NetProbe
                 top = Math.Max(0, Math.Min(MaxTop, dragTop + (e.Y - dragY) * MaxTop / track));
                 Invalidate(); return;
             }
+            if (canDrag && e.Button == MouseButtons.Left && sel.Count > 0 &&
+                (Math.Abs(e.X - downAt.X) > SystemInformation.DragSize.Width || Math.Abs(e.Y - downAt.Y) > SystemInformation.DragSize.Height))
+            {
+                canDrag = false; pendingClick = -1;
+                var items = DragItems(SelectedItems);
+                if (items != null && items.Count > 0)
+                {
+                    var data = new DataObject();
+                    data.SetData(typeof(DragData), new DragData { From = this, Items = items });
+                    data.SetText(string.Join("\r\n", items));
+                    DoDragDrop(data, DragDropEffects.Move | DragDropEffects.Copy);
+                }
+                return;
+            }
             int h = e.X >= Width - BarW - 6 ? -2 : top + e.Y / RowH;
             if (h != hover)
             {
@@ -96,7 +134,31 @@ namespace NetProbe
             }
             base.OnMouseMove(e);
         }
-        protected override void OnMouseUp(MouseEventArgs e) { dragThumb = false; base.OnMouseUp(e); }
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            dragThumb = false; canDrag = false;
+            if (pendingClick >= 0 && pendingClick < Items.Count) { sel.Clear(); sel.Add(pendingClick); anchor = pendingClick; Invalidate(); Fire(); }
+            pendingClick = -1;
+            base.OnMouseUp(e);
+        }
+        static DragData Dragged(DragEventArgs e) { return e.Data != null && e.Data.GetDataPresent(typeof(DragData)) ? e.Data.GetData(typeof(DragData)) as DragData : null; }
+        protected override void OnDragEnter(DragEventArgs e) { base.OnDragEnter(e); OnDragOver(e); }
+        protected override void OnDragOver(DragEventArgs e)
+        {
+            base.OnDragOver(e);
+            var d = Dragged(e);
+            bool ok = d != null && d.From != this && ItemsDropped != null;
+            e.Effect = ok ? DragDropEffects.Move : DragDropEffects.None;
+            if (ok != dropHere) { dropHere = ok; Invalidate(); }
+        }
+        protected override void OnDragLeave(EventArgs e) { base.OnDragLeave(e); if (dropHere) { dropHere = false; Invalidate(); } }
+        protected override void OnDragDrop(DragEventArgs e)
+        {
+            base.OnDragDrop(e);
+            dropHere = false; Invalidate();
+            var d = Dragged(e); if (d == null || d.From == this) return;
+            var h = ItemsDropped; if (h != null) h(d.From, d.Items);
+        }
         protected override void OnResize(EventArgs e) { top = Math.Min(top, MaxTop); base.OnResize(e); }
 
         protected override bool IsInputKey(Keys k) { return k == Keys.Up || k == Keys.Down || base.IsInputKey(k); }
@@ -104,10 +166,24 @@ namespace NetProbe
         {
             if ((e.KeyCode == Keys.Up || e.KeyCode == Keys.Down) && Items.Count > 0)
             {
-                int i = SelectedIndex < 0 ? 0 : Math.Max(0, Math.Min(Items.Count - 1, SelectedIndex + (e.KeyCode == Keys.Up ? -1 : 1)));
-                SelectedIndex = i;
+                if (e.Shift && MultiSelect && sel.Count > 0)
+                {
+                    // Shift+стрелки — расширить выделение от якоря
+                    if (anchor < 0 || anchor >= Items.Count) anchor = sel.Min();
+                    // другой конец диапазона: если якорь сверху — низ выделения, иначе верх
+                    int end = anchor <= sel.Min() ? sel.Max() : sel.Min();
+                    int edge = Math.Max(0, Math.Min(Items.Count - 1, end + (e.KeyCode == Keys.Up ? -1 : 1)));
+                    sel.Clear(); for (int k = Math.Min(anchor, edge); k <= Math.Max(anchor, edge); k++) sel.Add(k);
+                    EnsureVisible(edge); Invalidate(); Fire();
+                }
+                else
+                {
+                    int i = SelectedIndex < 0 ? 0 : Math.Max(0, Math.Min(Items.Count - 1, SelectedIndex + (e.KeyCode == Keys.Up ? -1 : 1)));
+                    SelectedIndex = i;
+                }
             }
             if (e.KeyCode == Keys.A && e.Control && MultiSelect) { sel.Clear(); for (int k = 0; k < Items.Count; k++) sel.Add(k); Invalidate(); }
+            if ((e.KeyCode == Keys.C || e.KeyCode == Keys.Insert) && e.Control) CopySelected();
             base.OnKeyDown(e);
         }
 
@@ -149,6 +225,7 @@ namespace NetProbe
                 TextRenderer.DrawText(g, text, bold ? Theme.Bold : Theme.Body, new Rectangle(x, r.Y, w - x - rw, rh), fg, TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                 if (rw > 0) TextRenderer.DrawText(g, right, Theme.Small, new Rectangle(w - rw, r.Y, rw - Theme.S(4), rh), s && Theme.Classic ? Theme.AccentFg : Theme.Accent, TextFormatFlags.VerticalCenter | TextFormatFlags.Right);
             }
+            if (dropHere) using (var pn = new Pen(Theme.Accent, Theme.S(2))) g.DrawRectangle(pn, 1, 1, Width - 3, Height - 3);
             if (Items.Count == 0) TextRenderer.DrawText(g, "—", Theme.Body, new Rectangle(0, 0, Width, rh * 2), Theme.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             var th = Thumb();
             if (!th.IsEmpty)
