@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.3.1";
+        public const string Version = "3.3.2";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -194,7 +194,9 @@ namespace NetProbe
                 // минимальный размер окна: всё должно помещаться
                 var keepSize = Size; Theme.Apply(ThemeKind.Dark); st.Theme = 0; RebuildUi();
                 Size = MinimumSize;
-                foreach (int pg in new[] { PgConnect, PgServers, PgMonitor, PgSettings }) { SelectPage(pg); shot(Tr.Code + "-min-" + pg); }
+                foreach (int pg in new[] { PgConnect, PgServers, PgMonitor, PgSettings, PgTg }) { SelectPage(pg); shot(Tr.Code + "-min-" + pg); }
+                // TG Proxy во весь экран: карточки во всю ширину, колонки вровень, без прокрутки
+                var wa = Screen.FromControl(this).WorkingArea; Size = new Size(wa.Width, wa.Height); SelectPage(PgTg); shot(Tr.Code + "-tg-max");
                 Size = keepSize;
                 // своя картинка фона: нигде не должно быть чёрных прямоугольников
                 string bgTest = Path.Combine(ShotsDir, "_bg.png"), keepBg = st.BgImage;
