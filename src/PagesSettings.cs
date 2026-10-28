@@ -33,15 +33,30 @@ namespace NetProbe
         }
         void ApplyFontsNow()
         {
-            PushFonts(); Theme.MakeFonts();
-            RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings);
+            // окно не должно сворачиваться/уходить назад: после выбора в выпадающем списке пересборка уничтожала
+            // элемент с фокусом, и Windows отдавала активность другому окну
+            bool wasShown = Visible && !hiddenToTray; var ws = WindowState;
+            rebuilding = true;
+            try
+            {
+                PushFonts(); Theme.MakeFonts();
+                RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings);
+            }
+            finally { rebuilding = false; }
+            if (wasShown)
+            {
+                if (hiddenToTray) RestoreFromTray();
+                if (WindowState == FormWindowState.Minimized) WindowState = ws == FormWindowState.Minimized ? FormWindowState.Normal : ws;
+                Activate(); if (setTabs != null && !setTabs.IsDisposed) setTabs.Focus();
+            }
         }
+        bool rebuilding;
         Panel setBody; ScrollHost setHost; bool loadingSettings; readonly System.Windows.Forms.Timer autoSave = new System.Windows.Forms.Timer { Interval = 700 };
         Label lZapretWarn; ThemedCheck cHybrid;
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
         Spin nTimeout, nPingCount, nDown, nUp, nStreams, nGood, nWarn, nExclRefresh;
         DarkCombo cbLang, cbMode, cbAdapter, cbTheme, cbWsLog, cbRetSet;
-        ThemedCheck cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
+        ThemedCheck cSpeedOn, cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
         ThemedCheck cMinTray, cCloseTray, cWidget, cWidgetTop, cNotify, cAutoMon, cAutorun, cStartMin, cLogFile, cWsAdapter;
         Slider sOpacity; Label lOpacity, lSvc;
 
@@ -61,10 +76,11 @@ namespace NetProbe
             };
             var tabs = new List<TabStrip.Tab>
             {
-                new TabStrip.Tab { Key = "look", Text = Tx("Оформление") }, new TabStrip.Tab { Key = "char", Text = Tx("Персонаж") }, new TabStrip.Tab { Key = "vpn", Text = "VPN · DPI" },
+                new TabStrip.Tab { Key = "look", Text = Tx("Оформление") }, new TabStrip.Tab { Key = "vpn", Text = "VPN · DPI" },
                 new TabStrip.Tab { Key = "subs", Text = Tx("Подписки") }, new TabStrip.Tab { Key = "mon", Text = Tx("Мониторинг") },
                 new TabStrip.Tab { Key = "win", Text = Tx("Окно и виджет") }, new TabStrip.Tab { Key = "upd", Text = Tx("Обновления") },
-                new TabStrip.Tab { Key = "log", Text = Tx("Лог") }
+                new TabStrip.Tab { Key = "log", Text = Tx("Лог") },
+                new TabStrip.Tab { Key = "char", Text = Tx("Персонаж") } // последняя; есть только в Personal-темах (Chisa / Kurumi)
             };
             setPanels.Clear();
             var all = setBody.Controls.Cast<Control>().ToList();
@@ -83,9 +99,9 @@ namespace NetProbe
                 acc[key] = end + off;
             }
             foreach (var t in tabs) { var pn = setPanels[t.Key]; pn.Height = acc[t.Key] + Theme.S(20); setBody.Controls.Add(pn); }
-            tabs.RemoveAll(t => acc[t.Key] == 0);
+            tabs.RemoveAll(t => acc[t.Key] == 0 || (t.Key == "char" && !Theme.Personal));
             setTabs.SetTabs(tabs);
-            string want = setPanels.ContainsKey(st.SetTab ?? "") ? st.SetTab : "look";
+            string want = tabs.Any(t => t.Key == st.SetTab) ? st.SetTab : "look";
             setTabs.SelectedKey = want;
             setTabs.Selected += k => ShowSettingsTab(k);
             ShowSettingsTab(want);
@@ -494,6 +510,7 @@ namespace NetProbe
             row(Tx("Прозрачность виджета"), sOpacity, null);
 
             section(Tx("Мониторы: пинг и скорость"));
+            cSpeedOn = Ui.Check(Tx("Монитор скорости (выкл — не считается и нигде не показывается)"), true); check(cSpeedOn);
             cWPing = Ui.Check(Tx("Виджет: пинг (VPN / напрямую)"), true); check(cWPing);
             cWSpeed = Ui.Check(Tx("Виджет: скорость соединения (↓ / ↑)"), false); check(cWSpeed);
             cWSplit = Ui.Check(Tx("Пинг и скорость — два отдельных виджета"), false); check(cWSplit);
@@ -642,7 +659,7 @@ namespace NetProbe
             tbLogDirSet.Text = st.LogDir; cbRetSet.SelectedIndex = st.LogRetention; cLogFile.Checked = st.LogToFile;
             cMinTray.Checked = st.MinimizeToTray; cCloseTray.Checked = st.CloseToTray; cWidget.Checked = st.ShowWidget; cWidgetTop.Checked = st.WidgetTopMost;
             sOpacity.Value = st.WidgetOpacity; lOpacity.Text = st.WidgetOpacity + " %";
-            cWPing.Checked = st.WidgetPing; cWSpeed.Checked = st.WidgetSpeed; cWSplit.Checked = st.WidgetSplit;
+            cSpeedOn.Checked = st.SpeedOn; cWPing.Checked = st.WidgetPing; cWSpeed.Checked = st.WidgetSpeed; cWSplit.Checked = st.WidgetSplit;
             cSidePing.Checked = st.SidePing; cSideSpeed.Checked = st.SideSpeed; cSpeedChart.Checked = st.SpeedChart;
             cNotify.Checked = st.Notify; cAutoMon.Checked = st.AutoStartMonitor; cAutorun.Checked = st.Autorun; cStartMin.Checked = st.StartMinimized;
             UpdateSvc();
@@ -662,10 +679,10 @@ namespace NetProbe
             n.MinimizeToTray = cMinTray.Checked; n.CloseToTray = cCloseTray.Checked; n.ShowWidget = cWidget.Checked; n.WidgetTopMost = cWidgetTop.Checked;
             n.WidgetOpacity = (int)sOpacity.Value; n.Notify = cNotify.Checked; n.AutoStartMonitor = cAutoMon.Checked; n.Autorun = cAutorun.Checked;
             n.StartMinimized = cStartMin.Checked;
-            n.WidgetPing = cWPing.Checked; n.WidgetSpeed = cWSpeed.Checked; n.WidgetSplit = cWSplit.Checked;
+            n.SpeedOn = cSpeedOn.Checked; n.WidgetPing = cWPing.Checked; n.WidgetSpeed = cWSpeed.Checked; n.WidgetSplit = cWSplit.Checked;
             n.SidePing = cSidePing.Checked; n.SideSpeed = cSideSpeed.Checked; n.SpeedChart = cSpeedChart.Checked;
-            if (!n.WidgetPing && !n.WidgetSpeed) n.WidgetPing = true;
-            if (!n.SidePing && !n.SideSpeed) n.SidePing = true;
+            if (!n.WidgetPing && !n.WidgetSpeedOn) n.WidgetPing = true;
+            if (!n.SidePing && !n.SideSpeedOn) n.SidePing = true;
             if (n.LogDir != "" && !Directory.Exists(n.LogDir)) { try { Directory.CreateDirectory(n.LogDir); } catch (Exception ex) { MessageBox.Show(this, Tx("Папка лога недоступна: ") + ex.Message, "NetProbe"); return; } }
             ApplySettings(n);
             if (!auto) LoadSettingsUi();

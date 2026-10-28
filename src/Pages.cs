@@ -84,7 +84,7 @@ namespace NetProbe
                 int cy = T + ch + gap;
                 int avail = Math.Max(Theme.S(120), by - Theme.S(44) - cy);
                 // под графиком задержки — график скорости (можно выключить в настройках)
-                speedChart.Visible = st.SpeedChart;
+                speedChart.Visible = st.SpeedChartOn;
                 if (speedChart.Visible)
                 {
                     int sh = Math.Max(Theme.S(90), Math.Min(Theme.S(220), (avail - gap) * 2 / 5));

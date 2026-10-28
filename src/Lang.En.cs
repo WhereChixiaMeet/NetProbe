@@ -7,6 +7,7 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Монитор скорости (выкл — не считается и нигде не показывается)", "Speed monitor (off — not measured and not shown anywhere)" },
             { "В редакторе тяни картинки мышкой, колёсико — размер, ПКМ — меню. PNG можно просто перетащить из Проводника на окно или виджет.", "In the editor drag pictures with the mouse, wheel — size, right-click — menu. You can also drop a PNG from Explorer onto the window or widget." },
             { "Внутри окна: картинка", "Inside the window: picture" },
             { "Готово — выйти из редактора", "Done — leave the editor" },

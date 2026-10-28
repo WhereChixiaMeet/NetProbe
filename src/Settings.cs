@@ -167,6 +167,10 @@ namespace NetProbe
         public bool SidePing = true;         // мини-монитор в боковой панели: пинг
         public bool SideSpeed = true;       // мини-монитор в боковой панели: скорость
         public bool SpeedChart = true;       // график скорости на вкладке Monitor
+        public bool SpeedOn = true;          // монитор скорости целиком (выкл — не считается и нигде не показывается)
+        public bool WidgetSpeedOn { get { return SpeedOn && WidgetSpeed; } }
+        public bool SideSpeedOn { get { return SpeedOn && SideSpeed; } }
+        public bool SpeedChartOn { get { return SpeedOn && SpeedChart; } }
         public bool SpeedDefaults = false;
         // ---- 3.1: окно, шрифты ----
         public int WinX = -32000, WinY = -32000, WinW = 0, WinH = 0; // последнее положение/размер окна (0 — по умолчанию)

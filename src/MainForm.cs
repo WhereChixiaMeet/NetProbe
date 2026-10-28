@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.1.0";
+        public const string Version = "3.1.1";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -105,7 +105,7 @@ namespace NetProbe
             uiTimer.Start();
             SpeedMeter.AdapterId = () => { var d = direct; return d != null ? d.Id : null; };
             SpeedMeter.Sample += (d, u) => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => OnSpeed(d, u))); } catch { } };
-            SpeedMeter.Start();
+            if (st.SpeedOn) SpeedMeter.Start();
             NetworkChange.NetworkAddressChanged += (s, e) => { if (IsHandleCreated) try { BeginInvoke((Action)(() => RefreshAdapters(false))); } catch { } };
         }
 
@@ -340,7 +340,7 @@ namespace NetProbe
             sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
             side.Controls.Add(sideStatus);
             // маленькая копия виджета Monitor — над строкой состояния
-            var oldMini = miniMon; miniMon = new MiniMonitor(); miniMon.CopyFrom(oldMini); miniMon.SetParts(st.SidePing, st.SideSpeed);
+            var oldMini = miniMon; miniMon = new MiniMonitor(); miniMon.CopyFrom(oldMini); miniMon.SetParts(st.SidePing, st.SideSpeedOn);
             miniMon.DoubleClick += (s, e) => SelectPage(PgMonitor);
             miniMon.Click += (s, e) => SelectPage(PgMonitor);
             Ui.Tip().SetToolTip(miniMon, Tx("Мониторинг: VPN и напрямую — клик открывает вкладку Monitor"));
@@ -726,7 +726,7 @@ namespace NetProbe
             if (second) w.Moved += (s, e) => { st.Widget2X = w.Left; st.Widget2Y = w.Top; st.Save(); };
             else w.Moved += (s, e) => { st.WidgetX = w.Left; st.WidgetY = w.Top; st.Save(); };
             w.Header = AnyActive ? EngineText() : "";
-            if (second) w.SetParts(false, true); else w.SetParts(st.WidgetPing, st.WidgetSpeed && !(st.WidgetSplit && st.WidgetPing));
+            if (second) w.SetParts(false, true); else w.SetParts(st.WidgetPing, st.WidgetSpeedOn && !(st.WidgetSplit && st.WidgetPing));
             if (!second) HookWidgetChars(w);
             return w;
         }
@@ -910,8 +910,8 @@ namespace NetProbe
 
         void ApplyWidgetVisibility()
         {
-            bool split = st.WidgetSplit && st.WidgetPing && st.WidgetSpeed;
-            widget.SetParts(st.WidgetPing || !st.WidgetSpeed, st.WidgetSpeed && !split);
+            bool split = st.WidgetSplit && st.WidgetPing && st.WidgetSpeedOn;
+            widget.SetParts(st.WidgetPing || !st.WidgetSpeedOn, st.WidgetSpeedOn && !split);
             if (widget2 != null) widget2.SetParts(false, true);
             if (hiddenToTray && st.ShowWidget)
             {
@@ -944,7 +944,8 @@ namespace NetProbe
         void ApplyMonitorParts()
         {
             ApplyWidgetVisibility();
-            if (miniMon != null && !miniMon.IsDisposed) { miniMon.SetParts(st.SidePing, st.SideSpeed); if (laySide != null) laySide(); }
+            if (miniMon != null && !miniMon.IsDisposed) { miniMon.SetParts(st.SidePing, st.SideSpeedOn); if (laySide != null) laySide(); }
+            if (st.SpeedOn) SpeedMeter.Start(); else SpeedMeter.Stop();
             if (layMonitor != null) layMonitor();
         }
 
@@ -974,7 +975,7 @@ namespace NetProbe
         {
             base.OnResize(e);
             if (WindowState != lastWinState) { lastWinState = WindowState; if (WindowState != FormWindowState.Minimized && IsHandleCreated) BeginInvoke((Action)SaveWindowBounds); }
-            if (WindowState == FormWindowState.Minimized && st != null && st.MinimizeToTray && !hiddenToTray && Visible)
+            if (WindowState == FormWindowState.Minimized && st != null && st.MinimizeToTray && !hiddenToTray && Visible && !rebuilding)
                 BeginInvoke((Action)(() => HideToTray(false)));
         }
 
