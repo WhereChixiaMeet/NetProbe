@@ -42,6 +42,9 @@ namespace NetProbe
 
         bool AnyActive { get { return router.Active || xm.Active; } }
 
+        // домены в списках приложений не работают только у WireGuard (WireSock); подписки и VLESS/VMess/Trojan идут через TUN (sing-box)
+        bool DomainsGray() { return ActiveSource() == Source.Vpn && !TunnelProto.IsXray(st.PrimaryTunnel); }
+
         // причины недоступности чипов (null — доступен)
         string[] ChipReasons()
         {
@@ -236,6 +239,7 @@ namespace NetProbe
             }
             if (cbRunMode != null && !cbRunMode.IsDisposed && cbRunMode.SelectedIndex != st.Mode) cbRunMode.SelectedIndex = st.Mode;
             UpdateTopButtons();
+            if (listCards != null) foreach (var lc in listCards) if (lc != null && !lc.IsDisposed) lc.Box.Invalidate(); // серые домены зависят от источника
             if (miModes != null) for (int i = 0; i < 3; i++) miModes[i].Checked = i == st.Mode;
             UpdateSide();
         }

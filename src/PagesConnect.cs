@@ -191,7 +191,8 @@ namespace NetProbe
                 };
                 lc.Box.DoubleClick += (s, e) => lc.BAdd.PerformClick2();
                 lc.BPaste.Click += (s, e) => PasteToList(lc.Key, lc.Box);
-                // 3.0.4: домены/IP в списках приложений не серые — в TUN (подписки, VLESS/VMess/Trojan) они работают; проверяет сам пользователь
+                // домены/IP серые только когда источник — WireGuard (WireSock понимает только приложения); в TUN (подписки, VLESS/VMess/Trojan) они работают
+                lc.Box.DimReason = n => DomainsGray() ? AppLists.NotAppReason(n) : null;
                 AttachPathMenu(lc.Box, this);
                 var lcRef = lc;
                 lc.Box.RightText = n => n == ListCard.BuiltIn ? Tx("встроено") : null; // домены в списках приложений — без подписи «not used» (только серым + подсказка)

@@ -7,6 +7,7 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "WireGuard (WireSock) понимает только приложения — домен заработает через подписку или туннель VLESS / VMess / Trojan", "WireGuard (WireSock) understands apps only — the domain works via a subscription or a VLESS / VMess / Trojan tunnel" },
             { "Домены и IP в этих списках работают в TUN (подписки, туннели VLESS / VMess / Trojan); WireSock понимает только приложения. Приложение из Include при активном туннеле автоматически вне DPI.", "Domains and IPs in these lists work in TUN (subscriptions, VLESS / VMess / Trojan tunnels); WireSock understands apps only. An app from Include is automatically outside DPI while the tunnel is up." },
             { "Подписка (xray)", "Subscription (xray)" },
             { "Нет данных: выключено «Писать лог в файл» — точки Day/Week хранятся в дневных логах (Лог и опрос)", "No data: “Write log to file” is off — Day/Week points are stored in the daily logs (Log & polling)" },

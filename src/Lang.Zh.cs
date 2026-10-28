@@ -7,6 +7,7 @@ namespace NetProbe
         // 简体中文。键 — 代码中的俄语字符串，值 — 中文译文
         static readonly Dictionary<string, string> Zh = new Dictionary<string, string>
         {
+            { "WireGuard (WireSock) понимает только приложения — домен заработает через подписку или туннель VLESS / VMess / Trojan", "WireGuard（WireSock）只识别应用 — 通过订阅或 VLESS / VMess / Trojan 隧道时域名才生效" },
             { "Домены и IP в этих списках работают в TUN (подписки, туннели VLESS / VMess / Trojan); WireSock понимает только приложения. Приложение из Include при активном туннеле автоматически вне DPI.", "这些列表中的域名和 IP 在 TUN 中生效（订阅、VLESS / VMess / Trojan 隧道）；WireSock 只识别应用。隧道运行时，Include 中的应用会自动绕过 DPI。" },
             { "Подписка (xray)", "订阅 (xray)" },
             { "Нет данных: выключено «Писать лог в файл» — точки Day/Week хранятся в дневных логах (Лог и опрос)", "无数据：“写入日志文件”已关闭 — 日/周数据点保存在每日日志中（日志与轮询）" },

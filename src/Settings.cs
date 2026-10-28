@@ -517,7 +517,7 @@ namespace NetProbe
             return !s.Contains(".") && !s.Contains(":") && !s.Contains("/");
         }
         public static List<string> AppsOnly(string key) { return Get(key).Where(IsAppEntry).ToList(); }
-        public static string NotAppReason(string s) { return IsAppEntry(s) || s == null ? null : Tx("домены в списках приложений не работают — домены пишутся на вкладке DPI"); }
+        public static string NotAppReason(string s) { return IsAppEntry(s) || s == null ? null : Tx("WireGuard (WireSock) понимает только приложения — домен заработает через подписку или туннель VLESS / VMess / Trojan"); }
         // исключение сайтов из DPI («Не трогать эти сайты»): ключ dpionly-exclude, в UI только домены/IP; процессы — легаси, работают фоном
         public static List<string> DpiSitesExcl() { return Get(DpiOnlyExcl).Where(x => !IsAppEntry(x) && !IsChild(x)).ToList(); }
         public static void SetDpiSitesExcl(IEnumerable<string> sites)
