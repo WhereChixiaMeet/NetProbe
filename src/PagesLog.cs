@@ -43,7 +43,15 @@ namespace NetProbe
                 UpdateSide();
             };
             if (!pollSaveHooked) { pollSaveHooked = true; pollSaveTimer.Tick += (s, e) => { pollSaveTimer.Stop(); st.Save(); Logger.Write(LogLevel.Info, Tx("Частота опроса: ") + PollText()); }; }
-            pc.Controls.AddRange(new Control[] { pollSlider, pollValue, lim, pollEff });
+            // IP опроса VPN-канала и запись смены IP
+            var lFam = new Label { Text = Tx("IP опроса VPN:"), AutoSize = true, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
+            var cbFam = new DarkCombo { Width = Theme.S(110) }; cbFam.Items.AddRange(new object[] { "IPv4", "IPv6", Tx("Авто") });
+            cbFam.SelectedIndex = Math.Max(0, Math.Min(2, st.ProbeIpFamily));
+            cbFam.SelectedIndexChanged += (s, e) => { if (!cbFam.UserPick) return; st.ProbeIpFamily = cbFam.SelectedIndex; st.Save(); RebuildProbers(); Logger.Write(LogLevel.Info, Tx("IP опроса VPN: ") + cbFam.SelectedItem); };
+            var cNewIp = Ui.Check(Tx("В лог — только новый IP"), st.IpNewOnly); cNewIp.BackColor = Theme.Card;
+            cNewIp.CheckedChanged += (s, e) => { st.IpNewOnly = cNewIp.Checked; st.Save(); };
+            Ui.Tip().SetToolTip(cNewIp, Tx("«Публичный IP сменился» пишется только для адреса, которого ещё не было; если IP чередуется между уже виденными — одна строка «выходит через несколько IP»"));
+            pc.Controls.AddRange(new Control[] { pollSlider, pollValue, lim, pollEff, lFam, cbFam, cNewIp });
             pc.Resize += (s, e) =>
             {
                 int pad = Theme.S(18), w = pc.Width - pad * 2;
@@ -51,6 +59,8 @@ namespace NetProbe
                 pollSlider.SetBounds(pad - Theme.S(6), Theme.S(40), w + Theme.S(12), Theme.S(26));
                 lim.SetBounds(pad, Theme.S(68), w, Theme.S(32));
                 pollEff.SetBounds(pad, Theme.S(100), w, Theme.S(18));
+                lFam.Location = new Point(pad, Theme.S(130)); cbFam.Location = new Point(lFam.Right + Theme.S(8), Theme.S(125));
+                cNewIp.Location = new Point(cbFam.Right + Theme.S(18), Theme.S(128));
             };
             pollSlider.Tag = updLim;
 
@@ -109,8 +119,8 @@ namespace NetProbe
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, y = Theme.S(86), gap = Theme.S(14);
                 int hw = (W - gap) / 2;
-                pc.SetBounds(L, y, hw, Theme.S(126));
-                lcfg.SetBounds(L + hw + gap, y, W - hw - gap, Theme.S(126));
+                pc.SetBounds(L, y, hw, Theme.S(160));
+                lcfg.SetBounds(L + hw + gap, y, W - hw - gap, Theme.S(160));
                 int ip = Theme.S(16);
                 lRet.Location = new Point(ip, Theme.S(48)); cbRetention.Location = new Point(lRet.Right + Theme.S(8), Theme.S(44));
                 lLogDir.SetBounds(ip, Theme.S(76), lcfg.Width - ip * 2, Theme.S(16));

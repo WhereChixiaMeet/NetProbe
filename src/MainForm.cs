@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.1.3";
+        public const string Version = "3.1.4";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -507,7 +507,9 @@ namespace NetProbe
             // без WireSock, но с подключённым xray VPN-канал мониторинга идёт через его socks
             string proxy = (st.VpnProxy ?? "").Trim();
             if (proxy == "" && xm.Active && !router.Active) proxy = "socks5h://127.0.0.1:" + st.SocksPort;
-            pVpn = new CurlProber { CurlPath = vpnExe, Proxy = proxy, ViaShell = false };
+            // IPv4 / IPv6: через socks5h адрес резолвит прокси (и может выбрать любой протокол) — тогда резолвим сами (socks5)
+            if (st.ProbeIpFamily != 2 && proxy.StartsWith("socks5h://", StringComparison.OrdinalIgnoreCase)) proxy = "socks5://" + proxy.Substring(10);
+            pVpn = new CurlProber { CurlPath = vpnExe, Proxy = proxy, ViaShell = false, IpFamily = st.ProbeIpFamily };
             string bind = direct != null ? direct.Ip : null;
             if (st.DirectMode == 1) pDir = new PsProber { PingSource = bind };
             else pDir = new CurlProber { CurlPath = dirExe, ViaShell = false, BindIp = bind, NoProxy = true, PingSource = bind };
@@ -647,6 +649,8 @@ namespace NetProbe
         static string F0(double v) { return v < 0 ? "—" : v.ToString("0", CultureInfo.InvariantCulture); }
         static string F1(double v) { return v < 0 ? "—" : v.ToString("0.0", CultureInfo.InvariantCulture); }
 
+        readonly Dictionary<string, List<string>> seenIps = new Dictionary<string, List<string>>();
+        readonly HashSet<string> multiIpLogged = new HashSet<string>();
         void OnSample(ChannelMonitor m, ProbeResult r, StatsSnapshot s)
         {
             if (!m.Running || bgProbe || cardVpn == null || cardVpn.IsDisposed) return;
@@ -672,7 +676,24 @@ namespace NetProbe
                 Notify(cs, name + Tx(": связь восстановлена"), Tx("Задержка ") + F0(r.Latency) + Tx(" мс"), ToolTipIcon.Info);
             }
             if (r.Ok && r.Ip != "" && cs.Ip != "" && r.Ip != cs.Ip)
-                Logger.Write(LogLevel.Warn, name + Tx(": публичный IP сменился ") + cs.Ip + " → " + r.Ip + " (" + r.Loc + ")");
+            {
+                List<string> seen;
+                if (!seenIps.TryGetValue(m.Key, out seen)) seenIps[m.Key] = seen = new List<string>();
+                bool isNew = !seen.Contains(r.Ip);
+                if (!st.IpNewOnly || isNew) Logger.Write(LogLevel.Warn, name + Tx(": публичный IP сменился ") + cs.Ip + " → " + r.Ip + " (" + r.Loc + ")");
+                else if (!multiIpLogged.Contains(m.Key))
+                {
+                    // адрес «прыгает» между уже виденными — одна строка вместо спама
+                    multiIpLogged.Add(m.Key);
+                    Logger.Write(LogLevel.Info, name + Tx(": выходит через несколько IP: ") + string.Join(", ", seen));
+                }
+            }
+            if (r.Ok && r.Ip != "")
+            {
+                List<string> seen;
+                if (!seenIps.TryGetValue(m.Key, out seen)) seenIps[m.Key] = seen = new List<string>();
+                if (!seen.Contains(r.Ip)) { seen.Add(r.Ip); if (seen.Count > 8) seen.RemoveAt(0); multiIpLogged.Remove(m.Key); }
+            }
             if (cs.Ok == null) cs.DownSince = DateTime.Now;
             if (!r.Ok && cs.Ok != false) cs.DownSince = DateTime.Now;
             cs.Ok = r.Ok;

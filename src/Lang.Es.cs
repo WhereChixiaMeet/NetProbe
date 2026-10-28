@@ -7,6 +7,11 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "IP опроса VPN:", "IP del sondeo VPN:" },
+            { "IP опроса VPN: ", "IP del sondeo VPN: " },
+            { "В лог — только новый IP", "Registrar solo una IP nueva" },
+            { "«Публичный IP сменился» пишется только для адреса, которого ещё не было; если IP чередуется между уже виденными — одна строка «выходит через несколько IP»", "\"La IP pública cambió\" solo se escribe para una dirección nueva; si la IP alterna entre las ya vistas — una línea \"sale por varias IP\"" },
+            { ": выходит через несколько IP: ", ": sale por varias IP: " },
             { "Опросы в лог, даже когда мониторинг выключен", "Escribir sondeos en el registro aunque el monitoreo esté apagado" },
             { " (опросы продолжают писаться в лог)", " (los sondeos se siguen escribiendo en el registro)" },
             { " (проверка VPN для аварийного переключения продолжается в фоне)", " (la comprobación de VPN para la conmutación sigue en segundo plano)" },

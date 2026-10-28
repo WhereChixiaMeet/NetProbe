@@ -168,7 +168,9 @@ namespace NetProbe
         public bool SideSpeed = true;       // мини-монитор в боковой панели: скорость
         public bool SpeedChart = true;       // график скорости на вкладке Monitor
         public bool SpeedOn = true;
-        public bool LogProbes = true;        // опросы пишутся в лог и в статистику Day/Week, даже когда мониторинг выключен          // монитор скорости целиком (выкл — не считается и нигде не показывается)
+        public bool LogProbes = true;
+        public int ProbeIpFamily = 0;        // опрос VPN-канала: 0 — IPv4, 1 — IPv6, 2 — авто (раньше авто: IP «прыгал» v4 ⇄ v6)
+        public bool IpNewOnly = true;        // «публичный IP сменился» — только для действительно нового адреса, не для чередования        // опросы пишутся в лог и в статистику Day/Week, даже когда мониторинг выключен          // монитор скорости целиком (выкл — не считается и нигде не показывается)
         public bool WidgetSpeedOn { get { return SpeedOn && WidgetSpeed; } }
         public bool SideSpeedOn { get { return SpeedOn && SideSpeed; } }
         public bool SpeedChartOn { get { return SpeedOn && SpeedChart; } }

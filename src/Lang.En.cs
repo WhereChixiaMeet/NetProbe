@@ -7,6 +7,11 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "IP опроса VPN:", "VPN poll IP:" },
+            { "IP опроса VPN: ", "VPN poll IP: " },
+            { "В лог — только новый IP", "Log only a new IP" },
+            { "«Публичный IP сменился» пишется только для адреса, которого ещё не было; если IP чередуется между уже виденными — одна строка «выходит через несколько IP»", "\"Public IP changed\" is written only for an address not seen before; if the IP alternates between known ones — one line \"exits through several IPs\"" },
+            { ": выходит через несколько IP: ", ": exits through several IPs: " },
             { "Опросы в лог, даже когда мониторинг выключен", "Write polls to the log even when monitoring is off" },
             { " (опросы продолжают писаться в лог)", " (polls keep being written to the log)" },
             { " (проверка VPN для аварийного переключения продолжается в фоне)", " (the VPN check for failover keeps running in the background)" },

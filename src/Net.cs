@@ -144,6 +144,7 @@ namespace NetProbe
 
     public class CurlProber : Prober
     {
+        public int IpFamily = 2; // 0 — только IPv4, 1 — только IPv6, 2 — как решит система
         public string CurlPath = "curl.exe", BindIp, Proxy;
         public bool ViaShell, NoProxy;
         public static string FmtFile;
@@ -194,6 +195,8 @@ namespace NetProbe
             var sb = new StringBuilder();
             sb.Append("-s -S --ssl-no-revoke -A \"NetProbe/1.0\" --connect-timeout ").Append(t).Append(" --max-time ").Append(t);
             if (!string.IsNullOrEmpty(BindIp)) sb.Append(" -4 --interface ").Append(BindIp);
+            else if (IpFamily == 0) sb.Append(" -4");
+            else if (IpFamily == 1) sb.Append(" -6");
             if (!string.IsNullOrEmpty(Proxy)) sb.Append(" -x \"").Append(Proxy).Append('"');
             else if (NoProxy) sb.Append(" --noproxy \"*\"");
             sb.Append(" -w @\"").Append(FmtFile).Append('"');
