@@ -592,6 +592,7 @@ namespace NetProbe
         {
             if (navs.Count > PgSettings) navs[PgSettings].Badge = updZapret || updXray;
             if (navs.Count > PgServers) navs[PgServers].Badge = updXray;
+            if (navs.Count > PgTg) navs[PgTg].Badge = tgUpstreamLatest != null;
         }
 
         // Плановая проверка: при запуске и далее по расписанию из настроек
@@ -612,6 +613,7 @@ namespace NetProbe
                 string zc = Updater.ZapretVersion(st), xc = Updater.XrayVersion(st), sc = Updater.SingBoxVersion(st), zl = null, xl = null, sl = null, err = null;
                 if ((manual || st.UpdXray) && (sc != "" || manual)) try { sl = Updater.SingBoxLatest().Tag; } catch { }
                 if (manual || st.UpdZapret) try { zl = Updater.Latest(Updater.ZapretRepo, n => n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)).Tag; } catch (Exception ex) { err = ex.Message; }
+                string tl = null; try { tl = Updater.Latest(TgConst.UpstreamRepo, n => false).Tag; } catch { } // TG Proxy: вышла ли новая tg-ws-proxy
                 if (manual || st.UpdXray) try { xl = Updater.Latest(Updater.XrayRepo, n => n.StartsWith("Xray-windows", StringComparison.OrdinalIgnoreCase)).Tag; } catch (Exception ex) { err = ex.Message; }
                 st.LastUpdCheck = DateTime.Now.ToOADate(); st.Save();
                 Func<string, string, string> fmt = (cur, lat) => (cur == "" ? Tx("не установлен") : cur) + (lat == null ? "" : lat.TrimStart('v') == cur.TrimStart('v') ? "  ·  " + Tx("последняя") : "  →  " + lat + " " + Tx("доступна"));
@@ -624,7 +626,14 @@ namespace NetProbe
                     {
                         if (lZVer != null && !lZVer.IsDisposed) { lZVer.Text = fmt(zc, zl) + (err != null && zl == null ? "  ·  " + err : ""); lXVer.Text = fmt(xc, xl); if (lSVer != null) lSVer.Text = fmt(sc, sl); }
                         UpdateCoreLabel();
-                        updZapret = zNew; updXray = xNew || sNew; ApplyUpdateBadges();
+                        bool tNew = TgConst.UpstreamNewer(tl); tgUpstreamLatest = tNew ? tl : null;
+                        updZapret = zNew; updXray = xNew || sNew; ApplyUpdateBadges(); TgUpdateUi();
+                        if (tNew && tl != st.TgUpstreamNotified)
+                        {
+                            st.TgUpstreamNotified = tl; st.Save();
+                            Logger.Write(LogLevel.Info, Tx("Вышла tg-ws-proxy ") + tl + Tx(": встроенный TG Proxy основан на ") + TgConst.UpstreamVersion + Tx(" — изменения придут с обновлением NetProbe"));
+                            if (!manual && st.UpdNotify && tray != null) try { tray.ShowBalloonTip(5000, "TG Proxy", Tx("Вышла tg-ws-proxy ") + tl, System.Windows.Forms.ToolTipIcon.Info); } catch { }
+                        }
                         if (!manual && (zNew || xNew || sNew) && st.UpdNotify && tray != null)
                             try { tray.ShowBalloonTip(5000, Tx("NetProbe: есть обновления"), (zNew ? "zapret " + zl + "  " : "") + (xNew ? "xray " + xl + "  " : "") + (sNew ? "sing-box " + sl : ""), System.Windows.Forms.ToolTipIcon.Info); } catch { }
                         if (zNew || xNew) Logger.Write(LogLevel.Info, Tx("Доступны обновления: ") + (zNew ? "zapret " + zl + " " : "") + (xNew ? "xray " + xl : ""));

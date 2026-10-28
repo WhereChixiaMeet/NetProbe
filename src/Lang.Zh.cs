@@ -7,6 +7,12 @@ namespace NetProbe
         // 简体中文。键 — 代码中的俄语字符串，值 — 中文译文
         static readonly Dictionary<string, string> Zh = new Dictionary<string, string>
         {
+            { "Вышла tg-ws-proxy ", "tg-ws-proxy 已发布 " },
+            { ": встроенный TG Proxy основан на ", "：内置 TG Proxy 基于 " },
+            { " — изменения придут с обновлением NetProbe", " — 这些更改会随 NetProbe 更新一起到来" },
+            { " (у тебя основа ", " （你的基于 " },
+            { ") — придёт с обновлением NetProbe", "）— 会随 NetProbe 更新一起到来" },
+            { "Встроенный прокси — перенос кода tg-ws-proxy внутрь NetProbe: новая версия попадёт к тебе с обновлением NetProbe. Клик — страница релиза", "内置代理是移植到 NetProbe 中的 tg-ws-proxy 代码：新版本会随 NetProbe 更新到达。点击打开发布页" },
             { "Запуск…", "启动中…" },
             { "Ошибка", "错误" },
             { " напрямую", " 直连" },

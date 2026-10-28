@@ -7,6 +7,12 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Вышла tg-ws-proxy ", "tg-ws-proxy released " },
+            { ": встроенный TG Proxy основан на ", ": the built-in TG Proxy is based on " },
+            { " — изменения придут с обновлением NetProbe", " — the changes will arrive with a NetProbe update" },
+            { " (у тебя основа ", " (yours is based on " },
+            { ") — придёт с обновлением NetProbe", ") — will arrive with a NetProbe update" },
+            { "Встроенный прокси — перенос кода tg-ws-proxy внутрь NetProbe: новая версия попадёт к тебе с обновлением NetProbe. Клик — страница релиза", "The built-in proxy is tg-ws-proxy's code ported into NetProbe: a new version reaches you with a NetProbe update. Click for the release page" },
             { "Запуск…", "Starting…" },
             { "Ошибка", "Error" },
             { " напрямую", " direct" },

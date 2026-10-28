@@ -16,7 +16,7 @@ namespace NetProbe
     {
         Panel tgBody; ScrollHost tgHost;
         Label tgpState, tgpAddr, tgpLink, tgpErr, tgpDcRes, tgpCfRes;
-        TgStatsView tgpStats; Action tgpLayState;
+        TgStatsView tgpStats; Action tgpLayState; Label tgpUpd; string tgUpstreamLatest;
         Toggle tgpOn;
         System.Windows.Forms.Timer tgpTimer, tgpApply;
         bool tgpLogHooked, tgpLoading;
@@ -78,6 +78,8 @@ namespace NetProbe
             tgpLink.Text = cur != null ? TgProxy.Link(cur) : "";
             bool showErr = err != null;
             if (tgpErr != null && (tgpErr.Text != (err ?? "") || tgpErr.Visible != showErr)) { tgpErr.Text = err ?? ""; tgpErr.Visible = showErr; if (tgpLayState != null) tgpLayState(); }
+            bool upd = tgUpstreamLatest != null;
+            if (tgpUpd != null && tgpUpd.Visible != upd) { tgpUpd.Text = upd ? "↑ " + Tx("Вышла tg-ws-proxy ") + tgUpstreamLatest + Tx(" (у тебя основа ") + TgConst.UpstreamVersion + Tx(") — придёт с обновлением NetProbe") : ""; tgpUpd.Visible = upd; if (tgpLayState != null) tgpLayState(); }
             if (tgpOn != null && tgpOn.On != st.TgOn) { tgpLoading = true; tgpOn.On = st.TgOn; tgpLoading = false; }
             if (tgpStats != null) tgpStats.Set(run);
             tgpState.Invalidate(); if (tgpState.Parent != null) tgpState.Parent.Invalidate(new Rectangle(0, tgpState.Top, Theme.S(40), tgpState.Height));
@@ -100,7 +102,7 @@ namespace NetProbe
         {
             enum K { Row, Check, Full, Buttons, Note, Indent, CheckField }
             readonly List<Tuple<K, Control, Control[], int>> items = new List<Tuple<K, Control, Control[], int>>();
-            readonly CardPanel card; public int Top = Theme.S(48);
+            readonly CardPanel card; public int Top = Theme.S(44);
             public static int Pad { get { return Theme.S(18); } }
             public static int LabelW { get { return Theme.S(140); } }
             public TgForm(CardPanel c) { card = c; c.Resize += (s, e) => Lay(); }
@@ -121,20 +123,20 @@ namespace NetProbe
                 if (laying) return; laying = true;
                 try
                 {
-                    int W = card.Width, ip = Pad, y = Top, lx = ip + LabelW, gap = Theme.S(10);
+                    int W = card.Width, ip = Pad, y = Top, lx = ip + LabelW, gap = Theme.S(7);
                     foreach (var it in items)
                     {
                         var c = it.Item2;
                         switch (it.Item1)
                         {
                             case K.Row:
-                                int h = Math.Max(c.Height, Theme.S(28));
+                                int h = Math.Max(c.Height, Theme.S(26));
                                 it.Item3[0].SetBounds(ip, y, LabelW - Theme.S(8), h);
                                 if (it.Item4 > 0) c.SetBounds(lx, y + (h - c.Height) / 2, it.Item4, c.Height);
                                 else if (c is Spin) c.Location = new Point(lx, y + (h - c.Height) / 2);
                                 else c.SetBounds(lx, y + (h - c.Height) / 2, W - lx - ip, c.Height);
                                 y += h + gap; break;
-                            case K.Check: c.Location = new Point(ip - Theme.S(2), y); y += Theme.S(28); break;
+                            case K.Check: c.Location = new Point(ip - Theme.S(2), y); y += Theme.S(26); break;
                             case K.CheckField:
                                 var chk = it.Item3[0]; int fh = Math.Max(c.Height, Theme.S(26));
                                 chk.Location = new Point(ip - Theme.S(2), y + (fh - chk.Height) / 2);
@@ -154,7 +156,7 @@ namespace NetProbe
                                 l.SetBounds(ip, y, W - ip * 2, nh); y += nh + gap; break;
                         }
                     }
-                    int ch = y - gap + Theme.S(18); Natural = ch;
+                    int ch = y - gap + Theme.S(14); Natural = ch;
                     ch = Math.Max(ch, MinH);
                     if (card.Height != ch) card.Height = ch;
                 }
@@ -196,9 +198,13 @@ namespace NetProbe
             bRestart.Click += (s, e) => { if (!st.TgOn) { st.TgOn = true; st.Save(); } TgApply(); };
             tgpStats = new TgStatsView();
             tgpErr = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Red, BackColor = Theme.Card, UseMnemonic = false, Visible = false };
+            // вышла новая tg-ws-proxy: строка-ссылка на её релиз (сам прокси — часть NetProbe и обновляется вместе с ним)
+            tgpUpd = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Orange, BackColor = Theme.Card, UseMnemonic = false, Visible = false, Cursor = Cursors.Hand, AutoEllipsis = true };
+            tgpUpd.Click += (s, e) => { try { Process.Start("https://github.com/" + TgConst.UpstreamRepo + "/releases/latest"); } catch { } };
+            tip.SetToolTip(tgpUpd, Tx("Встроенный прокси — перенос кода tg-ws-proxy внутрь NetProbe: новая версия попадёт к тебе с обновлением NetProbe. Клик — страница релиза"));
             var how = new Label { Text = Tx("Вручную: Telegram → Настройки → Продвинутые → Тип соединения → Прокси → MTProto: адрес, порт и секрет «dd…» из ссылки."), AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false };
             tip.SetToolTip(tgpLink, how.Text); tip.SetToolTip(tgpAddr, how.Text);
-            cs.Controls.AddRange(new Control[] { tgpOn, dot, tgpState, tgpAddr, tgpLink, bOpen, bCopy, bRestart, tgpStats, tgpErr });
+            cs.Controls.AddRange(new Control[] { tgpOn, dot, tgpState, tgpAddr, tgpLink, bOpen, bCopy, bRestart, tgpStats, tgpErr, tgpUpd });
             bool layingState = false;
             tgpLayState = () =>
             {
@@ -219,10 +225,11 @@ namespace NetProbe
                     foreach (var b in new[] { bOpen, bCopy, bRestart }) { if (x > ip && x + b.Width > ip + leftW) { x = ip; y += bh + Theme.S(8); } b.Location = new Point(x, y); x = b.Right + Theme.S(8); }
                     y = bOpen.Bottom; foreach (var b in new[] { bCopy, bRestart }) y = Math.Max(y, b.Bottom);
                     if (tgpErr.Visible) { tgpErr.SetBounds(ip, y + Theme.S(8), leftW, Theme.S(18)); y = tgpErr.Bottom; }
+                    if (tgpUpd.Visible) { tgpUpd.SetBounds(ip, y + Theme.S(8), leftW, Theme.S(18)); y = tgpUpd.Bottom; }
                     int sh = tgpStats.Needed(statsW);
                     if (side) { tgpStats.SetBounds(w - ip - statsW, top, statsW, sh); y = Math.Max(y, tgpStats.Bottom); }
                     else { tgpStats.SetBounds(ip, y + Theme.S(14), statsW, sh); y = tgpStats.Bottom; }
-                    int ch = y + Theme.S(18);
+                    int ch = y + Theme.S(14);
                     if (cs.Height != ch) { cs.Height = ch; if (relayTg != null && !layingTg && cs.Parent == tgBody) relayTg(); }
                 }
                 finally { layingState = false; }
@@ -429,7 +436,7 @@ namespace NetProbe
     {
         string[] vals = { "0", "—", "0 B", "0 B" }, subs = { "", "", "", "" };
         static string[] Heads { get { return new[] { Tr.Tx("Соединения"), Tr.Tx("Маршруты"), Tr.Tx("Отправлено"), Tr.Tx("Получено") }; } }
-        public int Needed(int w) { return Theme.S(68) * 2 + Theme.S(8); }
+        public int Needed(int w) { return Theme.S(62) * 2 + Theme.S(8); }
         public void Set(bool run)
         {
             vals = new[] { Interlocked.Read(ref TgStats.Active).ToString(), "WS " + TgStats.Ws + " · CF " + TgStats.Cf, TgConst.Human(Interlocked.Read(ref TgStats.Up)), TgConst.Human(Interlocked.Read(ref TgStats.Down)) };
@@ -448,8 +455,8 @@ namespace NetProbe
                 var r = new RectangleF(x + 0.5f, y + 0.5f, tw - 1, th - 1);
                 Gfx.FillRound(g, tile, r, Theme.R(8));
                 Gfx.Text(g, heads[i], Theme.Small, Theme.Muted, new Rectangle(x + pad, y + Theme.S(7), tw - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-                Gfx.Text(g, vals[i], Theme.H2, Theme.Text, new Rectangle(x + pad, y + Theme.S(23), tw - pad * 2, Theme.S(22)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
-                if (i < 2) Gfx.Text(g, subs[i], Theme.Small, Theme.Dim, new Rectangle(x + pad, y + th - Theme.S(18), tw - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+                Gfx.Text(g, vals[i], Theme.H2, Theme.Text, new Rectangle(x + pad, y + Theme.S(21), tw - pad * 2, Theme.S(22)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+                if (i < 2) Gfx.Text(g, subs[i], Theme.Small, Theme.Dim, new Rectangle(x + pad, y + th - Theme.S(17), tw - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
             }
         }
     }

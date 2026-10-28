@@ -190,6 +190,7 @@ namespace NetProbe
         public bool TgVerbose = false; public int TgBufKb = 256, TgPool = 4;
         public bool TgCf = true, TgH2 = true, TgCfUserOn = false, TgWorkerOn = false, TgTestDc = false, TgNoSecure = false, TgProxyProto = false;
         public string TgCfUser = "", TgWorker = "", TgFakeTls = "";
+        public string TgUpstreamNotified = "";   // о какой версии tg-ws-proxy уже сообщили (один раз)
         public string ModuleOrder = "";      // 3.2.1: порядок карточек (ключи через запятую) — перетаскивание внутри страницы
         public string ModuleTabs = "";       // 3.2.1: вкладка Настроек, куда положили карточку: ключ=вкладка;…
         public string ModuleLoc = "";        // 3.2: где лежат карточки-модули: ключ=home|settings|c<N>;…

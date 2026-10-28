@@ -21,6 +21,13 @@ namespace NetProbe
         public static readonly Dictionary<int, string> DcTestIps = new Dictionary<int, string>
         { { 1, "149.154.175.10" }, { 2, "149.154.167.40" }, { 3, "149.154.175.117" } };
         public const string WsPath = "/apiws", WsPathTest = "/apiws_test";
+        // версия tg-ws-proxy, с которой перенесён код; новые версии на GitHub — повод перенести изменения в NetProbe
+        public const string UpstreamVersion = "1.11.2", UpstreamRepo = "Flowseal/tg-ws-proxy";
+        public static bool UpstreamNewer(string tag)
+        {
+            Version a, b; if (!Version.TryParse((tag ?? "").TrimStart('v', 'V'), out a) || !Version.TryParse(UpstreamVersion, out b)) return false;
+            return a > b;
+        }
         public const string DefaultDcIp = "2:149.154.167.220, 4:149.154.167.220";
 
         public static string[] WsDomains(int dc, bool media)

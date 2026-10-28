@@ -7,6 +7,12 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "Вышла tg-ws-proxy ", "Nueva tg-ws-proxy " },
+            { ": встроенный TG Proxy основан на ", ": el TG Proxy integrado se basa en " },
+            { " — изменения придут с обновлением NetProbe", " — los cambios llegarán con una actualización de NetProbe" },
+            { " (у тебя основа ", " (la tuya se basa en " },
+            { ") — придёт с обновлением NetProbe", ") — llegará con una actualización de NetProbe" },
+            { "Встроенный прокси — перенос кода tg-ws-proxy внутрь NetProbe: новая версия попадёт к тебе с обновлением NetProbe. Клик — страница релиза", "El proxy integrado es el código de tg-ws-proxy portado a NetProbe: la nueva versión te llega con una actualización de NetProbe. Clic: página de la versión" },
             { "Запуск…", "Iniciando…" },
             { "Ошибка", "Error" },
             { " напрямую", " directos" },
