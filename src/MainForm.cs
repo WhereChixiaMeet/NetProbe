@@ -136,6 +136,28 @@ namespace NetProbe
 
         // Отладка: --shots <папка> — снимки всех страниц во всех темах, затем выход
         public static string ShotsDir;
+        // сторож теста: если UI-поток 2 минуты не продвигается — пишем, где завис (стек), и выходим, чтобы run.cmd не висел
+        static volatile string shotStage = "start"; static int shotTick = Environment.TickCount;
+        static void ShotStep(string stage) { shotStage = stage; shotTick = Environment.TickCount; }
+        static void StartShotWatchdog(string dir)
+        {
+            var main = System.Threading.Thread.CurrentThread;
+            var th = new System.Threading.Thread(() =>
+            {
+                while (true)
+                {
+                    System.Threading.Thread.Sleep(5000);
+                    if (unchecked(Environment.TickCount - shotTick) < 120000) continue;
+                    string stack = "";
+#pragma warning disable 618
+                    try { main.Suspend(); try { stack = new System.Diagnostics.StackTrace(main, false).ToString(); } finally { main.Resume(); } } catch (Exception ex) { stack = "stack n/a: " + ex.Message; }
+#pragma warning restore 618
+                    try { File.WriteAllText(Path.Combine(dir, "layout.txt"), "HANG at: " + shotStage + "\r\n" + stack); } catch { }
+                    Environment.Exit(3);
+                }
+            }) { IsBackground = true };
+            th.Start();
+        }
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
@@ -145,8 +167,9 @@ namespace NetProbe
             {
                 t.Stop();
                 Directory.CreateDirectory(ShotsDir);
+                ShotStep("begin"); StartShotWatchdog(ShotsDir);
                 int keep = st.Theme;
-                Action<string> shot = name => { Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); using (var bmp = new Bitmap(Width, Height)) { DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height)); bmp.Save(Path.Combine(ShotsDir, name + ".png")); } };
+                Action<string> shot = name => { ShotStep("shot " + name); Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); using (var bmp = new Bitmap(Width, Height)) { DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height)); bmp.Save(Path.Combine(ShotsDir, name + ".png")); } };
                 foreach (ThemeKind k in new[] { ThemeKind.Dark, ThemeKind.Light, ThemeKind.Classic, ThemeKind.Chisa, ThemeKind.Kurumi })
                 {
                     Theme.Apply(k); st.Theme = (int)k; RebuildUi();
@@ -191,6 +214,7 @@ namespace NetProbe
                 var keys = moduleKeys.ToList(); int pc = PageCount, runs = 0;
                 Action<string, string, int> verify = (tag, key, pg) =>
                 {
+                    ShotStep("verify " + tag + " " + key);
                     CardPanel mc;
                     if (!modules.TryGetValue(key, out mc) || mc.IsDisposed) { report.Add(tag + ": " + key + " lost"); return; }
                     int on = -1;
@@ -215,7 +239,7 @@ namespace NetProbe
                     if (frames.TryGetValue(pg, out fr))
                     {
                         if (Math.Abs(fr.Inner.Height - outer.ClientSize.Height) > 2) report.Add(tag + ": page content height " + fr.Inner.Height + " ≠ window " + outer.ClientSize.Height);
-                        if (fr.Inner.Width < Math.Min(ContentMin, outer.ClientSize.Width) - Theme.S(16)) report.Add(tag + ": page content squeezed to w=" + fr.Inner.Width);
+                        if (fr.Inner.Width < (fr.Dock.Visible ? ContentMin : Math.Min(ContentMin, outer.ClientSize.Width - Theme.S(14))) - Theme.S(16)) report.Add(tag + ": page content squeezed to w=" + fr.Inner.Width);
                     }
                     // модуль на чужой странице должен работать: списки заполнены текущими значениями
                     Action<Control> combos = null;
@@ -231,7 +255,7 @@ namespace NetProbe
                 foreach (var key in keys)
                     for (int pg = 0; pg < pc; pg++)
                     {
-                        st.ModuleLoc = key + "=" + LocOfPage(pg); RebuildUi(); runs++;
+                        ShotStep("rebuild one " + key + " p" + pg); st.ModuleLoc = key + "=" + LocOfPage(pg); RebuildUi(); runs++;
                         string tag = "one " + key + "→p" + pg;
                         verify(tag, key, pg);
                         foreach (var line in CheckLayout(pageOuter.ContainsKey(pg) ? (Control)pageOuter[pg] : pages[pg])) report.Add(tag + ": " + line);
@@ -243,10 +267,11 @@ namespace NetProbe
                 {
                     // minwide: минимальное окно и самая широкая левая панель — самое узкое место для карточек
                     st.SideWidth = szName == "minwide" ? 380 : 214;
+                    ShotStep("size " + szName);
                     Size = szName == "min" || szName == "minwide" ? MinimumSize : szName == "max" ? new Size(Math.Max(keepSize.Width, scr.Width), Math.Max(keepSize.Height, scr.Height)) : keepSize;
                     for (int pg = 0; pg < pc; pg++)
                     {
-                        st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pg))); RebuildUi(); runs++;
+                        ShotStep("rebuild all p" + pg + " " + szName); st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pg))); RebuildUi(); runs++;
                         string tag = "all→p" + pg + " " + szName;
                         foreach (var key in keys) verify(tag, key, pg);
                         foreach (var line in CheckLayout(pageOuter.ContainsKey(pg) ? (Control)pageOuter[pg] : pages[pg])) report.Add(tag + ": " + line);
@@ -257,7 +282,7 @@ namespace NetProbe
                 Size = keepSize; st.SideWidth = 214;
                 // сброс раскладки возвращает всё домой и снимает Lock
                 st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pc - 1))); st.UiLocked = true; RebuildUi();
-                ResetLayout(); runs++;
+                ResetLayout(); RebuildUi(); runs++; // ResetLayout перестраивает через BeginInvoke — в тесте синхронно
                 if (st.ModuleLoc != "" || st.UiLocked || CardPanel.Locked) report.Add("reset: layout not reset");
                 foreach (var key in keys) verify("reset", key, moduleHome[key]);
                 // 3) экспорт / импорт настроек переносит раскладку (места модулей, свои вкладки, названия меню, ширины, Lock)

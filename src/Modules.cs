@@ -75,6 +75,7 @@ namespace NetProbe
 
         void RegisterModule(CardPanel c, string key, int home, string tab)
         {
+            c.RememberBase();
             c.ModuleKey = key; modules[key] = c; moduleHome[key] = home; moduleTab[key] = tab;
             if (!moduleKeys.Contains(key)) moduleKeys.Add(key);
             c.ModuleMenu += ShowModuleMenu;
@@ -213,7 +214,7 @@ namespace NetProbe
                 var cards = f.Dock.Content.Controls.OfType<CardPanel>().Concat(f.Strip.Controls.OfType<CardPanel>())
                     .OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
                 int W = f.Outer.ClientSize.Width, H = f.Outer.ClientSize.Height;
-                int minW = Theme.S(300); foreach (var c in cards) minW = Math.Max(minW, c.Width + Theme.S(18));
+                int minW = Theme.S(300); foreach (var c in cards) minW = Math.Max(minW, c.BaseW + Theme.S(18));
                 bool any = cards.Count > 0, right = any && W - minW - f.Split.Width >= ContentMin;
                 f.Dock.Visible = right; f.Split.Visible = right;
                 Control box = right ? (Control)f.Dock.Content : f.Strip;
@@ -222,8 +223,13 @@ namespace NetProbe
                 {
                     f.Dock.Width = Math.Max(minW, Math.Min(W - ContentMin - f.Split.Width, Math.Max(minW, Theme.S(st.DockW))));
                     int y = Theme.S(80);
-                    foreach (var c in cards) { c.SetBounds(0, y, Math.Max(c.Width, f.Dock.Content.Width - Theme.S(2)), c.Height); y = c.Bottom + Theme.S(12); }
-                    f.Dock.Content.Height = y + Theme.S(10); f.Dock.Relayout();
+                    foreach (var c in cards) { y += c.Height + Theme.S(12); }
+                    // сначала высота → появится ли полоса прокрутки, потом ширина карточек по реальной ширине колонки
+                    f.Dock.Content.Height = y + Theme.S(10); f.Dock.MinContentWidth = 0; f.Dock.Relayout();
+                    y = Theme.S(80);
+                    foreach (var c in cards) { c.SetBounds(0, y, Math.Max(c.BaseW, f.Dock.Content.Width - Theme.S(2)), c.Height); y = c.Bottom + Theme.S(12); }
+                    int dneed = cards.Max(c => c.Width) + Theme.S(2);
+                    if (dneed > f.Dock.Content.Width) { f.Dock.MinContentWidth = dneed; f.Dock.Relayout(); }
                 }
                 int viewW = right ? W - f.Dock.Width - f.Split.Width : W;
                 // содержимое страницы — во весь видимый экран; полоса модулей (если есть) — ниже, к ней прокручивают
@@ -234,6 +240,7 @@ namespace NetProbe
                     int L = Theme.S(26), gap = Theme.S(12), cw = Math.Max(10, viewW - L * 2 - Theme.S(14)), x = 0, y = Theme.S(4), rowH = 0;
                     foreach (var c in cards)
                     {
+                        if (c.Width != c.BaseW) c.Width = c.BaseW;
                         if (x > 0 && x + c.Width > cw) { x = 0; y += rowH + gap; rowH = 0; }
                         c.Location = new Point(L + x, y); x += c.Width + gap; rowH = Math.Max(rowH, c.Height);
                     }
@@ -242,11 +249,14 @@ namespace NetProbe
                 f.Scroll.Content.Height = H + stripH;
                 f.Scroll.MinContentWidth = 0; f.Scroll.Relayout();
                 int cwid = f.Scroll.Content.Width;
+                // узкое окно: страница сама ужимается (вкладки, колонки), горизонтальная прокрутка — только в самом крайнем случае
+                int pageMin = Theme.S(600);
+                if (cwid < pageMin) { cwid = pageMin; f.Scroll.MinContentWidth = pageMin; f.Scroll.Relayout(); }
                 // карточка шире окна (узкое окно / широкая левая панель) — полоса шире, снизу горизонтальная прокрутка, ничего не обрезается
                 if (f.Strip.Visible)
                 {
                     int need = Theme.S(26) * 2 + cards.Max(c => c.Width) + Theme.S(4);
-                    if (need > cwid) { f.Scroll.MinContentWidth = need; f.Scroll.Relayout(); }
+                    if (need > Math.Max(cwid, f.Scroll.MinContentWidth)) { f.Scroll.MinContentWidth = need; f.Scroll.Relayout(); }
                 }
                 f.Inner.SetBounds(0, 0, cwid, H);
                 if (f.Strip.Visible) f.Strip.SetBounds(0, H, Math.Max(cwid, f.Scroll.MinContentWidth), stripH);
@@ -341,6 +351,7 @@ namespace NetProbe
                 Action lay = () =>
                 {
                     var mine = host.Content.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
+                    foreach (var c in mine) if (c.Width != c.BaseW) c.Width = c.BaseW;
                     int L = Theme.S(26), T = Theme.S(80), W = p.ClientSize.Width - L * 2, gap = Theme.S(14);
                     empty.Visible = mine.Count == 0; empty.Location = new Point(L, T);
                     host.SetBounds(L, T, W, Math.Max(10, p.ClientSize.Height - T - Theme.S(14)));

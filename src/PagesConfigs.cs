@@ -73,7 +73,7 @@ namespace NetProbe
 
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, H = p.ClientSize.Height - Theme.S(20), gap = Theme.S(14), lw = Theme.S(260), ip = Theme.S(12);
+                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, H = p.ClientSize.Height - Theme.S(20), gap = Theme.S(14), lw = Math.Max(Theme.S(200), Math.Min(Theme.S(260), W / 3)), ip = Theme.S(12);
                 left.SetBounds(L, 0, lw, H);
                 int bx = lw - ip;
                 for (int i = leftBtns.Length - 1; i >= 0; i--) { bx -= leftBtns[i].Width; leftBtns[i].Location = new Point(bx, Theme.S(8)); bx -= Theme.S(3); }
@@ -83,7 +83,7 @@ namespace NetProbe
                 bBack.Location = new Point(ed.Width - ip - bBack.Width, Theme.S(8)); bPrim.Location = new Point(bBack.Left - Theme.S(6) - bPrim.Width, Theme.S(8));
                 lName.Location = new Point(ip, Theme.S(54)); tbTunName.SetBounds(lName.Right + Theme.S(6), Theme.S(50), Math.Min(Theme.S(320), ew - lName.Width), tbTunName.Height);
                 lTunInfo.SetBounds(ip, H - Theme.S(28), ew, Theme.S(18));
-                tsProto.Location = new Point(ip, Theme.S(86));
+                tsProto.SetBounds(ip, Theme.S(86), Math.Min(Theme.S(340), ew), tsProto.Height);
                 tbTunText.SetBounds(ip, Theme.S(124), ew, H - Theme.S(158));
                 xrForm.SetBounds(ip, Theme.S(124), ew, H - Theme.S(158));
             };

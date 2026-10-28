@@ -135,6 +135,8 @@ namespace NetProbe
             finally
             {
                 setBody.Height = y + Theme.S(10);
+                // карточка шире области (узкое окно) — горизонтальная прокрутка вместо обрезки
+                setHost.MinContentWidth = setBody.Controls.OfType<CardPanel>().Where(c => c.Visible).Select(c => c.Width + Theme.S(2)).DefaultIfEmpty(0).Max();
                 setHost.ScrollToTop(); setHost.Relayout();
                 if (redrawOff) { Native.SendMessage(setHost.Handle, 0x000B, (IntPtr)1, IntPtr.Zero); RedrawWindow(setHost.Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100); }
                 else setHost.Invalidate(true);

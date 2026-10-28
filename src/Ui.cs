@@ -441,6 +441,9 @@ namespace NetProbe
         protected override void OnMouseUp(MouseEventArgs e) { canDrag = false; base.OnMouseUp(e); }
         // карточка шире, чем её строили: элементы у правого края едут вправо, широкие (списки, поля, подсказки) растягиваются
         int builtW;
+        // исходная ширина карточки (до растягивания по колонке)
+        public int BaseW { get { return builtW > 0 ? builtW : Width; } }
+        public void RememberBase() { if (builtW == 0) builtW = Width; }
         public void AutoAnchor()
         {
             builtW = Width;

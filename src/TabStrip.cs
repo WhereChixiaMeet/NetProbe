@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -66,8 +66,22 @@ namespace NetProbe
                 for (int i = 0; i < Tabs.Count; i++) rects.Add(new Rectangle(i * w, 0, i == n - 1 ? Width - i * w : w, Height));
                 total = Width; return;
             }
-            int x = 0, pad = Theme.S(12);
-            foreach (var t in Tabs) { int w = TextW(t) + pad * 2; rects.Add(new Rectangle(x, 0, w, Height)); x += w + Theme.S(2); }
+            // узко — сначала ужимаем поля вокруг текста, потом самые длинные вкладки (текст с «…»), стрелки — только если и так не влезает
+            int cnt = Tabs.Count, gap = Theme.S(2), gaps = gap * Math.Max(0, cnt - 1);
+            var tw = Tabs.Select(TextW).ToList(); int sumT = tw.Sum();
+            int pad = cnt == 0 ? Theme.S(12) : Math.Max(Theme.S(4), Math.Min(Theme.S(12), (Width - gaps - sumT) / (2 * cnt)));
+            var ws = tw.Select(w => w + pad * 2).ToList();
+            int avail = Width - gaps, minTab = Theme.S(56);
+            if (cnt > 0 && ws.Sum() > avail && Width > 0)
+            {
+                int cap = ws.Max();
+                while (cap > minTab && ws.Sum(w => Math.Min(w, cap)) > avail) cap -= Theme.S(2);
+                cap = Math.Max(minTab, cap);
+                ws = ws.Select(w => Math.Min(w, cap)).ToList();
+            }
+            int x = 0;
+            for (int i = 0; i < cnt; i++) { rects.Add(new Rectangle(x, 0, ws[i], Height)); x += ws[i] + gap; }
+            if (cnt > 0) x -= gap;
             total = x;
             offset = Math.Max(0, Math.Min(offset, total - Width + Arrow * 2));
             if (!Overflow) offset = 0;
@@ -136,6 +150,8 @@ namespace NetProbe
             int h = HitTest(e.Location);
             if (h != hover) { hover = h; Invalidate(); }
             string t = h >= 0 ? Tabs[h].Tip : null;
+            // текст обрезан «…» — полное название в подсказке
+            if (h >= 0 && !Segmented && h < rects.Count && TextW(Tabs[h]) > rects[h].Width - Theme.S(6)) t = Tabs[h].Text + (string.IsNullOrEmpty(t) ? "" : "\n" + t);
             if (t != tipShown)
             {
                 // как у остальных подсказок: показываем после Ui.TipDelay наведения
@@ -172,8 +188,10 @@ namespace NetProbe
                 if (hov && !sel) Gfx.FillRound(g, Theme.Mix(Theme.Card, Theme.CardHi, 0.6), new RectangleF(r.X + 1, r.Y + Theme.S(3), r.Width - 2, r.Height - Theme.S(6)), Theme.Classic ? 0 : Theme.R(6));
                 Color fg = sel ? Theme.Text : t.Dim ? Theme.Dim : hov ? Theme.Text : Theme.Muted;
                 int tw = TextRenderer.MeasureText(t.Text ?? "", Font).Width, x = r.X + (r.Width - TextW(t)) / 2;
-                Gfx.Text(g, t.Text, Font, fg, new Rectangle(x, 0, tw + Theme.S(4), Height - Theme.S(2)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                if (!string.IsNullOrEmpty(t.Badge))
+                bool cut = TextW(t) > r.Width - Theme.S(6);
+                if (cut) Gfx.Text(g, t.Text, Font, fg, new Rectangle(r.X + Theme.S(4), 0, r.Width - Theme.S(8), Height - Theme.S(2)), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
+                else Gfx.Text(g, t.Text, Font, fg, new Rectangle(x, 0, tw + Theme.S(4), Height - Theme.S(2)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                if (!cut && !string.IsNullOrEmpty(t.Badge))
                     Gfx.Text(g, t.Badge, BadgeFont, sel ? Theme.Accent : Theme.Dim, new Rectangle(x + tw + Theme.S(6), 0, Theme.S(60), Height - Theme.S(2)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 if (sel) using (var b = new SolidBrush(Theme.Accent)) g.FillRectangle(b, r.X + Theme.S(6), Height - Theme.S(3), r.Width - Theme.S(12), Theme.S(3));
             }

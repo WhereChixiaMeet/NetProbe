@@ -55,12 +55,15 @@ namespace NetProbe
             pc.Resize += (s, e) =>
             {
                 int pad = Theme.S(18), w = pc.Width - pad * 2;
-                pollValue.SetBounds(pc.Width - pad - Theme.S(300), Theme.S(8), Theme.S(300), Theme.S(28));
+                int vw = Math.Max(Theme.S(80), Math.Min(Theme.S(300), w - Theme.S(150)));
+                pollValue.SetBounds(pc.Width - pad - vw, Theme.S(8), vw, Theme.S(28));
                 pollSlider.SetBounds(pad - Theme.S(6), Theme.S(40), w + Theme.S(12), Theme.S(26));
                 lim.SetBounds(pad, Theme.S(68), w, Theme.S(32));
                 pollEff.SetBounds(pad, Theme.S(100), w, Theme.S(18));
                 lFam.Location = new Point(pad, Theme.S(130)); cbFam.Location = new Point(lFam.Right + Theme.S(8), Theme.S(125));
-                cNewIp.Location = new Point(cbFam.Right + Theme.S(18), Theme.S(128));
+                // не влезает в строку — галочка уходит строкой ниже (карточка для этого выше, см. lay)
+                if (cbFam.Right + Theme.S(18) + cNewIp.Width <= pc.Width - pad) cNewIp.Location = new Point(cbFam.Right + Theme.S(18), Theme.S(128));
+                else cNewIp.Location = new Point(pad, Theme.S(158));
             };
             pollSlider.Tag = updLim;
 
@@ -119,8 +122,9 @@ namespace NetProbe
             {
                 int L = Theme.S(26), W = p.ClientSize.Width - L * 2, y = Theme.S(86), gap = Theme.S(14);
                 int hw = (W - gap) / 2;
-                pc.SetBounds(L, y, hw, Theme.S(160));
-                lcfg.SetBounds(L + hw + gap, y, W - hw - gap, Theme.S(160));
+                int ph = hw < Theme.S(470) ? Theme.S(190) : Theme.S(160);
+                pc.SetBounds(L, y, hw, ph);
+                lcfg.SetBounds(L + hw + gap, y, W - hw - gap, ph);
                 int ip = Theme.S(16);
                 lRet.Location = new Point(ip, Theme.S(48)); cbRetention.Location = new Point(lRet.Right + Theme.S(8), Theme.S(44));
                 lLogDir.SetBounds(ip, Theme.S(76), lcfg.Width - ip * 2, Theme.S(16));
