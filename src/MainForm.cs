@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.0.3";
+        public const string Version = "3.0.4";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -454,7 +454,7 @@ namespace NetProbe
         void UpdateSide()
         {
             if (sideStatus == null || sideStatus.IsDisposed) return;
-            sideStatus.Text = "● " + Router.StateName(router.State) + "\n" + Router.ModeName(st.RunMode) + "\n" + (monVpn.Running ? Tx("Мониторинг: ") + PollText() : Tx("Мониторинг выключен")) + Tx("\nНапрямую: ") + (direct != null ? direct.Ip : Tx("маршрут по умолчанию"));
+            sideStatus.Text = "● " + (!router.Active && xm.Active ? XrayManager.StateName(xm.State) + " · xray" : Router.StateName(router.State)) + "\n" + Router.ModeName(st.RunMode) + "\n" + (monVpn.Running ? Tx("Мониторинг: ") + PollText() : Tx("Мониторинг выключен")) + Tx("\nНапрямую: ") + (direct != null ? direct.Ip : Tx("маршрут по умолчанию"));
         }
 
         string PollText()
@@ -597,7 +597,7 @@ namespace NetProbe
             UpdateDpiState();
             UpdateTray();
             if (widget != null) { widget.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : ""; widget.Invalidate(); }
-            if (miniMon != null && !miniMon.IsDisposed) { miniMon.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : xm.Active ? "XRAY" : ""; miniMon.Invalidate(); }
+            if (miniMon != null && !miniMon.IsDisposed) { miniMon.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : xm.Active ? (XrayManager.StateName(xm.State) + " · XRAY").ToUpperInvariant() : ""; miniMon.Invalidate(); }
         }
 
         void OnUiTick()
@@ -755,7 +755,7 @@ namespace NetProbe
         {
             if (tray == null) return;
             var a = chs["vpn"]; var b = chs["direct"];
-            string tip = "NetProbe · " + Router.StateName(router.State) + "\nVPN: " + a.Val + Tx("\nНапрямую: ") + b.Val;
+            string tip = "NetProbe · " + (!router.Active && xm.Active ? XrayManager.StateName(xm.State) + " · xray" : Router.StateName(router.State)) + "\nVPN: " + a.Val + Tx("\nНапрямую: ") + b.Val;
             if (tip.Length > 63) tip = tip.Substring(0, 63);
             try { tray.Text = tip; } catch { }
             int sz = SystemInformation.SmallIconSize.Width;

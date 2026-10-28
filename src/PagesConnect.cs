@@ -194,7 +194,7 @@ namespace NetProbe
                 lc.Box.DimReason = AppLists.NotAppReason; // домен/IP в списке приложений: серым + причина
                 AttachPathMenu(lc.Box, this);
                 var lcRef = lc;
-                lc.Box.RightText = n => n == ListCard.BuiltIn ? Tx("встроено") : AppLists.IsAppEntry(n) ? null : Tx("не работает");
+                lc.Box.RightText = n => n == ListCard.BuiltIn ? Tx("встроено") : null; // домены в списках приложений — без подписи «not used» (только серым + подсказка)
                 var miRen = new ToolStripMenuItem(Tx("Переименовать…"));
                 miRen.Click += (s, e) => { var old = lcRef.Box.SelectedItem; if (old != null && old != ListCard.BuiltIn) RenameInList(lcRef.Key, old); };
                 var miRoute = new ToolStripMenuItem(Tx("Проверить маршрут…"));
@@ -367,6 +367,19 @@ namespace NetProbe
         void UpdateConnectUi()
         {
             if (board == null || board.IsDisposed) return;
+            // источник — подписка (xray), маршрутизатор при этом выключен: показываем реальное состояние подключения, как на Subscriptions
+            if (!router.Active && xm.Active)
+            {
+                var xs = xm.State; var cur = ServerStore.Find(st.ActiveServer);
+                board.State = XrayManager.StateName(xs) + "  ·  " + Router.ModeName(st.RunMode) + (cur != null ? "  ·  " + cur.Name : "");
+                board.Lv = xs == XState.Connected ? (xm.LastDelay == -2 ? Level.Slow : Level.Good) : xs == XState.AllDown ? Level.Down : Level.Wait;
+                board.Line1 = Tx("Подписка (xray)") + (cur != null ? ": " + cur.Transport + " · " + cur.Endpoint : "") + "  ·  " + Tx("задержка ") + (xm.LastDelay > 0 ? xm.LastDelay + Tx(" мс") : xm.LastDelay == -2 ? Tx("нет ответа") : "…")
+                    + "  ·  " + (st.TunMode ? "TUN" + (xm.TunRunning ? " ✓" : " ✗") : st.SysProxy ? Tx("системный прокси") : "SOCKS 127.0.0.1:" + st.SocksPort);
+                int dp = router.Dpi.Pid;
+                board.Line2 = (dp > 0 ? "winws «" + router.Dpi.Strategy + "» PID " + dp : "DPI —") + "  ·  VPN " + chs["vpn"].Val + Tx(" · напрямую ") + chs["direct"].Val + "  ·  " + Tx("переключений: ") + xm.Switches;
+                board.Invalidate();
+                return;
+            }
             var s = router.State;
             board.State = Router.StateName(s) + (router.Active ? "  ·  " + Router.ModeName(st.RunMode) : "");
             board.Lv = s == RouteState.Off ? Level.Off : s == RouteState.Connecting ? Level.Wait : s == RouteState.Vpn || s == RouteState.DpiOnly ? Level.Good : s == RouteState.VpnDown ? Level.Down : Level.Fair;

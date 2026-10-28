@@ -28,7 +28,7 @@ namespace NetProbe
             xm.GetSettings = () => st;
             xm.GetCurl = () => curlPath;
             XState lastX = XState.Off;
-            xm.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if ((xm.State == XState.Off) != (lastX == XState.Off)) RebuildProbers(); lastX = xm.State; UpdateServersUi(); UpdateModeUi(); if (miConnect != null) miConnect.Text = AnyActive ? Tx("Отключить") : Tx("Подключить"); })); } catch { } };
+            xm.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => { if ((xm.State == XState.Off) != (lastX == XState.Off)) RebuildProbers(); lastX = xm.State; UpdateServersUi(); UpdateConnectUi(); UpdateModeUi(); if (miConnect != null) miConnect.Text = AnyActive ? Tx("Отключить") : Tx("Подключить"); })); } catch { } };
             // DPI «Серверов» не зависит от кнопки VPN: запасной вариант автосвитча и приложения «через DPI»
             xm.DpiFallback = on => router.StandaloneDpi(on);
             // 3.0: DPI для подписок — тот же глобальный winws: нужен в режиме ROUTE (DPI/VPN), кнопка DPI «выкл» его глушит
