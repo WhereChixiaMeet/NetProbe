@@ -190,7 +190,8 @@ namespace NetProbe
         public string NavNames = "";         // свои названия пунктов меню: индекс:Название;…
         public int SrvRightW = 360;
         public int DockW = 380;              // ширина правой колонки модулей на остальных страницах
-        public bool UiLocked = false;        // Lock interface: карточки, разделители и пункты меню не двигаются и не меняются          // ширина правой колонки Subscriptions (тянется мышкой)
+        public bool LockDefault321 = false;  // 3.2.1: один раз у всех — интерфейс заблокирован (двигать — снять Lock в Настройках)
+        public bool UiLocked = true;        // Lock interface: карточки, разделители и пункты меню не двигаются и не меняются          // ширина правой колонки Subscriptions (тянется мышкой)
         public string SrvSorts = "";         // сортировка таблицы серверов по вкладкам: id=колонка:a|d;… («*» — общая)          // ширина левой панели (перетаскивается за край)
         public string FontBtnFamily = "Segoe UI", FontLargeFamily = "Segoe UI", FontMedFamily = "Segoe UI", FontSmallFamily = "Segoe UI";
         public double FontBtnSize = 9, FontLargeSize = 11, FontMedSize = 9, FontSmallSize = 8;   // 3.0.9: один раз включить скорость везде (в 3.0.8 по умолчанию была выключена)
@@ -274,6 +275,7 @@ namespace NetProbe
             SideWidth = Math.Max(150, Math.Min(380, SideWidth));
             FontBtnSize = Math.Max(7, Math.Min(14, FontBtnSize)); FontMedSize = Math.Max(7, Math.Min(14, FontMedSize));
             FontSmallSize = Math.Max(6, Math.Min(12, FontSmallSize)); FontLargeSize = Math.Max(8, Math.Min(20, FontLargeSize));
+            if (!LockDefault321) { LockDefault321 = true; UiLocked = true; }
             if (!MonDefaults312) { MonDefaults312 = true; AutoStartMonitor = true; SpeedOn = true; LogProbes = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             if (!SpeedDefaults) { SpeedDefaults = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             PollRate = Math.Max(MinPollRate, Math.Min(MaxPollRate, PollRate));

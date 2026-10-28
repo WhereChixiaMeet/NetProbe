@@ -152,7 +152,7 @@ namespace NetProbe
         }
         void ResetLayoutState()
         {
-            st.ModuleLoc = ""; st.ModuleOrder = ""; st.ModuleTabs = ""; st.DockW = 380; st.SrvRightW = 360; st.SideWidth = 214; st.UiLocked = false; CardPanel.Locked = false; st.Save();
+            st.ModuleLoc = ""; st.ModuleOrder = ""; st.ModuleTabs = ""; st.DockW = 380; st.SrvRightW = 360; st.SideWidth = 214; st.UiLocked = true; CardPanel.Locked = true; st.Save(); // по умолчанию интерфейс заблокирован
             Logger.Write(LogLevel.Info, Tx("Раскладка интерфейса сброшена: все карточки на своих местах"));
         }
 
@@ -373,6 +373,7 @@ namespace NetProbe
         {
             var f = new PageFrame { Inner = inner };
             f.Outer = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Visible = false };
+            if (content != null) f.Outer.Size = content.ClientSize; // сразу в размер окна, а не 200×100 до первой раскладки
             f.Scroll = new ScrollHost { BackColor = Theme.Bg, Dock = DockStyle.Fill };
             f.Dock = new ScrollHost { BackColor = Theme.Bg, Width = Theme.S(380), Visible = false };
             f.Split = new Panel { Width = Theme.S(12), BackColor = Color.Transparent, Visible = false, Cursor = st.UiLocked ? Cursors.Default : Cursors.SizeWE };
@@ -407,6 +408,9 @@ namespace NetProbe
         void LayFrame(PageFrame f)
         {
             if (layingFrame || f.Outer.IsDisposed) return;
+            // страница ещё не встала в окно (размер по умолчанию при пересборке) — не раскладывать: иначе на миг видна
+            // маленькая «страница» с полосами прокрутки в левом верхнем углу (было при смене темы)
+            if (f.Outer.Width < Theme.S(400) || f.Outer.Height < Theme.S(300)) return;
             layingFrame = true;
             try
             {

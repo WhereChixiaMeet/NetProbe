@@ -295,7 +295,7 @@ namespace NetProbe
                 // сброс раскладки возвращает всё домой и снимает Lock
                 st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pc - 1))); st.UiLocked = true; RebuildUi();
                 ResetLayoutState(); RebuildUi(); runs++; // ResetLayout перестраивает через BeginInvoke — в тесте синхронно, иначе перестройка посреди проверки
-                if (st.ModuleLoc != "" || st.UiLocked || CardPanel.Locked) report.Add("reset: layout not reset");
+                if (st.ModuleLoc != "" || st.ModuleOrder != "" || !st.UiLocked || !CardPanel.Locked) report.Add("reset: layout not reset");
                 foreach (var key in keys) verify("reset", key, moduleHome[key]);
                 // перетаскивание внутри страницы: порядок и вкладка Настроек сохраняются и восстанавливаются
                 ShotStep("drop order");
