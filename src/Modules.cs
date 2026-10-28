@@ -139,10 +139,14 @@ namespace NetProbe
 
         void ResetLayout()
         {
-            st.ModuleLoc = ""; st.DockW = 380; st.SrvRightW = 360; st.SideWidth = 214; st.UiLocked = false; CardPanel.Locked = false; st.Save();
-            Logger.Write(LogLevel.Info, Tx("Раскладка интерфейса сброшена: все карточки на своих местах"));
+            ResetLayoutState();
             if (hiddenToTray) RestoreFromTray();
             ApplyModules(curPage);
+        }
+        void ResetLayoutState()
+        {
+            st.ModuleLoc = ""; st.DockW = 380; st.SrvRightW = 360; st.SideWidth = 214; st.UiLocked = false; CardPanel.Locked = false; st.Save();
+            Logger.Write(LogLevel.Info, Tx("Раскладка интерфейса сброшена: все карточки на своих местах"));
         }
 
         void ApplyModules(int page) { BeginInvoke((Action)(() => { RebuildUi(); SelectPage(Math.Min(page, pages.Count - 1)); })); }

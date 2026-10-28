@@ -139,6 +139,11 @@ namespace NetProbe
         // сторож теста: если UI-поток 2 минуты не продвигается — пишем, где завис (стек), и выходим, чтобы run.cmd не висел
         static volatile string shotStage = "start"; static int shotTick = Environment.TickCount;
         static void ShotStep(string stage) { shotStage = stage; shotTick = Environment.TickCount; }
+        static void ShotCrash(Exception ex)
+        {
+            try { File.AppendAllText(Path.Combine(ShotsDir, "layout.txt"), "\r\nCRASH at: " + shotStage + "\r\n" + ex + "\r\n"); } catch { }
+            Environment.Exit(4);
+        }
         static void StartShotWatchdog(string dir)
         {
             var main = System.Threading.Thread.CurrentThread;
@@ -168,6 +173,7 @@ namespace NetProbe
                 t.Stop();
                 Directory.CreateDirectory(ShotsDir);
                 ShotStep("begin"); StartShotWatchdog(ShotsDir);
+                Application.ThreadException += (s2, e2) => ShotCrash(e2.Exception); // ошибка в тесте — сразу в отчёт и выход, а не «висит»
                 int keep = st.Theme;
                 Action<string> shot = name => { ShotStep("shot " + name); Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); using (var bmp = new Bitmap(Width, Height)) { DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height)); bmp.Save(Path.Combine(ShotsDir, name + ".png")); } };
                 foreach (ThemeKind k in new[] { ThemeKind.Dark, ThemeKind.Light, ThemeKind.Classic, ThemeKind.Chisa, ThemeKind.Kurumi })
@@ -282,7 +288,7 @@ namespace NetProbe
                 Size = keepSize; st.SideWidth = 214;
                 // сброс раскладки возвращает всё домой и снимает Lock
                 st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pc - 1))); st.UiLocked = true; RebuildUi();
-                ResetLayout(); RebuildUi(); runs++; // ResetLayout перестраивает через BeginInvoke — в тесте синхронно
+                ResetLayoutState(); RebuildUi(); runs++; // ResetLayout перестраивает через BeginInvoke — в тесте синхронно, иначе перестройка посреди проверки
                 if (st.ModuleLoc != "" || st.UiLocked || CardPanel.Locked) report.Add("reset: layout not reset");
                 foreach (var key in keys) verify("reset", key, moduleHome[key]);
                 // 3) экспорт / импорт настроек переносит раскладку (места модулей, свои вкладки, названия меню, ширины, Lock)
