@@ -59,7 +59,7 @@ namespace NetProbe
         protected override void OnMouseMove(MouseEventArgs e) { int h = e.X < Btn ? -1 : e.X > Width - Btn ? 1 : 0; if (h != hover) { hover = h; Invalidate(); } base.OnMouseMove(e); }
         protected override void OnMouseLeave(EventArgs e) { hover = 0; Invalidate(); base.OnMouseLeave(e); }
         protected override void OnMouseDown(MouseEventArgs e) { Focus(); typed = null; if (e.X < Btn) Value -= 1; else if (e.X > Width - Btn) Value += 1; base.OnMouseDown(e); }
-        protected override void OnMouseWheel(MouseEventArgs e) { Value += Math.Sign(e.Delta); base.OnMouseWheel(e); }
+        // колесо значение не меняет (случайно крутилось при прокрутке страницы) — только кнопки − / + и клавиатура
         protected override bool IsInputKey(Keys k) { return k == Keys.Up || k == Keys.Down || base.IsInputKey(k); }
         protected override void OnKeyDown(KeyEventArgs e)
         {

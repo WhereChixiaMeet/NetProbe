@@ -15,7 +15,7 @@ namespace NetProbe
     {
         readonly XrayManager xm = new XrayManager();
         StatusBoard xBoard; FlatButton btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
-        TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; TopButtons topSrv; ThemedCheck cXAutoTun;
+        TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; TopButtons topSrv; Toggle cXAutoTun;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb, btnTest, btnSpeed; ServerEntry speedNow;
         readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
         static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
@@ -273,16 +273,23 @@ namespace NetProbe
             var bGo = new FlatButton("Routing") { Glyph = "" }.AutoW();
             bGo.Click += (s, e) => SelectPage(PgConnect);
             // 3.2: автоподключение к последнему серверу при запуске NetProbe
-            cXAutoTun = Ui.Check(Tx("Подключаться к последнему серверу при запуске"), st.XrayAutoConnect); cXAutoTun.BackColor = Theme.Card; cXAutoTun.Font = Theme.Small;
-            cXAutoTun.CheckedChanged += (s, e) => { st.XrayAutoConnect = cXAutoTun.Checked; st.Save(); };
+            // «Startup» — такой же тумблер, как у TUN; кнопка Routing — внизу карточки
+            cXAutoTun = new Toggle { On = st.XrayAutoConnect };
+            cXAutoTun.Changed += (s, e) => { st.XrayAutoConnect = cXAutoTun.On; st.Save(); };
             srvTip.SetToolTip(cXAutoTun, Tx("При запуске NetProbe подключается к серверу, к которому был подключён последним"));
-            card.Controls.AddRange(new Control[] { tgTun, note, bGo, cXAutoTun });
+            var lStart = new Label { Text = "Startup", AutoSize = true, Font = Theme.H2, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
+            var noteStart = Ui.Hint(Tx("Подключаться к последнему серверу при запуске"), w - Theme.S(32));
+            noteStart.BackColor = Theme.Card;
+            card.Controls.AddRange(new Control[] { tgTun, note, cXAutoTun, lStart, noteStart, bGo });
             int ip = Theme.S(16);
             tgTun.Location = new Point(w - ip - tgTun.Width, Theme.S(12));
             note.Location = new Point(ip, Theme.S(44));
-            bGo.Location = new Point(ip, note.Bottom + Theme.S(8));
-            cXAutoTun.Location = new Point(ip, bGo.Bottom + Theme.S(10));
-            card.SetBounds(0, 0, w, cXAutoTun.Bottom + Theme.S(12));
+            int sy = note.Bottom + Theme.S(14);
+            cXAutoTun.Location = new Point(w - ip - cXAutoTun.Width, sy);
+            lStart.Location = new Point(ip - Theme.S(2), sy + (cXAutoTun.Height - lStart.PreferredHeight) / 2);
+            noteStart.Location = new Point(ip, cXAutoTun.Bottom + Theme.S(6));
+            bGo.Location = new Point(ip, noteStart.Bottom + Theme.S(12));
+            card.SetBounds(0, 0, w, bGo.Bottom + Theme.S(14));
             body.Controls.Add(card);
             return card.Bottom + Theme.S(12);
         }
@@ -525,7 +532,7 @@ namespace NetProbe
             var s = xm.State;
             var cur = ServerStore.Find(st.ActiveServer);
             if (tgTun != null && tgTun.On != st.TunMode) tgTun.On = st.TunMode;
-            if (cXAutoTun != null && !cXAutoTun.IsDisposed && cXAutoTun.Checked != st.XrayAutoConnect) cXAutoTun.Checked = st.XrayAutoConnect;
+            if (cXAutoTun != null && !cXAutoTun.IsDisposed && cXAutoTun.On != st.XrayAutoConnect) cXAutoTun.On = st.XrayAutoConnect;
             xBoard.State = XrayManager.StateName(s) + (cur != null && xm.Active ? "  ·  " + cur.Name : "");
             xBoard.Lv = s == XState.Off ? Level.Off : s == XState.Connected ? (xm.LastDelay == -2 ? Level.Slow : Level.Good) : s == XState.AllDown ? Level.Down : Level.Wait;
             string traffic = xm.SessionDown + xm.SessionUp > 0 ? "  ·  ↓ " + Bytes(xm.SessionDown) + " ↑ " + Bytes(xm.SessionUp) : "";

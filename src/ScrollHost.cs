@@ -41,7 +41,7 @@ namespace NetProbe
             var c = FromHandle(WindowFromPoint(Cursor.Position));
             for (var x = c; x != null; x = x.Parent)
             {
-                if (x is ThemedList || (x is TextBox && ((TextBox)x).Multiline) || x is Spin || x is DarkCombo) return false;
+                if (x is ThemedList || (x is TextBox && ((TextBox)x).Multiline) ) return false; // Spin / DarkCombo колесо не трогают — крутим страницу
                 if (x == this)
                 {
                     int delta = (short)((long)m.WParam >> 16);

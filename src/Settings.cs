@@ -160,13 +160,14 @@ namespace NetProbe
         public int WidgetX = -1;
         public int WidgetY = -1;
         public bool WidgetPing = true;       // виджет: строки пинга (VPN / Напрямую)
-        public bool WidgetSpeed = false;     // виджет: строки скорости (↓ / ↑)
+        public bool WidgetSpeed = true;     // виджет: строки скорости (↓ / ↑)
         public bool WidgetSplit = false;     // пинг и скорость — два отдельных виджета
         public int Widget2X = -1;            // позиция второго виджета (скорость)
         public int Widget2Y = -1;
         public bool SidePing = true;         // мини-монитор в боковой панели: пинг
-        public bool SideSpeed = false;       // мини-монитор в боковой панели: скорость
+        public bool SideSpeed = true;       // мини-монитор в боковой панели: скорость
         public bool SpeedChart = true;       // график скорости на вкладке Monitor
+        public bool SpeedDefaults = false;   // 3.0.9: один раз включить скорость везде (в 3.0.8 по умолчанию была выключена)
         public bool AutoStartMonitor = true;
         public bool StartMinimized = false;
         public bool Autorun = true;          // по умолчанию запуск вместе с Windows
@@ -243,6 +244,7 @@ namespace NetProbe
 
         public void Clamp()
         {
+            if (!SpeedDefaults) { SpeedDefaults = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             PollRate = Math.Max(MinPollRate, Math.Min(MaxPollRate, PollRate));
             TimeoutSec = Math.Max(2, Math.Min(30, TimeoutSec));
             PingCount = Math.Max(5, Math.Min(200, PingCount));

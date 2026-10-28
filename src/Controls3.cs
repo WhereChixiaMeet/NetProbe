@@ -66,7 +66,7 @@ namespace NetProbe
         protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
         protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
         protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (!Enabled || (DateTime.Now - closedAt).TotalMilliseconds < 250) return; Focus(); Open(); }
-        protected override void OnMouseWheel(MouseEventArgs e) { if (Focused && Items.Count > 0) Pick(Math.Max(0, Math.Min(Items.Count - 1, SelectedIndex - Math.Sign(e.Delta)))); base.OnMouseWheel(e); }
+        // колесо выбор не меняет — прокручивается страница
         protected override bool IsInputKey(Keys k) { return k == Keys.Up || k == Keys.Down || base.IsInputKey(k); }
         protected override void OnKeyDown(KeyEventArgs e)
         {
