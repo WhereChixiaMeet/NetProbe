@@ -7,6 +7,9 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "Опросы в лог, даже когда мониторинг выключен", "Escribir sondeos en el registro aunque el monitoreo esté apagado" },
+            { " (опросы продолжают писаться в лог)", " (los sondeos se siguen escribiendo en el registro)" },
+            { " (проверка VPN для аварийного переключения продолжается в фоне)", " (la comprobación de VPN para la conmutación sigue en segundo plano)" },
             { "Монитор скорости (выкл — не считается и нигде не показывается)", "Monitor de velocidad (apagado — no se mide ni se muestra)" },
             { "В редакторе тяни картинки мышкой, колёсико — размер, ПКМ — меню. PNG можно просто перетащить из Проводника на окно или виджет.", "En el editor arrastra las imágenes con el ratón, rueda — tamaño, clic derecho — menú. También puedes soltar un PNG del Explorador sobre la ventana o el widget." },
             { "Внутри окна: картинка", "Dentro de la ventana: imagen" },

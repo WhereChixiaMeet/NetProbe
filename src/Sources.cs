@@ -163,7 +163,7 @@ namespace NetProbe
             if (mode == RouteMode.DpiOnly)
             {
                 if (xm.Active) xm.Disconnect();
-                StartMonitoring(); router.Connect();
+                StartProbe(); router.Connect();
                 return;
             }
             var src = ActiveSource();
@@ -182,7 +182,7 @@ namespace NetProbe
                     st.PrimaryTunnel = first; st.Save(); LoadConnectUi();
                 }
                 if (xm.Active) xm.Disconnect(); // приоритет Primary VPN: один активный источник
-                StartMonitoring(); router.Connect();
+                StartProbe(); router.Connect();
                 return;
             }
             // источник — подписки

@@ -55,7 +55,7 @@ namespace NetProbe
             chart = new LatencyChart { Good = st.GoodMs, Warn = st.WarnMs };
             btnMon = new FlatButton(Tx("Запустить мониторинг"), true) { Glyph = "\uE768" };
             btnMon.Width = Theme.S(170);
-            btnMon.Click += (s, e) => { if (monVpn.Running) StopMonitoring(); else StartMonitoring(); };
+            btnMon.Click += (s, e) => { if (MonOn) StopMonitoring(); else StartMonitoring(); };
             var btnReset = new FlatButton(Tx("Сбросить статистику")) { Glyph = "\uE72C" }.AutoW();
             btnReset.Click += (s, e) => { monVpn.Stats.Reset(); monDir.Stats.Reset(); chart.Clear(); Logger.Write(LogLevel.Info, Tx("Статистика сброшена")); };
             // период графика: Session (живые опросы) / Day (сегодня из лога) / Week (7 дневных логов, 1 точка / 30 мин)

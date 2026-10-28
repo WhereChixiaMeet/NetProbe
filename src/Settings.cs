@@ -167,7 +167,8 @@ namespace NetProbe
         public bool SidePing = true;         // мини-монитор в боковой панели: пинг
         public bool SideSpeed = true;       // мини-монитор в боковой панели: скорость
         public bool SpeedChart = true;       // график скорости на вкладке Monitor
-        public bool SpeedOn = true;          // монитор скорости целиком (выкл — не считается и нигде не показывается)
+        public bool SpeedOn = true;
+        public bool LogProbes = true;        // опросы пишутся в лог и в статистику Day/Week, даже когда мониторинг выключен          // монитор скорости целиком (выкл — не считается и нигде не показывается)
         public bool WidgetSpeedOn { get { return SpeedOn && WidgetSpeed; } }
         public bool SideSpeedOn { get { return SpeedOn && SideSpeed; } }
         public bool SpeedChartOn { get { return SpeedOn && SpeedChart; } }

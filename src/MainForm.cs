@@ -181,7 +181,8 @@ namespace NetProbe
             started = true;
             Logger.Write(LogLevel.Info, "NetProbe " + Version + Tx(" запущен. Папка: ") + Settings.Root + Tx(" · лог: ") + st.LogPath);
             ThreadPool.QueueUserWorkItem(_ => { CheckCurl(); Logger.Prune(); });
-            if (st.AutoStartMonitor) StartMonitoring();
+            if (st.AutoStartMonitor) StartMonitoring(false); // мониторинг — как был при выходе (Start/Stop запоминаются)
+            else SyncBgProbe(); // выключен — опросы только для лога (если включено)
             if (autorunApplied == null) { autorunApplied = st.Autorun; if (st.Autorun) ThreadPool.QueueUserWorkItem(_ => SetAutorun(true)); }
             // 3.0: домены из карточек приложений → общий список DPI (один раз, с одним диалогом)
             if (!st.DomainsMigrated)
@@ -199,7 +200,7 @@ namespace NetProbe
             if (Updated && Settings.MigratedFrom2 && st.UpdatedFrom == "") { st.UpdatedFrom = "2.x"; st.Save(); LayoutNav(); } // обновились со старой версии, которая не умеет ставить флаг
             if (handoff != null)
             {
-                StartMonitoring();
+                StartProbe();
                 router.Adopt(handoff);
                 xm.Adopt(handoff.ContainsKey("xray") && handoff["xray"] == "1");
                 if (Reapply3) { router.Reapply(); xm.Reapply(); Logger.Write(LogLevel.Route, Tx("Перезапуск: конфиги перестроены по новой логике")); }
@@ -289,7 +290,7 @@ namespace NetProbe
             widget.Dispose(); if (widget2 != null) widget2.Dispose();
             widget = NewWidget(false); widget2 = NewWidget(true);
             if (wv) ApplyWidgetVisibility();
-            if (monVpn.Running) { foreach (var c in new[] { cardVpn, cardDir }) { c.Level = Level.Wait; c.Value = "…"; } btnMon.Text = Tx("Остановить мониторинг"); btnMon.Primary = false; }
+            if (MonOn) { foreach (var c in new[] { cardVpn, cardDir }) { c.Level = Level.Wait; c.Value = "…"; } btnMon.Text = Tx("Остановить мониторинг"); btnMon.Primary = false; }
             UpdateInfo(); UpdateTray(); BeginInvoke((Action)UpdateChars);
             ResumeLayout(true);
             Invalidate(true);
@@ -340,7 +341,7 @@ namespace NetProbe
             sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
             side.Controls.Add(sideStatus);
             // маленькая копия виджета Monitor — над строкой состояния
-            var oldMini = miniMon; miniMon = new MiniMonitor(); miniMon.CopyFrom(oldMini); miniMon.SetParts(st.SidePing, st.SideSpeedOn);
+            var oldMini = miniMon; miniMon = new MiniMonitor(); miniMon.CopyFrom(oldMini); miniMon.SetParts(st.SidePing && MonOn, st.SideSpeedOn);
             miniMon.DoubleClick += (s, e) => SelectPage(PgMonitor);
             miniMon.Click += (s, e) => SelectPage(PgMonitor);
             Ui.Tip().SetToolTip(miniMon, Tx("Мониторинг: VPN и напрямую — клик открывает вкладку Monitor"));
@@ -350,7 +351,7 @@ namespace NetProbe
                 sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
                 miniMon.SetBounds(Theme.S(12), sideStatus.Top - Theme.S(4) - miniMon.Height, side.Width - Theme.S(26), miniMon.Height);
                 int navBottom = navs.Count > 0 ? navs[navs.Count - 1].Bottom : 0;
-                miniMon.Visible = miniMon.Top > navBottom + Theme.S(8); // мало места по высоте — не налезаем на меню
+                miniMon.Visible = miniMon.Any && miniMon.Top > navBottom + Theme.S(8); // мало места по высоте — не налезаем на меню; показывать нечего — нет окошка
             };
             side.Resize += (s, e) => laySide(); laySide();
         }
@@ -547,7 +548,7 @@ namespace NetProbe
         void UpdateSide()
         {
             if (sideStatus == null || sideStatus.IsDisposed) return;
-            sideStatus.Text = "● " + (!router.Active && xm.Active ? XrayManager.StateName(xm.State) + " · xray" : Router.StateName(router.State)) + "\n" + Router.ModeName(st.RunMode) + "\n" + (monVpn.Running ? Tx("Мониторинг: ") + PollText() : Tx("Мониторинг выключен")) + Tx("\nНапрямую: ") + (direct != null ? direct.Ip : Tx("маршрут по умолчанию"));
+            sideStatus.Text = "● " + (!router.Active && xm.Active ? XrayManager.StateName(xm.State) + " · xray" : Router.StateName(router.State)) + "\n" + Router.ModeName(st.RunMode) + "\n" + (MonOn ? Tx("Мониторинг: ") + PollText() : Tx("Мониторинг выключен")) + Tx("\nНапрямую: ") + (direct != null ? direct.Ip : Tx("маршрут по умолчанию"));
         }
 
         string PollText()
@@ -556,11 +557,38 @@ namespace NetProbe
         }
 
         // ================= Monitoring =================
-        void StartMonitoring()
+        // Мониторинг включает/выключает пользователь (кнопка, трей) — состояние запоминается (AutoStartMonitor).
+        // Маршрутизатору для аварийного переключения нужен опрос VPN-канала: если пользователь мониторинг выключил,
+        // опрос идёт «в фоне» (bgProbe) — без карточек, графика и виджета.
+        bool bgProbe;
+        void SyncAutoMonBox() { if (cAutoMon != null && !cAutoMon.IsDisposed && cAutoMon.Checked != st.AutoStartMonitor) { bool l = loadingSettings; loadingSettings = true; try { cAutoMon.Checked = st.AutoStartMonitor; } finally { loadingSettings = l; } } }
+        bool MonOn { get { return monVpn.Running && !bgProbe; } }
+        void StartProbe()
         {
+            if (st.AutoStartMonitor) { StartMonitoring(false); return; }
+            SyncBgProbe();
+        }
+        // Мониторинг выключен (нет карточек и виджета), но опросы могут быть нужны:
+        //  • лог — опросы и статистика Day/Week пишутся, пока включено «Опросы в лог» (LogProbes);
+        //  • маршрутизатор — опрос VPN-канала для аварийного переключения.
+        void SyncBgProbe()
+        {
+            if (MonOn) return;
+            bool both = st.LogProbes, vpn = both || router.NeedsVpnProbe;
+            if (!vpn) { if (monVpn.Running) monVpn.Stop(); if (monDir.Running) monDir.Stop(); bgProbe = false; return; }
+            bgProbe = true;
+            if (!monVpn.Running) monVpn.Start();
+            if (both && !monDir.Running) monDir.Start(); else if (!both && monDir.Running) monDir.Stop();
+        }
+        void StartMonitoring(bool user = true)
+        {
+            if (user && !st.AutoStartMonitor) { st.AutoStartMonitor = true; st.Save(); }
+            if (user) SyncAutoMonBox();
             monitoringWanted = true;
-            if (monVpn.Running) return;
+            if (MonOn) return;
+            if (bgProbe) { bgProbe = false; if (monVpn.Running) monVpn.Stop(); if (monDir.Running) monDir.Stop(); }
             monVpn.Start(); monDir.Start();
+            ApplyMonitorParts();
             foreach (var c in new[] { cardVpn, cardDir }) { c.Level = Level.Wait; c.Value = "…"; }
             btnMon.Text = Tx("Остановить мониторинг"); btnMon.Primary = false; btnMon.Invalidate();
             if (miMonitor != null) miMonitor.Checked = true;
@@ -570,10 +598,12 @@ namespace NetProbe
 
         void StopMonitoring(bool user = true)
         {
-            if (user) monitoringWanted = false;
-            if (!monVpn.Running) return;
-            if (router.NeedsVpnProbe) { Logger.Write(LogLevel.Warn, Tx("Мониторинг нужен маршрутизатору для аварийного переключения — он продолжит работу, пока VPN подключён.")); return; }
-            monVpn.Stop(); monDir.Stop();
+            if (user) { monitoringWanted = false; if (st.AutoStartMonitor) { st.AutoStartMonitor = false; st.Save(); } SyncAutoMonBox(); }
+            if (!MonOn) { SyncBgProbe(); return; }
+            bool wasBg = false;
+            bool keepProbe = router.NeedsVpnProbe || st.LogProbes;
+            monVpn.Stop(); monDir.Stop(); bgProbe = false;
+            SyncBgProbe(); // опросы для лога / маршрутизатора продолжаются в фоне, без интерфейса
             foreach (var k in chs.Keys.ToList()) { chs[k].Ok = null; chs[k].Lv = Level.Off; }
             foreach (var c in new[] { cardVpn, cardDir }) { c.Level = Level.Off; }
             btnMon.Text = Tx("Запустить мониторинг"); btnMon.Primary = true; btnMon.Invalidate();
@@ -581,13 +611,22 @@ namespace NetProbe
             widget.SetLevel(0, Level.Off, "—"); widget.SetLevel(1, Level.Off, "—");
             if (miniMon != null) { miniMon.SetLevel(0, Level.Off, "—"); miniMon.SetLevel(1, Level.Off, "—"); }
             UpdateTray();
-            Logger.Write(LogLevel.Info, Tx("Мониторинг остановлен"));
+            if (!wasBg) Logger.Write(LogLevel.Info, Tx("Мониторинг остановлен") + (keepProbe && bgProbe ? (st.LogProbes ? Tx(" (опросы продолжают писаться в лог)") : Tx(" (проверка VPN для аварийного переключения продолжается в фоне)")) : ""));
             UpdateInfo();
+            ApplyMonitorParts();
         }
 
         void OnSampleBg(ChannelMonitor m, ProbeResult r)
         {
             if (m.Key == "vpn") router.VpnSample(r.Ok, r.Time);
+            if (bgProbe)
+            {
+                // мониторинг выключен: без интерфейса, но в лог (если включено «Опросы в лог»)
+                if (!st.LogProbes) return;
+                History.Add(m.Key, r.Ok, r.Latency);
+                if (st.LogPolls) Logger.Write(LogLevel.Poll, (m.Key == "vpn" ? "VPN" : Tx("Напрямую")) + ": " + (r.Ok ? "HTTP " + r.Code + " · RTT " + F0(r.Latency) + Tx(" мс") : Tx("СБОЙ · ") + r.Error));
+                return;
+            }
             History.Add(m.Key, r.Ok, r.Latency);
             var snap = m.Stats.Snap();
             if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => OnSample(m, r, snap))); } catch { }
@@ -599,7 +638,7 @@ namespace NetProbe
 
         void OnSample(ChannelMonitor m, ProbeResult r, StatsSnapshot s)
         {
-            if (!m.Running || cardVpn == null || cardVpn.IsDisposed) return;
+            if (!m.Running || bgProbe || cardVpn == null || cardVpn.IsDisposed) return;
             bool isVpn = m.Key == "vpn";
             string name = isVpn ? "VPN" : Tx("Напрямую");
             var cs = chs[m.Key];
@@ -681,7 +720,8 @@ namespace NetProbe
                     else if (s == RouteState.Vpn && (lastState == RouteState.DpiFailover || lastState == RouteState.Backup || lastState == RouteState.VpnDown)) try { tray.ShowBalloonTip(3000, Tx("NetProbe: снова на основном VPN"), st.PrimaryTunnel, ToolTipIcon.Info); } catch { }
                 }
                 lastState = s;
-                if (s == RouteState.Off && !monitoringWanted && monVpn.Running) StopMonitoring(false);
+                if (bgProbe) SyncBgProbe();
+                else if (s == RouteState.Off && monVpn.Running && !monitoringWanted) StopMonitoring(false);
             }
             if (miConnect != null) miConnect.Text = AnyActive ? Tx("Отключить") : Tx("Подключить");
             UpdateConnectUi();
@@ -726,7 +766,7 @@ namespace NetProbe
             if (second) w.Moved += (s, e) => { st.Widget2X = w.Left; st.Widget2Y = w.Top; st.Save(); };
             else w.Moved += (s, e) => { st.WidgetX = w.Left; st.WidgetY = w.Top; st.Save(); };
             w.Header = AnyActive ? EngineText() : "";
-            if (second) w.SetParts(false, true); else w.SetParts(st.WidgetPing, st.WidgetSpeedOn && !(st.WidgetSplit && st.WidgetPing));
+            if (second) w.SetParts(false, true); else { bool wp = st.WidgetPing && MonOn, wsp = st.WidgetSpeedOn; if (wp || wsp) w.SetParts(wp, wsp && !(st.WidgetSplit && wp)); }
             if (!second) HookWidgetChars(w);
             return w;
         }
@@ -766,11 +806,11 @@ namespace NetProbe
             trayMenu.Items.Add(miWidget);
             trayMenu.Items.Add(miCharEdit);
             miMonitor = new ToolStripMenuItem(Tx("Мониторинг"));
-            miMonitor.Click += (s, e) => { if (monVpn.Running) StopMonitoring(); else StartMonitoring(); };
+            miMonitor.Click += (s, e) => { if (MonOn) StopMonitoring(); else StartMonitoring(); };
             trayMenu.Items.Add(miMonitor);
             trayMenu.Items.Add(new ToolStripSeparator());
             trayMenu.Items.Add(Tx("Выход"), null, (s, e) => ExitApp());
-            if (miMonitor != null) miMonitor.Checked = monVpn.Running;
+            if (miMonitor != null) miMonitor.Checked = MonOn;
         }
 
         void RebuildTrayMenu()
@@ -910,10 +950,12 @@ namespace NetProbe
 
         void ApplyWidgetVisibility()
         {
-            bool split = st.WidgetSplit && st.WidgetPing && st.WidgetSpeedOn;
-            widget.SetParts(st.WidgetPing || !st.WidgetSpeedOn, st.WidgetSpeedOn && !split);
+            // мониторинг выключен — строк пинга нет; нечего показывать (ни пинга, ни скорости) — виджета нет совсем
+            bool ping = st.WidgetPing && MonOn, speed = st.WidgetSpeedOn;
+            bool split = st.WidgetSplit && ping && speed;
+            if (ping || speed) widget.SetParts(ping, speed && !split);
             if (widget2 != null) widget2.SetParts(false, true);
-            if (hiddenToTray && st.ShowWidget)
+            if (hiddenToTray && st.ShowWidget && (ping || speed || charEdit))
             {
                 if (!widget.Visible) { widget.EnsureOnScreen(st.WidgetX, st.WidgetY); widget.Show(); }
                 widget.TopMost = st.WidgetTopMost; widget.Opacity = st.WidgetOpacity / 100.0; widget.Invalidate();
@@ -944,8 +986,9 @@ namespace NetProbe
         void ApplyMonitorParts()
         {
             ApplyWidgetVisibility();
-            if (miniMon != null && !miniMon.IsDisposed) { miniMon.SetParts(st.SidePing, st.SideSpeedOn); if (laySide != null) laySide(); }
+            if (miniMon != null && !miniMon.IsDisposed) { miniMon.SetParts(st.SidePing && MonOn, st.SideSpeedOn); if (laySide != null) laySide(); }
             if (st.SpeedOn) SpeedMeter.Start(); else SpeedMeter.Stop();
+            if (!MonOn) SyncBgProbe();
             if (layMonitor != null) layMonitor();
         }
 

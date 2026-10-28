@@ -56,13 +56,12 @@ namespace NetProbe
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
         Spin nTimeout, nPingCount, nDown, nUp, nStreams, nGood, nWarn, nExclRefresh;
         DarkCombo cbLang, cbMode, cbAdapter, cbTheme, cbWsLog, cbRetSet;
-        ThemedCheck cSpeedOn, cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
+        ThemedCheck cLogProbes, cSpeedOn, cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
         ThemedCheck cMinTray, cCloseTray, cWidget, cWidgetTop, cNotify, cAutoMon, cAutorun, cStartMin, cLogFile, cWsAdapter;
         Slider sOpacity; Label lOpacity, lSvc;
 
         // ---- вкладки настроек: разделы раскладываются по панелям, видна одна вкладка (без бесконечной прокрутки) ----
         TabStrip setTabs;
-        readonly Dictionary<string, Panel> setPanels = new Dictionary<string, Panel>();
         void BuildSettingsTabs(List<Tuple<string, int>> secs, int endY)
         {
             // раздел → вкладка
@@ -82,23 +81,21 @@ namespace NetProbe
                 new TabStrip.Tab { Key = "log", Text = Tx("Лог") },
                 new TabStrip.Tab { Key = "char", Text = Tx("Персонаж") } // последняя; есть только в Personal-темах (Chisa / Kurumi)
             };
-            setPanels.Clear();
+            // 3.1.1: без вложенных панелей (на своём фоне вложенная прозрачная панель давала артефакты):
+            // элементы остаются в setBody, чужие вкладки просто уезжают за верхний край
+            setTabTop.Clear(); setTabH.Clear();
             var all = setBody.Controls.Cast<Control>().ToList();
             var acc = new Dictionary<string, int>();
-            foreach (var t in tabs) { var pn = new Panel { BackColor = Theme.Bg, Location = Point.Empty, Width = setBody.Width, Visible = false, Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right }; setPanels[t.Key] = pn; acc[t.Key] = 0; }
+            foreach (var t in tabs) acc[t.Key] = 0;
             for (int i = 0; i < secs.Count; i++)
             {
                 int start = secs[i].Item2, end = i + 1 < secs.Count ? secs[i + 1].Item2 - Theme.S(18) : endY;
                 string key; if (!tabOf.TryGetValue(secs[i].Item1, out key)) key = "look";
-                var pn = setPanels[key]; int off = acc[key] - start + (acc[key] > 0 ? Theme.S(18) : 0);
-                foreach (var c in all.Where(c => c.Top >= start && c.Top < end).ToList())
-                {
-                    int top = c.Top + off;
-                    setBody.Controls.Remove(c); pn.Controls.Add(c); c.Top = top;
-                }
+                int off = acc[key] - start + (acc[key] > 0 ? Theme.S(18) : 0);
+                foreach (var c in all.Where(c => c.Top >= start && c.Top < end)) setTabTop[c] = Tuple.Create(key, c.Top + off);
                 acc[key] = end + off;
             }
-            foreach (var t in tabs) { var pn = setPanels[t.Key]; pn.Height = acc[t.Key] + Theme.S(20); setBody.Controls.Add(pn); }
+            foreach (var t in tabs) setTabH[t.Key] = acc[t.Key] + Theme.S(20);
             tabs.RemoveAll(t => acc[t.Key] == 0 || (t.Key == "char" && !Theme.Personal));
             setTabs.SetTabs(tabs);
             string want = tabs.Any(t => t.Key == st.SetTab) ? st.SetTab : "look";
@@ -106,14 +103,17 @@ namespace NetProbe
             setTabs.Selected += k => ShowSettingsTab(k);
             ShowSettingsTab(want);
         }
+        readonly Dictionary<Control, Tuple<string, int>> setTabTop = new Dictionary<Control, Tuple<string, int>>();
+        readonly Dictionary<string, int> setTabH = new Dictionary<string, int>();
         void ShowSettingsTab(string key)
         {
-            Panel cur;
-            if (!setPanels.TryGetValue(key, out cur)) return;
-            foreach (var pn in setPanels.Values) pn.Visible = pn == cur;
-            cur.Width = setBody.Width;
-            setBody.Height = cur.Height;
+            if (!setTabH.ContainsKey(key)) return;
+            setBody.SuspendLayout();
+            foreach (var kv in setTabTop) kv.Key.Top = kv.Value.Item1 == key ? kv.Value.Item2 : -30000;
+            setBody.ResumeLayout();
+            setBody.Height = setTabH[key];
             setHost.ScrollToTop(); setHost.Relayout();
+            setBody.Invalidate(true);
             if (st.SetTab != key) { st.SetTab = key; st.Save(); }
         }
 
@@ -498,6 +498,7 @@ namespace NetProbe
             cbRetSet = new DarkCombo(); cbRetSet.Items.AddRange(Settings.RetentionNames);
             row(Tx("Хранить и показывать лог"), cbRetSet, null);
             cLogFile = Ui.Check(Tx("Писать лог в файл"), true); check(cLogFile);
+            cLogProbes = Ui.Check(Tx("Опросы в лог, даже когда мониторинг выключен"), true); check(cLogProbes);
 
             section(Tx("Окно, трей и виджет"));
             cMinTray = Ui.Check(Tx("Сворачивать в трей"), true); check(cMinTray);
@@ -659,7 +660,7 @@ namespace NetProbe
             tbLogDirSet.Text = st.LogDir; cbRetSet.SelectedIndex = st.LogRetention; cLogFile.Checked = st.LogToFile;
             cMinTray.Checked = st.MinimizeToTray; cCloseTray.Checked = st.CloseToTray; cWidget.Checked = st.ShowWidget; cWidgetTop.Checked = st.WidgetTopMost;
             sOpacity.Value = st.WidgetOpacity; lOpacity.Text = st.WidgetOpacity + " %";
-            cSpeedOn.Checked = st.SpeedOn; cWPing.Checked = st.WidgetPing; cWSpeed.Checked = st.WidgetSpeed; cWSplit.Checked = st.WidgetSplit;
+            cLogProbes.Checked = st.LogProbes; cSpeedOn.Checked = st.SpeedOn; cWPing.Checked = st.WidgetPing; cWSpeed.Checked = st.WidgetSpeed; cWSplit.Checked = st.WidgetSplit;
             cSidePing.Checked = st.SidePing; cSideSpeed.Checked = st.SideSpeed; cSpeedChart.Checked = st.SpeedChart;
             cNotify.Checked = st.Notify; cAutoMon.Checked = st.AutoStartMonitor; cAutorun.Checked = st.Autorun; cStartMin.Checked = st.StartMinimized;
             UpdateSvc();
@@ -679,7 +680,7 @@ namespace NetProbe
             n.MinimizeToTray = cMinTray.Checked; n.CloseToTray = cCloseTray.Checked; n.ShowWidget = cWidget.Checked; n.WidgetTopMost = cWidgetTop.Checked;
             n.WidgetOpacity = (int)sOpacity.Value; n.Notify = cNotify.Checked; n.AutoStartMonitor = cAutoMon.Checked; n.Autorun = cAutorun.Checked;
             n.StartMinimized = cStartMin.Checked;
-            n.SpeedOn = cSpeedOn.Checked; n.WidgetPing = cWPing.Checked; n.WidgetSpeed = cWSpeed.Checked; n.WidgetSplit = cWSplit.Checked;
+            n.LogProbes = cLogProbes.Checked; n.SpeedOn = cSpeedOn.Checked; n.WidgetPing = cWPing.Checked; n.WidgetSpeed = cWSpeed.Checked; n.WidgetSplit = cWSplit.Checked;
             n.SidePing = cSidePing.Checked; n.SideSpeed = cSideSpeed.Checked; n.SpeedChart = cSpeedChart.Checked;
             if (!n.WidgetPing && !n.WidgetSpeedOn) n.WidgetPing = true;
             if (!n.SidePing && !n.SideSpeedOn) n.SidePing = true;

@@ -167,11 +167,11 @@ namespace NetProbe
         bool showPing = true, showSpeed = false;
 
         public MiniMonitor() { Height = Theme.S(76); Cursor = Cursors.Hand; }
+        public bool Any { get { return showPing || showSpeed; } }
         public void SetParts(bool ping, bool speed)
         {
-            if (!ping && !speed) ping = true;
             showPing = ping; showSpeed = speed;
-            Height = Theme.S(26) + Theme.S(25) * MonRows.Visible(ping, speed).Length;
+            Height = Theme.S(26) + Theme.S(25) * MonRows.Visible(ping || !speed, speed).Length;
             Invalidate();
         }
 
@@ -201,6 +201,7 @@ namespace NetProbe
             if (Header != "") Gfx.Text(g, Header, Theme.Small, Theme.Muted, new Rectangle(pad + Theme.S(66), Theme.S(4), Width - pad * 2 - Theme.S(66), Theme.S(18)), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             int y = Theme.S(22), rh = Theme.S(25);
             int valW = Theme.S(58);
+            if (!Any) return;
             var vis = MonRows.Visible(showPing, showSpeed);
             // ширина подписей — по самой длинной (чтобы «↓ Download» не обрезалось), но не больше 45% ширины
             int nameW = Theme.S(40);

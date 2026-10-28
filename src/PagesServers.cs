@@ -404,7 +404,7 @@ namespace NetProbe
         }
 
         // мониторинг VPN-канала через прокси xray, если отдельный VPN (WireSock) не подключён
-        void StartMonitoringIfProxy() { if (!monVpn.Running) StartMonitoring(); }
+        void StartMonitoringIfProxy() { if (!monVpn.Running && st.AutoStartMonitor) StartMonitoring(false); } // только если мониторинг включён пользователем
 
         List<ServerEntry> SelServers()
         {

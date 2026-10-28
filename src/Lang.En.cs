@@ -7,6 +7,9 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Опросы в лог, даже когда мониторинг выключен", "Write polls to the log even when monitoring is off" },
+            { " (опросы продолжают писаться в лог)", " (polls keep being written to the log)" },
+            { " (проверка VPN для аварийного переключения продолжается в фоне)", " (the VPN check for failover keeps running in the background)" },
             { "Монитор скорости (выкл — не считается и нигде не показывается)", "Speed monitor (off — not measured and not shown anywhere)" },
             { "В редакторе тяни картинки мышкой, колёсико — размер, ПКМ — меню. PNG можно просто перетащить из Проводника на окно или виджет.", "In the editor drag pictures with the mouse, wheel — size, right-click — menu. You can also drop a PNG from Explorer onto the window or widget." },
             { "Внутри окна: картинка", "Inside the window: picture" },
