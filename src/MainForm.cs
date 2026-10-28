@@ -203,6 +203,17 @@ namespace NetProbe
                     var r = outer.RectangleToClient(mc.RectangleToScreen(mc.ClientRectangle));
                     if (r.Left < -2 || r.Right > outer.ClientSize.Width + 2) report.Add(tag + ": " + key + " sticks out " + r + " / page w=" + outer.ClientSize.Width);
                     if (mc.Width < Theme.S(100) || mc.Height < Theme.S(40)) report.Add(tag + ": " + key + " too small " + mc.Size);
+                    // содержимое самой страницы не сжато модулями: во всю высоту окна и не уже ContentMin
+                    PageFrame fr;
+                    if (frames.TryGetValue(pg, out fr))
+                    {
+                        if (Math.Abs(fr.Inner.Height - outer.ClientSize.Height) > 2) report.Add(tag + ": page content height " + fr.Inner.Height + " ≠ window " + outer.ClientSize.Height);
+                        if (fr.Inner.Width < Math.Min(ContentMin, outer.ClientSize.Width) - Theme.S(16)) report.Add(tag + ": page content squeezed to w=" + fr.Inner.Width);
+                    }
+                    // модуль на чужой странице должен работать: списки заполнены текущими значениями
+                    Action<Control> combos = null;
+                    combos = cc => { foreach (Control x in cc.Controls) { var dc = x as DarkCombo; if (dc != null && dc.Items.Count > 0 && dc.SelectedIndex < 0) report.Add(tag + ": " + key + " empty drop-down at " + dc.Location); combos(x); } };
+                    combos(mc);
                 };
                 Action<string> persist = tag =>
                 {
@@ -321,7 +332,7 @@ namespace NetProbe
             SuspendLayout();
             BackColor = Theme.Bg; ForeColor = Theme.Text; Font = Theme.Body;
             navs.Clear(); pages.Clear(); modules.Clear(); moduleKeys.Clear(); moduleHome.Clear(); moduleTab.Clear();
-            docks.Clear(); dockSplits.Clear(); pageOuter.Clear(); srvModBody = null;
+            docks.Clear(); dockSplits.Clear(); pageOuter.Clear(); frames.Clear(); srvModBody = null;
             CardPanel.Locked = st.UiLocked;
             BuildShell();
             BuildConnectPage();
@@ -552,7 +563,7 @@ namespace NetProbe
             {
                 outer.BackgroundImage = bg; outer.BackgroundImageLayout = ImageLayout.Stretch;
                 p.ControlAdded += (s2, e2) => MakeSeeThrough(e2.Control);
-                MakeSeeThrough(docks[idx]); MakeSeeThrough(dockSplits[idx]);
+                MakeSeeThrough(docks[idx]); MakeSeeThrough(dockSplits[idx]); MakeSeeThrough(frames[idx].Scroll);
             }
             var h = Ui.Label(title, Theme.H1); h.Location = new Point(Theme.S(26), Theme.S(18));
             var sub = Ui.Label(subtitle, Theme.Body, Theme.Muted); sub.Location = new Point(Theme.S(28), Theme.S(50));
@@ -566,7 +577,8 @@ namespace NetProbe
             curPage = i;
             if (ShotsDir == null && i >= 0 && i < pages.Count && st.LastPage != i) { st.LastPage = i; st.Save(); }
             for (int k = 0; k < pages.Count; k++) { Panel o; (pageOuter.TryGetValue(k, out o) ? o : pages[k]).Visible = k == i; if (k < navs.Count) navs[k].Selected = k == i; }
-            if (i == PgSettings) LoadSettingsUi();
+            // разделы Настроек могут лежать на любой странице — их поля заполняются там же
+            if (i == PgSettings || moduleKeys.Any(k => k.StartsWith("set.") && PageOf(k) == i)) LoadSettingsUi();
             if (i == PgTasks) RefreshTasks();
             if (i == PgConnect) LoadConnectUi();
             if (i == PgLog) FillLogDays();

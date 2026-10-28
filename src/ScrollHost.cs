@@ -29,7 +29,8 @@ namespace NetProbe
         public void Relayout()
         {
             int w = bar.Visible ? Width - bar.Width - 4 : Width;
-            Content.Width = Math.Max(10, Width - Theme.S(14));
+            // прокрутки нет — содержимое на всю ширину (без полосы под скроллбар)
+            Content.Width = Math.Max(10, Content.Height > Height ? Width - Theme.S(14) : Width);
             bar.SetBounds(Width - Theme.S(8), 2, Theme.S(6), Height - 4);
             bar.Total = Content.Height; bar.Page = Height;
             offset = Math.Max(0, Math.Min(offset, Math.Max(0, Content.Height - Height)));
@@ -45,6 +46,7 @@ namespace NetProbe
             for (var x = c; x != null; x = x.Parent)
             {
                 if (x is ThemedList || (x is TextBox && ((TextBox)x).Multiline) ) return false; // Spin / DarkCombo колесо не трогают — крутим страницу
+                if (x is ScrollHost && x != this) return false; // вложенная прокрутка (Настройки внутри прокручиваемой страницы) крутит сама
                 if (x == this)
                 {
                     int delta = (short)((long)m.WParam >> 16);

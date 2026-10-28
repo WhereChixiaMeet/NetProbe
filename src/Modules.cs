@@ -158,66 +158,76 @@ namespace NetProbe
             };
         }
 
-        // ---- страница = внешняя панель: содержимое страницы + правая колонка модулей (появляется, только если в ней что-то есть) ----
+        // ---- страница = внешняя панель: [прокрутка: содержимое страницы + полоса модулей под ним] + [колонка модулей справа] ----
+        // Содержимое страницы НИКОГДА не сжимается: по ширине не уже ContentMin, по высоте — во весь экран.
+        // Модули: справа, если колонка влезает; иначе — полосой ПОД страницей (страница прокручивается вниз к ним).
+        sealed class PageFrame { public Panel Outer, Inner, Split, Strip; public ScrollHost Scroll, Dock; }
+        readonly Dictionary<int, PageFrame> frames = new Dictionary<int, PageFrame>();
         Panel WrapPage(Panel inner, int idx)
         {
-            var outer = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Visible = false };
-            var dock = new ScrollHost { BackColor = Theme.Bg, Dock = DockStyle.Right, Width = Theme.S(380), Visible = false };
-            var split = new Panel { Dock = DockStyle.Right, Width = Theme.S(12), BackColor = Color.Transparent, Visible = false, Cursor = st.UiLocked ? Cursors.Default : Cursors.SizeWE };
-            outer.Controls.Add(inner); outer.Controls.Add(split); outer.Controls.Add(dock);
-            docks[idx] = dock; dockSplits[idx] = split; pageOuter[idx] = outer;
+            var f = new PageFrame { Inner = inner };
+            f.Outer = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Visible = false };
+            f.Scroll = new ScrollHost { BackColor = Theme.Bg, Dock = DockStyle.Fill };
+            f.Dock = new ScrollHost { BackColor = Theme.Bg, Dock = DockStyle.Right, Width = Theme.S(380), Visible = false };
+            f.Split = new Panel { Dock = DockStyle.Right, Width = Theme.S(12), BackColor = Color.Transparent, Visible = false, Cursor = st.UiLocked ? Cursors.Default : Cursors.SizeWE };
+            f.Strip = new BackdropPanel { BackColor = Theme.Bg, Visible = false };
+            inner.Dock = DockStyle.None;
+            f.Scroll.Content.Controls.Add(inner); f.Scroll.Content.Controls.Add(f.Strip);
+            f.Outer.Controls.Add(f.Scroll); f.Outer.Controls.Add(f.Split); f.Outer.Controls.Add(f.Dock);
+            frames[idx] = f; docks[idx] = f.Dock; dockSplits[idx] = f.Split; pageOuter[idx] = f.Outer;
             bool drag = false; int x0 = 0, w0 = 0;
-            split.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left && !st.UiLocked) { drag = true; x0 = Cursor.Position.X; w0 = dock.Width; split.Capture = true; } };
-            split.MouseMove += (s, e) => { if (!drag) return; int w = w0 - (Cursor.Position.X - x0); dock.Width = Math.Max(MinDockW(dock), Math.Min(outer.ClientSize.Width - Theme.S(420), w)); LayDock(dock); };
-            split.MouseUp += (s, e) => { if (!drag) return; drag = false; split.Capture = false; st.DockW = (int)Math.Round(dock.Width / Theme.Scale); st.Save(); };
-            outer.Resize += (s, e) => LayDock(dock);
-            return outer;
+            f.Split.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left && !st.UiLocked) { drag = true; x0 = Cursor.Position.X; w0 = f.Dock.Width; f.Split.Capture = true; } };
+            f.Split.MouseMove += (s, e) => { if (!drag) return; st.DockW = (int)Math.Round(Math.Max(1, w0 - (Cursor.Position.X - x0)) / Theme.Scale); LayFrame(f); };
+            f.Split.MouseUp += (s, e) => { if (!drag) return; drag = false; f.Split.Capture = false; st.Save(); };
+            f.Outer.Resize += (s, e) => LayFrame(f);
+            return f.Outer;
         }
-        int MinDockW(ScrollHost dock) { int w = Theme.S(300); foreach (var c in dock.Content.Controls.OfType<CardPanel>()) w = Math.Max(w, c.Width + Theme.S(18)); return w; }
-        // Содержимое страницы никогда не сжимается уже ContentMin (иначе её собственные карточки ломаются):
-        // колонка справа — только если влезает; иначе модули встают полосой снизу (карточки в ряд с переносом, прокрутка)
         static int ContentMin { get { return Theme.S(800); } }
-        bool layingDock;
-        void LayDock(ScrollHost dock)
+        bool layingFrame;
+        // модули страницы лежат в f.Dock.Content или f.Strip; отсюда — в колонку справа или в полосу под страницей
+        void LayFrame(PageFrame f)
         {
-            if (layingDock) return;
-            var cards = dock.Content.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
-            bool on = cards.Count > 0;
-            var outer = dock.Parent; if (outer == null) return;
-            Panel split = dockSplits.Values.FirstOrDefault(sp => sp.Parent == outer);
-            layingDock = true;
+            if (layingFrame || f.Outer.IsDisposed) return;
+            layingFrame = true;
             try
             {
-                dock.Visible = on; if (split != null) split.Visible = false;
-                if (!on) return;
-                int minW = MinDockW(dock), want = Math.Max(minW, Theme.S(st.DockW)), W = outer.ClientSize.Width, gapW = split != null ? split.Width : 0;
-                bool right = W - minW - gapW >= ContentMin;
+                var cards = f.Dock.Content.Controls.OfType<CardPanel>().Concat(f.Strip.Controls.OfType<CardPanel>())
+                    .OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
+                int W = f.Outer.ClientSize.Width, H = f.Outer.ClientSize.Height;
+                int minW = Theme.S(300); foreach (var c in cards) minW = Math.Max(minW, c.Width + Theme.S(18));
+                bool any = cards.Count > 0, right = any && W - minW - f.Split.Width >= ContentMin;
+                f.Dock.Visible = right; f.Split.Visible = right;
+                Control box = right ? (Control)f.Dock.Content : f.Strip;
+                foreach (var c in cards) if (c.Parent != box) { c.Parent.Controls.Remove(c); box.Controls.Add(c); }
                 if (right)
                 {
-                    if (dock.Dock != DockStyle.Right) dock.Dock = DockStyle.Right;
-                    if (split != null) { split.Dock = DockStyle.Right; split.Visible = true; }
-                    dock.Width = Math.Max(minW, Math.Min(W - ContentMin - gapW, want));
+                    f.Dock.Width = Math.Max(minW, Math.Min(W - ContentMin - f.Split.Width, Math.Max(minW, Theme.S(st.DockW))));
                     int y = Theme.S(80);
-                    foreach (var c in cards) { c.SetBounds(0, y, Math.Max(c.Width, dock.Content.Width - Theme.S(2)), c.Height); y = c.Bottom + Theme.S(12); }
-                    dock.Content.Height = y + Theme.S(10);
+                    foreach (var c in cards) { c.SetBounds(0, y, Math.Max(c.Width, f.Dock.Content.Width - Theme.S(2)), c.Height); y = c.Bottom + Theme.S(12); }
+                    f.Dock.Content.Height = y + Theme.S(10); f.Dock.Relayout();
                 }
-                else
+                int viewW = right ? W - f.Dock.Width - f.Split.Width : W;
+                // содержимое страницы — во весь видимый экран; полоса модулей (если есть) — ниже, к ней прокручивают
+                int stripH = 0;
+                f.Strip.Visible = any && !right;
+                if (f.Strip.Visible)
                 {
-                    if (dock.Dock != DockStyle.Bottom) dock.Dock = DockStyle.Bottom;
-                    // ряды карточек слева направо; высота полосы — по содержимому, но не больше половины страницы
-                    int L = Theme.S(26), gap = Theme.S(12), cw = Math.Max(10, W - L * 2 - Theme.S(14)), x = 0, y = Theme.S(8), rowH = 0;
+                    int L = Theme.S(26), gap = Theme.S(12), cw = Math.Max(10, viewW - L * 2 - Theme.S(14)), x = 0, y = Theme.S(4), rowH = 0;
                     foreach (var c in cards)
                     {
                         if (x > 0 && x + c.Width > cw) { x = 0; y += rowH + gap; rowH = 0; }
                         c.Location = new Point(L + x, y); x += c.Width + gap; rowH = Math.Max(rowH, c.Height);
                     }
-                    int total = y + rowH + Theme.S(12);
-                    dock.Height = Math.Max(Theme.S(120), Math.Min(total, outer.ClientSize.Height / 2));
-                    dock.Content.Height = total;
+                    stripH = y + rowH + Theme.S(16);
                 }
-                dock.Relayout();
+                f.Scroll.Content.Height = H + stripH;
+                f.Scroll.Relayout();
+                int cwid = f.Scroll.Content.Width;
+                f.Inner.SetBounds(0, 0, cwid, H);
+                if (f.Strip.Visible) f.Strip.SetBounds(0, H, cwid, stripH);
+                else f.Scroll.ScrollToTop();
             }
-            finally { layingDock = false; }
+            finally { layingFrame = false; }
         }
 
         // все модули — по своим местам (вызывается в конце сборки интерфейса)
@@ -238,7 +248,7 @@ namespace NetProbe
                 if (c.Parent != target) { if (c.Parent != null) c.Parent.Controls.Remove(c); target.Controls.Add(c); }
                 c.Visible = true;
             }
-            foreach (var d in docks.Values) LayDock(d);
+            foreach (var fr in frames.Values) LayFrame(fr);
             foreach (var l in customLays.Values) l();
             if (relayServers != null) relayServers();
             if (setTabs != null) FillSettingsTabs();
