@@ -15,6 +15,14 @@ namespace NetProbe
 
     public class Settings
     {
+        // готовые URL для замеров (как список в v2rayN); в поле можно вписать свой
+        public static readonly string[] TestUrls = {
+            "https://www.google.com/generate_204", "https://www.youtube.com/generate_204", "https://www.googlevideo.com/generate_204",
+            "https://www.gstatic.com/generate_204", "https://www.apple.com/library/test/success.html", "http://www.msftconnecttest.com/connecttest.txt" };
+        public static readonly string[] SpeedUrls = {
+            "https://cachefly.cachefly.net/1mb.test", "https://cachefly.cachefly.net/10mb.test", "https://cachefly.cachefly.net/50mb.test", "https://cachefly.cachefly.net/100mb.test",
+            "https://speed.cloudflare.com/__down?bytes=10000000", "https://speed.cloudflare.com/__down?bytes=50000000", "https://speed.cloudflare.com/__down?bytes=99999999" };
+
         // Безопасные пределы частоты опроса (запросов в секунду на один канал)
         public const double MinPollRate = 0.1;
         public const double MaxPollRateCurl = 2.0;

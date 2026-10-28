@@ -352,37 +352,8 @@ namespace NetProbe
             body.Controls.Add(card);
             y = card.Bottom + Theme.S(12);
 
-            var pc = new CardPanel { Title = Tx("Прокси") };
-            cy = Theme.S(46);
-            var cSys = Ui.Check(Tx("Системный прокси Windows"), st.SysProxy); cSys.CheckedChanged += (s, e) => { st.SysProxy = cSys.Checked; st.Save(); if (xm.Active && !st.TunMode) { if (st.SysProxy) SysProxy.Set("127.0.0.1:" + st.HttpPort); else SysProxy.Clear(); } };
-            var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu); cRu.CheckedChanged += (s, e) => { st.BypassRu = cRu.Checked; st.Save(); xm.Reapply(); };
-            var cAds = Ui.Check(Tx("Блокировать рекламу"), st.BlockAds); cAds.CheckedChanged += (s, e) => { st.BlockAds = cAds.Checked; st.Save(); xm.Reapply(); };
-            var cLan = Ui.Check(Tx("Разрешить подключения из LAN"), st.AllowLan); cLan.CheckedChanged += (s, e) => { st.AllowLan = cLan.Checked; st.Save(); xm.Reapply(); };
-            var cAuto = Ui.Check(Tx("Подключаться при запуске"), st.XrayAutoConnect); cAuto.CheckedChanged += (s, e) => { st.XrayAutoConnect = cAuto.Checked; st.Save(); };
-            foreach (var c in new[] { cSys, cRu, cAds, cLan, cAuto }) { c.BackColor = Theme.Card; c.Font = Theme.Small; c.Location = new Point(lx, cy); pc.Controls.Add(c); cy += Theme.S(28); }
-            Action<string, Control> prow = (label, c) =>
-            {
-                var l = new Label { Text = label, AutoSize = false, ForeColor = Theme.Text, BackColor = Theme.Card, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft };
-                l.SetBounds(lx, cy, Theme.S(120), Theme.S(26)); c.SetBounds(lx + Theme.S(122), cy, w - Theme.S(28) - Theme.S(122), Theme.S(26));
-                pc.Controls.Add(l); pc.Controls.Add(c); cy += Theme.S(32);
-            };
-            var nS = Ui.Num(1024, 65000, st.SocksPort); nS.ValueChanged += (s, e) => { st.SocksPort = (int)nS.Value; st.Save(); xm.Reapply(); };
-            var nH = Ui.Num(1024, 65000, st.HttpPort); nH.ValueChanged += (s, e) => { st.HttpPort = (int)nH.Value; st.Save(); xm.Reapply(); };
-            var tbUrl = Ui.TextBox(st.TestUrl); tbUrl.TextChanged += (s, e) => { st.TestUrl = tbUrl.Text.Trim(); st.Save(); };
-            var tbSpd = Ui.TextBox(st.SpeedUrl); tbSpd.TextChanged += (s, e) => { st.SpeedUrl = tbSpd.Text.Trim(); st.Save(); };
-            prow("SOCKS", nS); prow("HTTP", nH); prow(Tx("URL проверки"), tbUrl); prow(Tx("URL скорости"), tbSpd);
-            var bResetView = new FlatButton(Tx("Сбросить вид таблицы")) { Glyph = "\uE777" }.AutoW();
-            bResetView.Click += (s, e) => ResetSrvColumns();
-            srvTip.SetToolTip(bResetView, Tx("Ширина, порядок и видимость колонок — как по умолчанию"));
-            var lSec = new Label { Text = Tx("Замер скорости, с"), AutoSize = false, ForeColor = Theme.Text, BackColor = Theme.Card, Font = Theme.Small, TextAlign = ContentAlignment.MiddleLeft };
-            lSec.SetBounds(lx, cy, Theme.S(200), Theme.S(26));
-            var nSec = Ui.Num(3, 60, st.SpeedSec); nSec.Width = Theme.S(84); nSec.Location = new Point(nx, cy);
-            nSec.ValueChanged += (s, e) => { st.SpeedSec = (int)nSec.Value; st.Save(); };
-            pc.Controls.Add(lSec); pc.Controls.Add(nSec); cy += Theme.S(32);
-            bResetView.Location = new Point(lx, cy + Theme.S(2)); pc.Controls.Add(bResetView); cy += bResetView.Height + Theme.S(8);
-            pc.SetBounds(0, y, w, cy + Theme.S(8));
-            body.Controls.Add(pc);
-            body.Height = pc.Bottom + Theme.S(10);
+            // «Прокси» (порты, системный прокси, URL проверки/скорости…) — в Настройках → Подписки
+            body.Height = card.Bottom + Theme.S(10);
         }
 
         // мониторинг VPN-канала через прокси xray, если отдельный VPN (WireSock) не подключён

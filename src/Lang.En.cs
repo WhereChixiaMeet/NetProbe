@@ -7,6 +7,9 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Выбрать из списка", "Choose from list" },
+            { "Пока нет точек — первая появится через минуту после запуска мониторинга", "No points yet — the first one appears a minute after monitoring starts" },
+            { "Нет данных: мониторинг выключен. Точки пишутся раз в минуту, пока он запущен (кнопка «Запустить мониторинг»)", "No data: monitoring is off. A point is written every minute while it runs (“Start monitoring” button)" },
             { "ошибка разбора", "parse error" },
             { "нет адреса или порта", "no address or port" },
             { "пропущено ", "skipped " },

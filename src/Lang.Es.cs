@@ -7,6 +7,9 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "Выбрать из списка", "Elegir de la lista" },
+            { "Пока нет точек — первая появится через минуту после запуска мониторинга", "Aún no hay puntos: el primero aparece un minuto después de iniciar la monitorización" },
+            { "Нет данных: мониторинг выключен. Точки пишутся раз в минуту, пока он запущен (кнопка «Запустить мониторинг»)", "Sin datos: la monitorización está apagada. Se guarda un punto por minuto mientras está activa (botón «Iniciar monitorización»)" },
             { "ошибка разбора", "error de análisis" },
             { "нет адреса или порта", "sin dirección o puerto" },
             { "пропущено ", "omitidos " },

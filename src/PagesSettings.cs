@@ -12,6 +12,7 @@ namespace NetProbe
 {
     public partial class MainForm
     {
+        Action loadProxyUi;
         Panel setBody; ScrollHost setHost; bool loadingSettings; readonly System.Windows.Forms.Timer autoSave = new System.Windows.Forms.Timer { Interval = 700 };
         Label lZapretWarn; ThemedCheck cHybrid;
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
@@ -179,6 +180,40 @@ namespace NetProbe
                 UpdateModeUi(); UpdateServersUi();
             };
             section(Tx("Подписки"));
+            // 3.0.2: настройки прокси xray перенесены сюда с вкладки Subscriptions
+            var cSys = Ui.Check(Tx("Системный прокси Windows"), st.SysProxy); cSys.CheckedChanged += (s, e) => { if (loadingSettings) return; st.SysProxy = cSys.Checked; st.Save(); if (xm.Active && !st.TunMode) { if (st.SysProxy) SysProxy.Set("127.0.0.1:" + st.HttpPort); else SysProxy.Clear(); } };
+            var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu); cRu.CheckedChanged += (s, e) => { if (loadingSettings) return; st.BypassRu = cRu.Checked; st.Save(); xm.Reapply(); };
+            var cAds = Ui.Check(Tx("Блокировать рекламу"), st.BlockAds); cAds.CheckedChanged += (s, e) => { if (loadingSettings) return; st.BlockAds = cAds.Checked; st.Save(); xm.Reapply(); };
+            var cLan = Ui.Check(Tx("Разрешить подключения из LAN"), st.AllowLan); cLan.CheckedChanged += (s, e) => { if (loadingSettings) return; st.AllowLan = cLan.Checked; st.Save(); xm.Reapply(); };
+            var cXAuto = Ui.Check(Tx("Подключаться при запуске"), st.XrayAutoConnect); cXAuto.CheckedChanged += (s, e) => { if (loadingSettings) return; st.XrayAutoConnect = cXAuto.Checked; st.Save(); };
+            foreach (var c in new[] { cSys, cRu, cAds, cLan, cXAuto }) check(c);
+            y += Theme.S(4);
+            var nSocks = Ui.Num(1024, 65000, st.SocksPort); nSocks.ValueChanged += (s, e) => { if (loadingSettings) return; st.SocksPort = (int)nSocks.Value; st.Save(); xm.Reapply(); };
+            var nHttp = Ui.Num(1024, 65000, st.HttpPort); nHttp.ValueChanged += (s, e) => { if (loadingSettings) return; st.HttpPort = (int)nHttp.Value; st.Save(); xm.Reapply(); };
+            row("SOCKS", nSocks, null); row("HTTP", nHttp, null);
+            // URL проверки / скорости: своё значение или выбор из списка (как в v2rayN)
+            Func<TextBox, string[], FlatButton> presets = (tb, list) =>
+            {
+                var b = new FlatButton("") { Glyph = "\uE70D", Width = Theme.S(36), Height = Theme.S(26) };
+                var cm = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body };
+                foreach (var u in list) { var uu = u; cm.Items.Add(uu, null, (s2, e2) => tb.Text = uu); }
+                b.Click += (s2, e2) => cm.Show(b, new Point(b.Width - cm.Width, b.Height));
+                b.Location = new Point(lw + cw + Theme.S(6), tb.Top); setBody.Controls.Add(b);
+                Ui.Tip().SetToolTip(b, Tx("Выбрать из списка"));
+                return b;
+            };
+            var tbTestUrl = Ui.TextBox(st.TestUrl); tbTestUrl.TextChanged += (s, e) => { if (loadingSettings) return; st.TestUrl = tbTestUrl.Text.Trim(); st.Save(); };
+            row(Tx("URL проверки"), tbTestUrl, null); presets(tbTestUrl, Settings.TestUrls);
+            var tbSpeedUrl = Ui.TextBox(st.SpeedUrl); tbSpeedUrl.TextChanged += (s, e) => { if (loadingSettings) return; st.SpeedUrl = tbSpeedUrl.Text.Trim(); st.Save(); };
+            row(Tx("URL скорости"), tbSpeedUrl, null); presets(tbSpeedUrl, Settings.SpeedUrls);
+            var nSpdSec = Ui.Num(3, 60, st.SpeedSec); nSpdSec.ValueChanged += (s, e) => { if (loadingSettings) return; st.SpeedSec = (int)nSpdSec.Value; st.Save(); };
+            row(Tx("Замер скорости, с"), nSpdSec, null);
+            loadProxyUi = () =>
+            {
+                cSys.Checked = st.SysProxy; cRu.Checked = st.BypassRu; cAds.Checked = st.BlockAds; cLan.Checked = st.AllowLan; cXAuto.Checked = st.XrayAutoConnect;
+                nSocks.Value = Math.Max(1024, Math.Min(65000, st.SocksPort)); nHttp.Value = Math.Max(1024, Math.Min(65000, st.HttpPort));
+                tbTestUrl.Text = st.TestUrl; tbSpeedUrl.Text = st.SpeedUrl; nSpdSec.Value = Math.Max(3, Math.Min(60, st.SpeedSec));
+            };
             var bSrvView = new FlatButton(Tx("Сбросить вид таблицы")) { Glyph = "\uE777" }.AutoW();
             bSrvView.Click += (s, e) => ResetSrvColumns();
             row(Tx("Таблица серверов"), bSrvView, Tx("Ширина, порядок и видимость колонок — как по умолчанию"));
@@ -393,7 +428,7 @@ namespace NetProbe
         {
             if (tbCurl == null || tbCurl.IsDisposed) return;
             loadingSettings = true;
-            try { LoadSettingsCore(); } finally { loadingSettings = false; }
+            try { LoadSettingsCore(); if (loadProxyUi != null) loadProxyUi(); } finally { loadingSettings = false; }
         }
 
         void LoadSettingsCore()

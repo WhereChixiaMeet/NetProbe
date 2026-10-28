@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.0.1";
+        public const string Version = "3.0.2";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -603,7 +603,7 @@ namespace NetProbe
         void OnUiTick()
         {
             if (curPage == PgConnect) UpdateConnectUi();
-            History.Tick();
+            if (History.Tick() && curPage == PgMonitor && monPeriod != null && monPeriod.SelectedKey != "s") LoadPeriod(monPeriod.SelectedKey); // новая точка — обновить Day/Week
             if (curPage == PgTasks && chkTasksAuto != null && chkTasksAuto.Checked) RefreshTasks();
         }
 

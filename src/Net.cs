@@ -553,11 +553,14 @@ namespace NetProbe
         static readonly object fl = new object();
         static DateTime lastPrune = DateTime.MinValue;
 
-        public static void Write(LogLevel lv, string text)
+        public static void Write(LogLevel lv, string text) { Write(lv, text, false); }
+
+        // forceFile: строка пишется в файл, даже если «Писать лог в файл» выключено (минутные точки графиков Day/Week)
+        public static void Write(LogLevel lv, string text, bool forceFile)
         {
             var now = DateTime.Now;
             var h = Line; if (h != null) try { h(now, lv, text); } catch { }
-            if (!ToFile) return;
+            if (!ToFile && !forceFile) return;
             try
             {
                 lock (fl)
