@@ -7,6 +7,16 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Запуск…", "Starting…" },
+            { "Ошибка", "Error" },
+            { " напрямую", " direct" },
+            { "все DC — запасными путями", "all DCs via fallback routes" },
+            { "Ссылка для Telegram — «Скопировать ссылку» или «Открыть в Telegram»", "Link for Telegram: use \"Copy link\" or \"Open in Telegram\"" },
+            { "Соединения", "Connections" },
+            { "Отправлено", "Sent" },
+            { "Получено", "Received" },
+            { "активных · всего ", "active · total " },
+            { "в пуле ", "in pool " },
             { "Неверный IP-адрес", "Invalid IP address" },
             { "Секрет — ровно 32 шестнадцатеричных символа", "The secret must be exactly 32 hex characters" },
             { "Неверная запись DC:IP: ", "Invalid DC:IP entry: " },

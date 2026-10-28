@@ -15,11 +15,12 @@ namespace NetProbe
     public partial class MainForm
     {
         Panel tgBody; ScrollHost tgHost;
-        Label tgpState, tgpLink, tgpStats, tgpErr, tgpDcRes, tgpCfRes;
+        Label tgpState, tgpAddr, tgpLink, tgpErr, tgpDcRes, tgpCfRes;
+        TgStatsView tgpStats; Action tgpLayState;
         Toggle tgpOn;
         System.Windows.Forms.Timer tgpTimer, tgpApply;
         bool tgpLogHooked, tgpLoading;
-        static int TgCardW { get { return Theme.S(460); } }
+        static int TgCardW { get { return Theme.S(420); } } // исходная (минимальная) ширина карточек вкладки
 
         TgConfig TgConfigFromSettings(out string error)
         {
@@ -68,14 +69,18 @@ namespace NetProbe
             if (tgpState == null || tgpState.IsDisposed) return;
             var c = TgProxy.Config; bool run = TgProxy.Running;
             string err; var cur = TgConfigFromSettings(out err);
-            tgpState.Text = run ? "● " + Tx("Работает") + "  ·  " + c.Host + ":" + c.Port : st.TgOn && TgProxy.LastError != "" ? "● " + Tx("Ошибка: ") + TgProxy.LastError : "○ " + Tx("Выключен");
-            tgpState.ForeColor = run ? Theme.Green : st.TgOn && TgProxy.LastError != "" ? Theme.Red : Theme.Muted;
+            bool failed = st.TgOn && !run && TgProxy.LastError != "";
+            tgpState.Text = run ? Tx("Работает") : failed ? Tx("Ошибка") : st.TgOn ? Tx("Запуск…") : Tx("Выключен");
+            tgpState.ForeColor = run ? Theme.Green : failed ? Theme.Red : Theme.Text;
+            tgpState.Tag = run ? Theme.Green : failed ? Theme.Red : st.TgOn ? Theme.Yellow : Theme.Dim; // цвет точки
+            var dcs = cur != null && cur.DcRedirects.Count > 0 ? "DC" + string.Join(", DC", cur.DcRedirects.Keys.OrderBy(k => k)) + Tx(" напрямую") : Tx("все DC — запасными путями");
+            tgpAddr.Text = (failed ? TgProxy.LastError + "  ·  " : "") + (cur != null ? cur.Host + ":" + cur.Port + "  ·  " + dcs + (cur.FakeTlsDomain != "" ? "  ·  Fake TLS" : "") : "");
             tgpLink.Text = cur != null ? TgProxy.Link(cur) : "";
-            if (tgpErr != null) { tgpErr.Text = err ?? ""; tgpErr.Visible = err != null; }
+            bool showErr = err != null;
+            if (tgpErr != null && (tgpErr.Text != (err ?? "") || tgpErr.Visible != showErr)) { tgpErr.Text = err ?? ""; tgpErr.Visible = showErr; if (tgpLayState != null) tgpLayState(); }
             if (tgpOn != null && tgpOn.On != st.TgOn) { tgpLoading = true; tgpOn.On = st.TgOn; tgpLoading = false; }
-            tgpStats.Text = Tx("Соединения: ") + Interlocked.Read(ref TgStats.Active) + Tx(" активных · ") + TgStats.Total + Tx(" всего") +
-                            "  ·  WS " + TgStats.Ws + "  CF " + TgStats.Cf + "  H2 " + TgStats.H2 + "  TCP " + TgStats.TcpFb + (TgStats.Bad > 0 ? "  ·  " + Tx("чужих: ") + TgStats.Bad : "") +
-                            "\n↑ " + TgConst.Human(Interlocked.Read(ref TgStats.Up)) + "   ↓ " + TgConst.Human(Interlocked.Read(ref TgStats.Down)) + "  ·  " + Tx("готово в пуле: ") + (run ? TgProxy.WsPool.Ready : 0);
+            if (tgpStats != null) tgpStats.Set(run);
+            tgpState.Invalidate(); if (tgpState.Parent != null) tgpState.Parent.Invalidate(new Rectangle(0, tgpState.Top, Theme.S(40), tgpState.Height));
         }
 
         void TgOpenInTelegram()
@@ -90,32 +95,86 @@ namespace NetProbe
             }
         }
 
+        // ---- форма карточки: строки «подпись — поле», галочки, кнопки, результат; раскладка по ширине карточки ----
+        sealed class TgForm
+        {
+            enum K { Row, Check, Full, Buttons, Note, Indent }
+            readonly List<Tuple<K, Control, Control[], int>> items = new List<Tuple<K, Control, Control[], int>>();
+            readonly CardPanel card; public int Top = Theme.S(48);
+            public static int Pad { get { return Theme.S(18); } }
+            public static int LabelW { get { return Theme.S(140); } }
+            public TgForm(CardPanel c) { card = c; c.Resize += (s, e) => Lay(); }
+            Label Lbl(string t) { var l = new Label { Text = t, AutoSize = false, Font = Theme.Body, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft }; card.Controls.Add(l); return l; }
+            public void Row(string label, Control ctl, int fixedW = 0) { card.Controls.Add(ctl); items.Add(Tuple.Create(K.Row, ctl, new Control[] { Lbl(label) }, fixedW)); }
+            public void Check(ThemedCheck c) { c.BackColor = Theme.Card; card.Controls.Add(c); items.Add(Tuple.Create(K.Check, (Control)c, (Control[])null, 0)); }
+            public void Indent(Control c) { card.Controls.Add(c); items.Add(Tuple.Create(K.Indent, c, (Control[])null, 0)); }
+            public void Full(Control c, int h) { card.Controls.Add(c); items.Add(Tuple.Create(K.Full, c, (Control[])null, h)); }
+            public void Buttons(params Control[] bs) { foreach (var b in bs) card.Controls.Add(b); items.Add(Tuple.Create(K.Buttons, (Control)null, bs, 0)); }
+            public void Note(Label l) { l.BackColor = Theme.Card; card.Controls.Add(l); items.Add(Tuple.Create(K.Note, (Control)l, (Control[])null, 0)); }
+            bool laying;
+            public void Lay()
+            {
+                if (laying) return; laying = true;
+                try
+                {
+                    int W = card.Width, ip = Pad, y = Top, lx = ip + LabelW, gap = Theme.S(10);
+                    foreach (var it in items)
+                    {
+                        var c = it.Item2;
+                        switch (it.Item1)
+                        {
+                            case K.Row:
+                                int h = Math.Max(c.Height, Theme.S(28));
+                                it.Item3[0].SetBounds(ip, y, LabelW - Theme.S(8), h);
+                                if (it.Item4 > 0) c.SetBounds(lx, y + (h - c.Height) / 2, it.Item4, c.Height);
+                                else if (c is Spin) c.Location = new Point(lx, y + (h - c.Height) / 2);
+                                else c.SetBounds(lx, y + (h - c.Height) / 2, W - lx - ip, c.Height);
+                                y += h + gap; break;
+                            case K.Check: c.Location = new Point(ip - Theme.S(2), y); y += Theme.S(28); break;
+                            case K.Indent: c.SetBounds(ip + Theme.S(26), y, W - ip * 2 - Theme.S(26), c.Height); y += c.Height + gap; break;
+                            case K.Full: c.SetBounds(ip, y, W - ip * 2, it.Item4); y += it.Item4 + gap; break;
+                            case K.Buttons:
+                                int x = ip; y += Theme.S(4); int bh = 0;
+                                foreach (var b in it.Item3) { if (x > ip && x + b.Width > W - ip) { x = ip; y += bh + Theme.S(8); } b.Location = new Point(x, y); x = b.Right + Theme.S(8); bh = Math.Max(bh, b.Height); }
+                                y += bh + gap; break;
+                            case K.Note:
+                                var l = (Label)c;
+                                if (!l.Visible || string.IsNullOrEmpty(l.Text)) { l.SetBounds(ip, y, W - ip * 2, 0); break; }
+                                int nh = TextRenderer.MeasureText(l.Text, l.Font, new Size(W - ip * 2, 2000), TextFormatFlags.WordBreak).Height + 2;
+                                l.SetBounds(ip, y, W - ip * 2, nh); y += nh + gap; break;
+                        }
+                    }
+                    int ch = y - gap + Theme.S(18);
+                    if (card.Height != ch) card.Height = ch;
+                }
+                finally { laying = false; }
+            }
+        }
+
         void BuildTgPage()
         {
             var p = NewPage("TG Proxy", Tx("Telegram Desktop через WebSocket: свой MTProto-прокси на этом компьютере"));
             tgHost = new ScrollHost { BackColor = Theme.Bg };
             tgBody = tgHost.Content;
             p.Controls.Add(tgHost);
-            int W = TgCardW, ip = Theme.S(16), lx = Theme.S(170), cw = W - lx - ip;
+            int W = TgCardW, ip = TgForm.Pad;
             var tip = Ui.Tip();
             EventHandler save = (s, e) => { if (tgpLoading) return; st.Save(); TgUpdateUi(); if (st.TgOn) TgApplySoon(); };
-            Func<string, CardPanel> card = t => new CardPanel { Title = t, Width = W };
-            Func<CardPanel, string, Control, int, int> row = (cardP, label, ctl, ry) =>
-            {
-                var l = Ui.Label(label, Theme.Body, Theme.Text); l.BackColor = Theme.Card; l.Location = new Point(ip, ry + Theme.S(4)); cardP.Controls.Add(l);
-                ctl.Location = new Point(lx, ry); if (ctl is TextBox) ctl.Width = cw; cardP.Controls.Add(ctl);
-                return ry + Math.Max(ctl.Height, Theme.S(26)) + Theme.S(10);
-            };
-            Func<CardPanel, ThemedCheck, int, int> check = (cardP, chk, ry) => { chk.BackColor = Theme.Card; chk.Location = new Point(ip, ry); cardP.Controls.Add(chk); return ry + Theme.S(28); };
-            Func<string, Label> res = txt => new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, Width = W - ip * 2, Height = Theme.S(18), UseMnemonic = false, Text = txt };
+            Func<string, CardPanel> card = t => new CardPanel { Title = t, Width = W, Height = Theme.S(120) };
+            Func<Label> result = () => new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, UseMnemonic = false };
+            Action relay = () => { if (relayTg != null) relayTg(); PageFrame pf; if (frames.TryGetValue(curPage, out pf)) LayFrame(pf); };
 
-            // ---- состояние: вкл/выкл, ссылка, кнопки, счётчики ----
-            var cs = card(Tx("TG Proxy · состояние"));
+            // ---- состояние: крупно статус, адрес, ссылка, кнопки; справа — плитки со счётчиками ----
+            var cs = new CardPanel { Title = "TG Proxy", Width = W, Height = Theme.S(200) };
             tgpOn = new Toggle { On = st.TgOn };
             tgpOn.Changed += (s, e) => { if (tgpLoading) return; st.TgOn = tgpOn.On; st.Save(); TgApply(); TgUpdateUi(); };
             tip.SetToolTip(tgpOn, Tx("Включить прокси. Включённый запускается вместе с NetProbe"));
-            tgpState = new Label { AutoSize = false, Font = Theme.H2, BackColor = Theme.Card, Width = W - ip * 2 - tgpOn.Width - Theme.S(8), Height = Theme.S(26), UseMnemonic = false };
-            tgpLink = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, Width = W - ip * 2, Height = Theme.S(18), AutoEllipsis = true, UseMnemonic = false };
+            tgpState = new Label { AutoSize = false, Font = Theme.H1, BackColor = Theme.Card, UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft };
+            var dot = new DoubleBufferedControl { BackColor = Theme.Card };
+            dot.Paint += (s, e) => { var g = e.Graphics; Gfx.Hq(g); var col = tgpState.Tag is Color ? (Color)tgpState.Tag : Theme.Dim; Gfx.Dot(g, col, dot.Width / 2f, dot.Height / 2f, Theme.S(6), TgProxy.Running); };
+            tgpAddr = new Label { AutoSize = false, Font = Theme.Body, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false, AutoEllipsis = true };
+            tgpLink = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Dim, BackColor = Theme.Card, UseMnemonic = false, AutoEllipsis = true };
+            tip.SetToolTip(tgpLink, Tx("Ссылка для Telegram — «Скопировать ссылку» или «Открыть в Telegram»"));
             var bOpen = new FlatButton(Tx("Открыть в Telegram"), true) { Glyph = "" }.AutoW();
             bOpen.Click += (s, e) => TgOpenInTelegram();
             tip.SetToolTip(bOpen, Tx("Telegram сам предложит подключить этот прокси (ссылка tg://proxy)"));
@@ -123,109 +182,133 @@ namespace NetProbe
             bCopy.Click += (s, e) => { try { Clipboard.SetText(tgpLink.Text); Logger.Write(LogLevel.Info, Tx("Ссылка TG Proxy скопирована")); } catch { } };
             var bRestart = new FlatButton(Tx("Перезапустить")) { Glyph = "" }.AutoW();
             bRestart.Click += (s, e) => { if (!st.TgOn) { st.TgOn = true; st.Save(); } TgApply(); };
-            tgpStats = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, Width = W - ip * 2, Height = Theme.S(34), UseMnemonic = false };
-            tgpErr = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Red, BackColor = Theme.Card, Width = W - ip * 2, Height = Theme.S(18), UseMnemonic = false, Visible = false };
-            var how = Ui.Hint(Tx("Вручную: Telegram → Настройки → Продвинутые → Тип соединения → Прокси → MTProto: адрес, порт и секрет «dd…» из ссылки."), W - ip * 2);
-            how.BackColor = Theme.Card;
-            cs.Controls.AddRange(new Control[] { tgpOn, tgpState, tgpLink, bOpen, bCopy, bRestart, tgpStats, tgpErr, how });
-            tgpOn.Location = new Point(W - ip - tgpOn.Width, Theme.S(12));
-            tgpState.Location = new Point(ip, Theme.S(44)); tgpLink.Location = new Point(ip, tgpState.Bottom + Theme.S(2));
-            bOpen.Location = new Point(ip, tgpLink.Bottom + Theme.S(10)); bCopy.Location = new Point(bOpen.Right + Theme.S(8), bOpen.Top); bRestart.Location = new Point(bCopy.Right + Theme.S(8), bOpen.Top);
-            tgpStats.Location = new Point(ip, bOpen.Bottom + Theme.S(10)); tgpErr.Location = new Point(ip, tgpStats.Bottom + Theme.S(2));
-            how.Location = new Point(ip, tgpErr.Bottom + Theme.S(4));
-            cs.Height = how.Bottom + Theme.S(14);
+            tgpStats = new TgStatsView();
+            tgpErr = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Red, BackColor = Theme.Card, UseMnemonic = false, Visible = false };
+            var how = new Label { Text = Tx("Вручную: Telegram → Настройки → Продвинутые → Тип соединения → Прокси → MTProto: адрес, порт и секрет «dd…» из ссылки."), AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false };
+            cs.Controls.AddRange(new Control[] { tgpOn, dot, tgpState, tgpAddr, tgpLink, bOpen, bCopy, bRestart, tgpStats, tgpErr, how });
+            bool layingState = false;
+            tgpLayState = () =>
+            {
+                if (layingState) return; layingState = true;
+                try
+                {
+                    int w = cs.Width, top = Theme.S(46);
+                    tgpOn.Location = new Point(w - ip - tgpOn.Width, Theme.S(12));
+                    // широкая карточка — плитки справа; узкая — под кнопками
+                    bool side = w >= Theme.S(760);
+                    int statsW = side ? Math.Min(Theme.S(380), w / 2 - ip) : w - ip * 2;
+                    int leftW = side ? w - ip * 3 - statsW : w - ip * 2;
+                    dot.SetBounds(ip - Theme.S(4), top + Theme.S(4), Theme.S(24), Theme.S(28));
+                    tgpState.SetBounds(ip + Theme.S(22), top, leftW - Theme.S(22), Theme.S(36));
+                    tgpAddr.SetBounds(ip, tgpState.Bottom + Theme.S(2), leftW, Theme.S(20));
+                    tgpLink.SetBounds(ip, tgpAddr.Bottom + Theme.S(2), leftW, Theme.S(18));
+                    int y = tgpLink.Bottom + Theme.S(12), x = ip, bh = bOpen.Height;
+                    foreach (var b in new[] { bOpen, bCopy, bRestart }) { if (x > ip && x + b.Width > ip + leftW) { x = ip; y += bh + Theme.S(8); } b.Location = new Point(x, y); x = b.Right + Theme.S(8); }
+                    y = bOpen.Bottom; foreach (var b in new[] { bCopy, bRestart }) y = Math.Max(y, b.Bottom);
+                    if (tgpErr.Visible) { tgpErr.SetBounds(ip, y + Theme.S(8), leftW, Theme.S(18)); y = tgpErr.Bottom; }
+                    int sh = tgpStats.Needed(statsW);
+                    if (side) { tgpStats.SetBounds(w - ip - statsW, top, statsW, sh); y = Math.Max(y, tgpStats.Bottom); }
+                    else { tgpStats.SetBounds(ip, y + Theme.S(14), statsW, sh); y = tgpStats.Bottom; }
+                    int hh = TextRenderer.MeasureText(how.Text, how.Font, new Size(w - ip * 2, 2000), TextFormatFlags.WordBreak).Height + 2;
+                    how.SetBounds(ip, y + Theme.S(14), w - ip * 2, hh);
+                    int ch = how.Bottom + Theme.S(16);
+                    if (cs.Height != ch) cs.Height = ch;
+                }
+                finally { layingState = false; }
+            };
+            cs.Resize += (s, e) => tgpLayState(); tgpLayState();
             tgBody.Controls.Add(cs); RegisterModule(cs, "tg.state", PgTg, "subs");
 
             // ---- MTProto ----
-            var cm = card(Tx("MTProto-подключение"));
-            int y = Theme.S(48);
+            var cm = card(Tx("MTProto-подключение")); var fm = new TgForm(cm);
             var tbHost = Ui.TextBox(st.TgHost); tbHost.TextChanged += (s, e) => { st.TgHost = tbHost.Text.Trim(); save(s, e); };
             tip.SetToolTip(tbHost, Tx("Адрес, на котором слушает прокси: 127.0.0.1 — только этот компьютер, 0.0.0.0 — вся сеть"));
-            y = row(cm, Tx("IP-адрес"), tbHost, y);
+            fm.Row(Tx("IP-адрес"), tbHost);
             var nPort = Ui.Num(1, 65535, st.TgPort); nPort.ValueChanged += (s, e) => { st.TgPort = (int)nPort.Value; save(s, e); };
             tip.SetToolTip(nPort, Tx("Порт прокси — тот же должен стоять в Telegram"));
-            y = row(cm, Tx("Порт"), nPort, y);
-            var tbSecret = Ui.TextBox(st.TgSecret); tbSecret.Width = cw - Theme.S(44);
+            fm.Row(Tx("Порт"), nPort);
+            var secretRow = new Panel { BackColor = Theme.Card, Height = Theme.S(30) };
+            var tbSecret = Ui.TextBox(st.TgSecret); tbSecret.Font = Theme.Mono;
             tbSecret.TextChanged += (s, e) => { st.TgSecret = tbSecret.Text.Trim(); save(s, e); };
             tip.SetToolTip(tbSecret, Tx("Секрет для авторизации клиента: 32 шестнадцатеричных символа"));
             var bNew = new FlatButton("") { Glyph = "", IconOnly = true }.AutoW();
             bNew.Click += (s, e) => { tbSecret.Text = TgConst.NewSecret(); };
             tip.SetToolTip(bNew, Tx("Новый случайный секрет (в Telegram понадобится новая ссылка)"));
-            y = row(cm, Tx("Секрет"), tbSecret, y); tbSecret.Width = cw - bNew.Width - Theme.S(6);
-            bNew.Location = new Point(tbSecret.Right + Theme.S(6), tbSecret.Top - (bNew.Height - tbSecret.Height) / 2); cm.Controls.Add(bNew);
+            secretRow.Controls.AddRange(new Control[] { tbSecret, bNew });
+            secretRow.Resize += (s, e) => { bNew.Location = new Point(secretRow.Width - bNew.Width, (secretRow.Height - bNew.Height) / 2); tbSecret.SetBounds(0, (secretRow.Height - tbSecret.Height) / 2, Math.Max(10, bNew.Left - Theme.S(6)), tbSecret.Height); };
+            fm.Row(Tx("Секрет"), secretRow);
             var tbFake = Ui.TextBox(st.TgFakeTls); tbFake.TextChanged += (s, e) => { st.TgFakeTls = tbFake.Text.Trim(); save(s, e); };
             tip.SetToolTip(tbFake, Tx("Fake TLS (ee-секрет): прокси выглядит как HTTPS этого сайта; чужие подключения уходят на сам сайт. Пусто — выключено"));
-            y = row(cm, Tx("Fake TLS (домен)"), tbFake, y);
+            fm.Row("Fake TLS", tbFake);
             var cPP = Ui.Check(Tx("Принимать PROXY protocol (за nginx/haproxy)"), st.TgProxyProto); cPP.CheckedChanged += (s, e) => { st.TgProxyProto = cPP.Checked; save(s, e); };
-            y = check(cm, cPP, y);
-            cm.Height = y + Theme.S(8);
+            fm.Check(cPP);
+            fm.Lay();
             tgBody.Controls.Add(cm); RegisterModule(cm, "tg.mtproto", PgTg, "subs");
 
             // ---- DC → IP ----
-            var cd2 = card(Tx("Дата-центры Telegram (DC → IP)"));
-            var hint = Ui.Hint(Tx("По правилу на строку: номер:IP (например 4:149.154.167.220). Эти DC идут прямым WebSocket к web.telegram.org; остальные и при сбое — запасными путями."), W - ip * 2);
-            hint.BackColor = Theme.Card; hint.Location = new Point(ip, Theme.S(46)); cd2.Controls.Add(hint);
-            var tbDc = Ui.TextBox(string.Join("\r\n", TgConst.DomainList(st.TgDcIp)), true); tbDc.SetBounds(ip, hint.Bottom + Theme.S(8), W - ip * 2, Theme.S(84));
+            var cd2 = card(Tx("Дата-центры Telegram (DC → IP)")); var fd = new TgForm(cd2);
+            var hint = new Label { Text = Tx("По правилу на строку: номер:IP (например 4:149.154.167.220). Эти DC идут прямым WebSocket к web.telegram.org; остальные и при сбое — запасными путями."), Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = false, UseMnemonic = false };
+            fd.Note(hint);
+            var tbDc = Ui.TextBox(string.Join("\r\n", TgConst.DomainList(st.TgDcIp)), true); tbDc.ScrollBars = ScrollBars.Vertical;
             tbDc.TextChanged += (s, e) => { st.TgDcIp = string.Join(", ", TgConst.DomainList(tbDc.Text)); save(s, e); };
-            cd2.Controls.Add(tbDc);
+            fd.Full(tbDc, Theme.S(76));
             var bDcDef = new FlatButton(Tx("По умолчанию")) { Glyph = "" }.AutoW();
             bDcDef.Click += (s, e) => tbDc.Text = TgConst.DefaultDcIp.Replace(", ", "\r\n");
             var bDcTest = new FlatButton(Tx("Проверить")) { Glyph = "" }.AutoW();
-            tgpDcRes = res("");
+            tip.SetToolTip(bDcTest, Tx("Проверить прямой WebSocket к каждому DC из списка"));
+            fd.Buttons(bDcDef, bDcTest);
+            tgpDcRes = result(); fd.Note(tgpDcRes);
             bDcTest.Click += (s, e) =>
             {
-                Dictionary<int, string> rules; try { rules = TgConst.ParseDcIp(st.TgDcIp); } catch (FormatException ex) { tgpDcRes.Text = Tx("Неверная запись DC:IP: ") + ex.Message; return; }
-                tgpDcRes.Text = Tx("Проверка…"); bDcTest.Enabled = false;
+                Dictionary<int, string> rules; try { rules = TgConst.ParseDcIp(st.TgDcIp); } catch (FormatException ex) { tgpDcRes.Text = Tx("Неверная запись DC:IP: ") + ex.Message; fd.Lay(); relay(); return; }
+                tgpDcRes.Text = Tx("Проверка…"); bDcTest.Enabled = false; fd.Lay(); relay();
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
                     var r = TgHttp.TestDirect(rules);
-                    string text = r.Count == 0 ? Tx("нет правил — весь трафик пойдёт запасными путями") : string.Join("  ", r.Select(kv => "DC" + kv.Key + (kv.Value == null ? " ✓" : " ✗ " + kv.Value)));
-                    try { BeginInvoke((Action)(() => { if (tgpDcRes.IsDisposed) return; tgpDcRes.Text = text; bDcTest.Enabled = true; })); } catch { }
+                    string text = r.Count == 0 ? Tx("нет правил — весь трафик пойдёт запасными путями") : string.Join("   ", r.Select(kv => "DC" + kv.Key + (kv.Value == null ? " ✓" : " ✗ " + kv.Value)));
+                    bool allOk = r.Count > 0 && r.Values.All(v => v == null);
+                    try { BeginInvoke((Action)(() => { if (tgpDcRes.IsDisposed) return; tgpDcRes.Text = text; tgpDcRes.ForeColor = allOk ? Theme.Green : Theme.Muted; bDcTest.Enabled = true; fd.Lay(); relay(); })); } catch { }
                 });
             };
-            tip.SetToolTip(bDcTest, Tx("Проверить прямой WebSocket к каждому DC из списка"));
-            bDcDef.Location = new Point(ip, tbDc.Bottom + Theme.S(10)); bDcTest.Location = new Point(bDcDef.Right + Theme.S(8), bDcDef.Top);
-            tgpDcRes.Location = new Point(ip, bDcDef.Bottom + Theme.S(6)); tgpDcRes.AutoEllipsis = true;
-            cd2.Controls.AddRange(new Control[] { bDcDef, bDcTest, tgpDcRes });
-            cd2.Height = tgpDcRes.Bottom + Theme.S(12);
+            fd.Lay();
             tgBody.Controls.Add(cd2); RegisterModule(cd2, "tg.dc", PgTg, "subs");
 
-            // ---- Cloudflare: CF-прокси, HTTP/2, свои домены, Worker ----
-            var cc = card("Cloudflare");
-            y = Theme.S(48);
+            // ---- Cloudflare ----
+            var cc = card("Cloudflare"); var fc = new TgForm(cc);
             var cCf = Ui.Check(Tx("CF-прокси для недоступных DC"), st.TgCf); cCf.CheckedChanged += (s, e) => { st.TgCf = cCf.Checked; save(s, e); };
             tip.SetToolTip(cCf, Tx("Запасной путь через домены за Cloudflare. Это сторонние серверы (по умолчанию — домены автора tg-ws-proxy)"));
-            y = check(cc, cCf, y);
+            fc.Check(cCf);
             var cH2 = Ui.Check(Tx("Медиа через HTTP/2 (одно соединение на DC)"), st.TgH2); cH2.CheckedChanged += (s, e) => { st.TgH2 = cH2.Checked; save(s, e); };
             tip.SetToolTip(cH2, Tx("Загрузка медиа через CF одним HTTP/2-соединением. Нужны CF-прокси и TLS; Windows 10 1607+"));
-            y = check(cc, cH2, y);
-            var cUser = Ui.Check(Tx("Свои домены CF-прокси"), st.TgCfUserOn); cUser.CheckedChanged += (s, e) => { st.TgCfUserOn = cUser.Checked; save(s, e); };
-            y = check(cc, cUser, y);
-            var tbUser = Ui.TextBox(st.TgCfUser); tbUser.SetBounds(ip + Theme.S(24), y, W - ip * 2 - Theme.S(24), tbUser.Height);
-            tbUser.TextChanged += (s, e) => { st.TgCfUser = tbUser.Text.Trim(); save(s, e); }; cc.Controls.Add(tbUser);
+            fc.Check(cH2);
+            var cUser = Ui.Check(Tx("Свои домены CF-прокси"), st.TgCfUserOn);
+            var tbUser = Ui.TextBox(st.TgCfUser); tbUser.Enabled = st.TgCfUserOn;
+            cUser.CheckedChanged += (s, e) => { st.TgCfUserOn = cUser.Checked; tbUser.Enabled = cUser.Checked; save(s, e); };
+            tbUser.TextChanged += (s, e) => { st.TgCfUser = tbUser.Text.Trim(); save(s, e); };
             tip.SetToolTip(tbUser, Tx("Свои домены за Cloudflare через запятую. Пусто/выключено — выбираются автоматически"));
-            y = tbUser.Bottom + Theme.S(10);
-            var cWorker = Ui.Check("Cloudflare Worker", st.TgWorkerOn); cWorker.CheckedChanged += (s, e) => { st.TgWorkerOn = cWorker.Checked; save(s, e); };
+            fc.Check(cUser); fc.Indent(tbUser);
+            var cWorker = Ui.Check("Cloudflare Worker", st.TgWorkerOn);
+            var tbWorker = Ui.TextBox(st.TgWorker); tbWorker.Enabled = st.TgWorkerOn;
+            cWorker.CheckedChanged += (s, e) => { st.TgWorkerOn = cWorker.Checked; tbWorker.Enabled = cWorker.Checked; save(s, e); };
+            tbWorker.TextChanged += (s, e) => { st.TgWorker = tbWorker.Text.Trim(); save(s, e); };
             tip.SetToolTip(cWorker, Tx("Свои Worker-домены (name.account.workers.dev): через них прокси идёт к DC по IP. Пробуются первыми"));
-            y = check(cc, cWorker, y);
-            var tbWorker = Ui.TextBox(st.TgWorker); tbWorker.SetBounds(ip + Theme.S(24), y, W - ip * 2 - Theme.S(24), tbWorker.Height);
-            tbWorker.TextChanged += (s, e) => { st.TgWorker = tbWorker.Text.Trim(); save(s, e); }; cc.Controls.Add(tbWorker);
-            y = tbWorker.Bottom + Theme.S(10);
+            fc.Check(cWorker); fc.Indent(tbWorker);
             var cNoTls = Ui.Check(Tx("Без TLS для CF-прокси и Worker (порт 80)"), st.TgNoSecure); cNoTls.CheckedChanged += (s, e) => { st.TgNoSecure = cNoTls.Checked; save(s, e); };
-            y = check(cc, cNoTls, y);
+            fc.Check(cNoTls);
             var bCfTest = new FlatButton(Tx("Проверить CF-прокси")) { Glyph = "" }.AutoW();
             var bWTest = new FlatButton(Tx("Проверить Worker")) { Glyph = "" }.AutoW();
-            tgpCfRes = res(""); tgpCfRes.Height = Theme.S(36);
+            fc.Buttons(bCfTest, bWTest);
+            tgpCfRes = result(); fc.Note(tgpCfRes);
             Action<bool> runTest = worker =>
             {
                 var list = worker ? TgConst.DomainList(st.TgWorker) : (st.TgCfUserOn && TgConst.DomainList(st.TgCfUser).Count > 0 ? TgConst.DomainList(st.TgCfUser) : TgCfDomains.Defaults());
-                if (worker && list.Count == 0) { tgpCfRes.Text = Tx("Сначала впиши домены Worker"); return; }
+                if (worker && list.Count == 0) { tgpCfRes.Text = Tx("Сначала впиши домены Worker"); fc.Lay(); relay(); return; }
                 bool auto = !worker && !(st.TgCfUserOn && TgConst.DomainList(st.TgCfUser).Count > 0);
                 bool secure = !st.TgNoSecure;
-                tgpCfRes.Text = Tx("Проверка…"); bCfTest.Enabled = bWTest.Enabled = false;
+                tgpCfRes.Text = Tx("Проверка…"); tgpCfRes.ForeColor = Theme.Muted; bCfTest.Enabled = bWTest.Enabled = false; fc.Lay(); relay();
                 ThreadPool.QueueUserWorkItem(_ =>
                 {
-                    var lines = new List<string>();
+                    var lines = new List<string>(); bool allOk = true;
                     if (auto)
                     {
                         // как run_cfproxy_auto_test: до первого домена, где работают все DC
@@ -236,55 +319,50 @@ namespace NetProbe
                             if (r.Values.All(v => v == null)) { best = d; merged = r; break; }
                             foreach (var kv in r) if (kv.Value == null) { merged[kv.Key] = null; best = best ?? d; } else if (!merged.ContainsKey(kv.Key)) merged[kv.Key] = kv.Value;
                         }
-                        int ok = merged.Count(kv => kv.Value == null);
+                        int ok = merged.Count(kv => kv.Value == null); allOk = best != null && ok == TgHttp.TestDcs.Length;
                         lines.Add(best != null ? "✓ " + Tx("CF-прокси работает: ") + ok + "/" + TgHttp.TestDcs.Length + " DC" : "✗ " + Tx("ни один автоматический домен CF не отвечает"));
                     }
                     else
                         foreach (var d in list)
                         {
                             var r = worker ? TgHttp.TestWorker(d, secure) : TgHttp.TestCfProxy(d, secure);
-                            int ok = r.Count(kv => kv.Value == null);
+                            int ok = r.Count(kv => kv.Value == null); if (ok != r.Count) allOk = false;
                             lines.Add((ok == r.Count ? "✓ " : ok == 0 ? "✗ " : "~ ") + TgConst.Censor(d) + ": " + (ok == r.Count ? Tx("все DC") : string.Join(", ", r.Where(kv => kv.Value != null).Select(kv => "DC" + kv.Key + " " + kv.Value))));
                         }
                     var text = string.Join("\n", lines);
-                    try { BeginInvoke((Action)(() => { if (tgpCfRes.IsDisposed) return; tgpCfRes.Text = text; bCfTest.Enabled = bWTest.Enabled = true; })); } catch { }
+                    try { BeginInvoke((Action)(() => { if (tgpCfRes.IsDisposed) return; tgpCfRes.Text = text; tgpCfRes.ForeColor = allOk ? Theme.Green : Theme.Muted; bCfTest.Enabled = bWTest.Enabled = true; fc.Lay(); relay(); })); } catch { }
                 });
             };
             bCfTest.Click += (s, e) => runTest(false); bWTest.Click += (s, e) => runTest(true);
-            bCfTest.Location = new Point(ip, y + Theme.S(2)); bWTest.Location = new Point(bCfTest.Right + Theme.S(8), bCfTest.Top);
-            tgpCfRes.Location = new Point(ip, bCfTest.Bottom + Theme.S(6));
-            cc.Controls.AddRange(new Control[] { bCfTest, bWTest, tgpCfRes });
-            cc.Height = tgpCfRes.Bottom + Theme.S(12);
+            fc.Lay();
             tgBody.Controls.Add(cc); RegisterModule(cc, "tg.cf", PgTg, "subs");
 
             // ---- дополнительно ----
-            var ca = card(Tx("Дополнительно"));
-            y = Theme.S(48);
+            var ca = card(Tx("Дополнительно")); var fa = new TgForm(ca);
             var nBuf = Ui.Num(4, 4096, st.TgBufKb); nBuf.ValueChanged += (s, e) => { st.TgBufKb = (int)nBuf.Value; save(s, e); };
             tip.SetToolTip(nBuf, Tx("Буфер приёма/отправки сокета, КБ (по умолчанию 256)"));
-            y = row(ca, Tx("Буфер, КБ"), nBuf, y);
+            fa.Row(Tx("Буфер, КБ"), nBuf);
             var nPool = Ui.Num(0, 32, st.TgPool); nPool.ValueChanged += (s, e) => { st.TgPool = (int)nPool.Value; save(s, e); };
             tip.SetToolTip(nPool, Tx("Сколько готовых WebSocket-соединений держать на DC (по умолчанию 4). 0 — без прямого WS"));
-            y = row(ca, Tx("Пул WebSocket на DC"), nPool, y);
+            fa.Row(Tx("Пул WebSocket на DC"), nPool);
             var cTest = Ui.Check(Tx("Только тестовые DC Telegram"), st.TgTestDc); cTest.CheckedChanged += (s, e) => { st.TgTestDc = cTest.Checked; save(s, e); };
             tip.SetToolTip(cTest, Tx("Весь трафик — в тестовые дата-центры. Для Telegram Desktop не нужно (тестовые DC определяются сами)"));
-            y = check(ca, cTest, y);
+            fa.Check(cTest);
             var cVerb = Ui.Check(Tx("Подробный лог"), st.TgVerbose); cVerb.CheckedChanged += (s, e) => { st.TgVerbose = cVerb.Checked; TgLog.Verbose = cVerb.Checked; st.Save(); };
             tip.SetToolTip(cVerb, Tx("Больше подробностей в лог NetProbe (вкладка «Лог и опрос», с «Каждый опрос») — для разбора проблем"));
-            y = check(ca, cVerb, y);
-            var credit = Ui.Hint(Tx("Основано на tg-ws-proxy (Flowseal, лицензия MIT)."), W - ip * 2); credit.BackColor = Theme.Card; credit.Location = new Point(ip, y + Theme.S(4)); ca.Controls.Add(credit);
-            ca.Height = credit.Bottom + Theme.S(12);
+            fa.Check(cVerb);
+            var credit = new Label { Text = Tx("Основано на tg-ws-proxy (Flowseal, лицензия MIT)."), Font = Theme.Small, ForeColor = Theme.Dim, AutoSize = false, UseMnemonic = false };
+            fa.Note(credit);
+            fa.Lay();
             tgBody.Controls.Add(ca); RegisterModule(ca, "tg.adv", PgTg, "subs");
-
-            foreach (var c in new[] { cs, cm, cd2, cc, ca }) c.RememberBase();
 
             Action lay = () =>
             {
-                int L = Theme.S(26), T = Theme.S(84), w = PW(p) - L * 2, gap = Theme.S(14);
+                int L = Theme.S(26), T = Theme.S(84), w = PW(p) - L * 2;
                 tgHost.SetBounds(L, T, Math.Max(10, w), Math.Max(10, p.ClientSize.Height - T - Theme.S(14)));
                 RelayTg();
             };
-            relayTg = lay;
+            relayTg = () => RelayTg();
             p.Resize += (s, e) => lay(); lay();
 
             if (tgpTimer == null) { tgpTimer = new System.Windows.Forms.Timer { Interval = 1000 }; tgpTimer.Tick += (s, e) => { if (curPage == PgTg || moduleKeys.Any(k => k == "tg.state" && PageOf(k) == curPage)) TgUpdateUi(); }; tgpTimer.Start(); }
@@ -292,19 +370,65 @@ namespace NetProbe
         }
         Action relayTg;
 
-        // карточки вкладки — колонками по ширине (две, если влезают), порядок — как расставил пользователь
+        // раскладка вкладки: «состояние» — во всю ширину сверху; остальное — в 1–2 колонки, карточки тянутся по ширине колонки
+        bool layingTg;
         void RelayTg()
         {
-            if (tgBody == null || tgBody.IsDisposed) return;
-            var mine = tgBody.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
-            int gap = Theme.S(14), w = tgHost.Width - Theme.S(14);
-            int cw = mine.Count == 0 ? TgCardW : mine.Max(c => c.BaseW);
-            int cols = Math.Max(1, (w + gap) / (cw + gap));
-            var colY = new int[cols];
-            foreach (var c in mine) { if (c.Width != c.BaseW) c.Width = c.BaseW; int col = Array.IndexOf(colY, colY.Min()); c.Location = new Point(col * (cw + gap), colY[col]); colY[col] = c.Bottom + gap; }
-            tgBody.Height = (mine.Count == 0 ? 0 : colY.Max()) + Theme.S(10);
-            tgHost.MinContentWidth = mine.Count == 0 ? 0 : cw + Theme.S(2);
-            tgHost.Relayout();
+            if (tgBody == null || tgBody.IsDisposed || layingTg) return;
+            layingTg = true;
+            try
+            {
+                var mine = tgBody.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
+                int gap = Theme.S(14), avail = tgHost.Width - Theme.S(14);
+                int w = Math.Max(mine.Count == 0 ? 0 : mine.Max(c => c.BaseW), Math.Min(avail, Theme.S(1320)));
+                int minCol = mine.Count == 0 ? TgCardW : mine.Where(c => c.ModuleKey != "tg.state").Select(c => c.BaseW).DefaultIfEmpty(TgCardW).Max();
+                int cols = w >= minCol * 2 + gap ? 2 : 1, colW = (w - gap * (cols - 1)) / cols;
+                int y0 = 0;
+                var state = mine.FirstOrDefault(c => c.ModuleKey == "tg.state");
+                if (state != null) { state.SetBounds(0, 0, w, state.Height); y0 = state.Bottom + gap; }
+                var colY = Enumerable.Repeat(y0, cols).ToArray();
+                foreach (var c in mine)
+                {
+                    if (c == state) continue;
+                    int col = Array.IndexOf(colY, colY.Min());
+                    c.SetBounds(col * (colW + gap), colY[col], Math.Max(c.BaseW, colW), c.Height);
+                    colY[col] = c.Bottom + gap;
+                }
+                tgBody.Height = (mine.Count == 0 ? 0 : Math.Max(colY.Max(), y0)) + Theme.S(10);
+                tgHost.MinContentWidth = mine.Count == 0 ? 0 : w + Theme.S(2);
+                tgHost.Relayout();
+            }
+            finally { layingTg = false; }
+        }
+    }
+
+    // плитки со счётчиками TG Proxy: соединения, маршруты, трафик, пул
+    public sealed class TgStatsView : DoubleBufferedControl
+    {
+        string[] vals = { "0", "—", "0 B", "0 B" }, subs = { "", "", "", "" };
+        static string[] Heads { get { return new[] { Tr.Tx("Соединения"), Tr.Tx("Маршруты"), Tr.Tx("Отправлено"), Tr.Tx("Получено") }; } }
+        public int Needed(int w) { return Theme.S(68) * 2 + Theme.S(8); }
+        public void Set(bool run)
+        {
+            vals = new[] { Interlocked.Read(ref TgStats.Active).ToString(), "WS " + TgStats.Ws + " · CF " + TgStats.Cf, TgConst.Human(Interlocked.Read(ref TgStats.Up)), TgConst.Human(Interlocked.Read(ref TgStats.Down)) };
+            subs = new[] { Tr.Tx("активных · всего ") + TgStats.Total + (TgStats.Bad > 0 ? " · " + Tr.Tx("чужих: ") + TgStats.Bad : ""), "H2 " + TgStats.H2 + " · TCP " + TgStats.TcpFb + " · " + Tr.Tx("в пуле ") + (run ? TgProxy.WsPool.Ready : 0), "↑", "↓" };
+            Invalidate();
+        }
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
+            int gap = Theme.S(8), tw = (Width - gap) / 2, th = (Height - gap) / 2, pad = Theme.S(12);
+            var tile = Theme.Mix(Theme.Card, Theme.CardHi, 0.75);
+            var heads = Heads;
+            for (int i = 0; i < 4; i++)
+            {
+                int x = (i % 2) * (tw + gap), y = (i / 2) * (th + gap);
+                var r = new RectangleF(x + 0.5f, y + 0.5f, tw - 1, th - 1);
+                Gfx.FillRound(g, tile, r, Theme.R(8));
+                Gfx.Text(g, heads[i], Theme.Small, Theme.Muted, new Rectangle(x + pad, y + Theme.S(7), tw - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+                Gfx.Text(g, vals[i], Theme.H2, Theme.Text, new Rectangle(x + pad, y + Theme.S(23), tw - pad * 2, Theme.S(22)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+                if (i < 2) Gfx.Text(g, subs[i], Theme.Small, Theme.Dim, new Rectangle(x + pad, y + th - Theme.S(18), tw - pad * 2, Theme.S(16)), TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
+            }
         }
     }
 }

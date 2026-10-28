@@ -49,6 +49,7 @@ namespace NetProbe
                 if (sp >= 0 && sp + 1 < args.Length) { SelfTest.Speed(args[sp + 1], sp + 2 < args.Length && !args[sp + 2].StartsWith("--") ? args[sp + 2] : null); return; }
                 int si = Array.FindIndex(args, a => a == "--shots");
                 if (si >= 0 && si + 1 < args.Length) MainForm.ShotsDir = args[si + 1];
+                MainForm.ShotsQuick = Array.IndexOf(args, "--quick") >= 0;
                 try { Application.Run(new MainForm(min)); }
                 catch (Exception ex) { Crash(ex); }
                 GC.KeepAlive(mutex);

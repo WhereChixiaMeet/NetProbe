@@ -194,7 +194,7 @@ namespace NetProbe
             BuildAutoSwitch(asBody, ry);
             // 3.2: карточки справа — модули: их можно унести в Настройки / на свою вкладку; здесь остаются только «домашние»
             var built = asBody.Controls.OfType<CardPanel>().ToList();
-            string[] srvKeys = { "srv.tun", "srv.as" };
+            string[] srvKeys = { "srv.as" };
             for (int k = 0; k < built.Count && k < srvKeys.Length; k++) { RegisterModule(built[k], srvKeys[k], PgServers, "subs"); built[k].AutoAnchor(); }
             srvModBody = asBody; // какие карточки здесь окажутся (свои и чужие) — решает PlaceAllModules
             // разделитель между таблицей и правой колонкой: тянуть мышкой — ширина колонки (запоминается)
@@ -312,32 +312,30 @@ namespace NetProbe
         // 3.0: карточек приложений здесь нет (управление приложениями — только на Routing). Остался режим TUN.
         int BuildSrvLists(Panel body)
         {
-            int w = Theme.S(344);
-            var card = new CardPanel { Title = "TUN" };
+            // 3.3: тумблеры TUN и Startup — в правом верхнем углу карточки состояния Subscriptions (только здесь, не модуль)
             tgTun = new Toggle { On = st.TunMode };
             tgTun.Changed += (s, e) => SetTun(tgTun.On);
             srvTip.SetToolTip(tgTun, Tx("TUN: списки приложений вкладки Routing работают для всех программ (sing-box). Выкл — только системный прокси"));
-            var note = Ui.Hint(Tx("Приложения (Include / «Строго VPN» / Exclude) — на вкладке Routing; для подписок они действуют в режиме TUN."), w - Theme.S(32));
-            note.BackColor = Theme.Card;
-            // 3.2: автоподключение к последнему серверу при запуске NetProbe
-            // «Startup» — такой же тумблер, как у TUN; кнопка Routing — внизу карточки
             cXAutoTun = new Toggle { On = st.XrayAutoConnect };
             cXAutoTun.Changed += (s, e) => { st.XrayAutoConnect = cXAutoTun.On; st.Save(); };
             srvTip.SetToolTip(cXAutoTun, Tx("При запуске NetProbe подключается к серверу, к которому был подключён последним"));
-            var lStart = new Label { Text = "Startup", AutoSize = true, Font = Theme.H2, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
-            var noteStart = Ui.Hint(Tx("Подключаться к последнему серверу при запуске"), w - Theme.S(32));
-            noteStart.BackColor = Theme.Card;
-            card.Controls.AddRange(new Control[] { tgTun, note, cXAutoTun, lStart, noteStart });
-            int ip = Theme.S(16);
-            tgTun.Location = new Point(w - ip - tgTun.Width, Theme.S(12));
-            note.Location = new Point(ip, Theme.S(44));
-            int sy = note.Bottom + Theme.S(14);
-            cXAutoTun.Location = new Point(w - ip - cXAutoTun.Width, sy);
-            lStart.Location = new Point(ip - Theme.S(2), sy + (cXAutoTun.Height - lStart.PreferredHeight) / 2);
-            noteStart.Location = new Point(ip, cXAutoTun.Bottom + Theme.S(6));
-            card.SetBounds(0, 0, w, noteStart.Bottom + Theme.S(14)); // кнопка перехода на Routing убрана — карточка и так переносится куда угодно
-            body.Controls.Add(card);
-            return card.Bottom + Theme.S(12);
+            var lTun = new Label { Text = "TUN", AutoSize = true, Font = Theme.Bold, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
+            var lStart = new Label { Text = "Startup", AutoSize = true, Font = Theme.Bold, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
+            srvTip.SetToolTip(lTun, Tx("TUN: списки приложений вкладки Routing работают для всех программ (sing-box). Выкл — только системный прокси"));
+            srvTip.SetToolTip(lStart, Tx("При запуске NetProbe подключается к серверу, к которому был подключён последним"));
+            lTun.Click += (s, e) => tgTun.On = !tgTun.On; lStart.Click += (s, e) => cXAutoTun.On = !cXAutoTun.On;
+            lTun.Cursor = lStart.Cursor = Cursors.Hand;
+            xBoard.Controls.AddRange(new Control[] { lTun, tgTun, lStart, cXAutoTun });
+            Action place = () =>
+            {
+                int ip = Theme.S(16), top = Theme.S(16), gap = Theme.S(8);
+                int x = xBoard.Width - ip - cXAutoTun.Width;
+                cXAutoTun.Location = new Point(x, top); x -= gap + lStart.PreferredWidth; lStart.Location = new Point(x, top + (cXAutoTun.Height - lStart.PreferredHeight) / 2);
+                x -= Theme.S(22) + tgTun.Width; tgTun.Location = new Point(x, top); x -= gap + lTun.PreferredWidth; lTun.Location = new Point(x, top + (tgTun.Height - lTun.PreferredHeight) / 2);
+                xBoard.Reserve = xBoard.Width - x + Theme.S(4); // заголовок состояния обрезается «…» до тумблеров
+            };
+            xBoard.Resize += (s, e) => place(); place();
+            return 0;
         }
 
         void FillSrvLists() { }

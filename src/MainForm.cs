@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.3.0";
+        public const string Version = "3.3.1";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -138,6 +138,8 @@ namespace NetProbe
 
         // Отладка: --shots <папка> — снимки всех страниц во всех темах, затем выход
         public static string ShotsDir;
+        // --quick: быстрый прогон — одна тема, без полной матрицы модулей (полная — если есть _tools\full.txt)
+        public static bool ShotsQuick;
         // сторож теста: если UI-поток 2 минуты не продвигается — пишем, где завис (стек), и выходим, чтобы run.cmd не висел
         static volatile string shotStage = "start"; static int shotTick = Environment.TickCount;
         static void ShotStep(string stage) { shotStage = stage; shotTick = Environment.TickCount; }
@@ -178,7 +180,7 @@ namespace NetProbe
                 Application.ThreadException += (s2, e2) => ShotCrash(e2.Exception); // ошибка в тесте — сразу в отчёт и выход, а не «висит»
                 int keep = st.Theme;
                 Action<string> shot = name => { ShotStep("shot " + name); Application.DoEvents(); System.Threading.Thread.Sleep(150); Application.DoEvents(); using (var bmp = new Bitmap(Width, Height)) { DrawToBitmap(bmp, new Rectangle(0, 0, Width, Height)); bmp.Save(Path.Combine(ShotsDir, name + ".png")); } };
-                foreach (ThemeKind k in new[] { ThemeKind.Dark, ThemeKind.Light, ThemeKind.Classic, ThemeKind.Chisa, ThemeKind.Kurumi })
+                foreach (ThemeKind k in ShotsQuick ? new[] { ThemeKind.Dark } : new[] { ThemeKind.Dark, ThemeKind.Light, ThemeKind.Classic, ThemeKind.Chisa, ThemeKind.Kurumi })
                 {
                     Theme.Apply(k); st.Theme = (int)k; RebuildUi();
                     string pre = Tr.Code + "-" + k + "-";
@@ -198,11 +200,11 @@ namespace NetProbe
                 string bgTest = Path.Combine(ShotsDir, "_bg.png"), keepBg = st.BgImage;
                 using (var bb = new Bitmap(800, 500)) using (var gg = Graphics.FromImage(bb)) using (var lg = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0, 0, 800, 500), Color.FromArgb(200, 60, 120), Color.FromArgb(40, 140, 220), 35f)) { gg.FillRectangle(lg, 0, 0, 800, 500); bb.Save(bgTest); }
                 st.BgImage = bgTest; ResetPageBackground(); RebuildUi();
-                for (int i = 0; i < pages.Count; i++) { SelectPage(i); shot(Tr.Code + "-bg-" + i); }
+                for (int i = 0; i < pages.Count; i++) { if (ShotsQuick && i != PgSettings && i != PgTg) continue; SelectPage(i); shot(Tr.Code + "-bg-" + i); }
                 // вкладки настроек на своём фоне в теме Kurumi — снимок с экрана (DrawToBitmap не показывает ошибки перерисовки)
                 Theme.Apply(ThemeKind.Kurumi); st.Theme = (int)ThemeKind.Kurumi; ResetPageBackground(); RebuildUi(); SelectPage(PgSettings);
                 TopMost = true; Activate();
-                foreach (var tk in new[] { "win", "look", "vpn", "subs", "mon", "upd", "log", "char", "upd", "win" })
+                foreach (var tk in ShotsQuick ? new string[0] : new[] { "win", "look", "vpn", "subs", "mon", "upd", "log", "char", "upd", "win" })
                 {
                     if (setTabs == null || !setTabs.Tabs.Any(t => t.Key == tk)) continue;
                     setTabs.Select(tk);
@@ -268,7 +270,7 @@ namespace NetProbe
                     if ((re.ModuleLoc ?? "") != (st.ModuleLoc ?? "")) report.Add(tag + ": ModuleLoc not saved: '" + re.ModuleLoc + "' vs '" + st.ModuleLoc + "'");
                 };
                 // 1) каждый модуль по одному на каждой странице
-                foreach (var key in keys)
+                foreach (var key in ShotsQuick ? new List<string>() : keys)
                     for (int pg = 0; pg < pc; pg++)
                     {
                         ShotStep("rebuild one " + key + " p" + pg); st.ModuleLoc = key + "=" + LocOfPage(pg); RebuildUi(); runs++;
@@ -279,7 +281,7 @@ namespace NetProbe
                     }
                 // 2) все модули сразу на одной странице — обычное и минимальное окно
                 var scr = Screen.FromControl(this).WorkingArea;
-                foreach (var szName in new[] { "norm", "min", "max", "minwide" })
+                foreach (var szName in ShotsQuick ? new[] { "norm", "min" } : new[] { "norm", "min", "max", "minwide" })
                 {
                     // minwide: минимальное окно и самая широкая левая панель — самое узкое место для карточек
                     st.SideWidth = szName == "minwide" ? 380 : 214;
@@ -303,13 +305,13 @@ namespace NetProbe
                 foreach (var key in keys) verify("reset", key, moduleHome[key]);
                 // окно свернули и развернули (и запуск в трей): колонка модулей Routing по настоящему размеру
                 ShotStep("minimize restore");
-                st.ModuleLoc = "srv.tun=p0"; RebuildUi(); SelectPage(0); runs++;
+                st.ModuleLoc = "srv.as=p0"; RebuildUi(); SelectPage(0); runs++;
                 WindowState = FormWindowState.Minimized; Application.DoEvents(); System.Threading.Thread.Sleep(200);
                 if (hiddenToTray) RestoreFromTray(); else WindowState = FormWindowState.Normal; // «сворачивать в трей» включено — восстановление из трея
                 Application.DoEvents(); System.Threading.Thread.Sleep(200); Application.DoEvents();
-                verify("restore", "srv.tun", 0);
-                st.ModuleLoc = "srv.tun=p0"; HideToTray(true); RebuildUi(); RestoreFromTray(); Application.DoEvents(); SelectPage(0); Application.DoEvents();
-                verify("hidden rebuild", "srv.tun", 0);
+                verify("restore", "srv.as", 0);
+                st.ModuleLoc = "srv.as=p0"; HideToTray(true); RebuildUi(); RestoreFromTray(); Application.DoEvents(); SelectPage(0); Application.DoEvents();
+                verify("hidden rebuild", "srv.as", 0);
                 shot(Tr.Code + "-restore-p0");
                 st.ModuleLoc = "";
                 // перетаскивание внутри страницы: порядок и вкладка Настроек сохраняются и восстанавливаются
@@ -323,9 +325,9 @@ namespace NetProbe
                     SelectPage(PgServers); shot(Tr.Code + "-drop-srv");
                     st.ModuleLoc = "set.subs=p0;set.look=p0"; RebuildUi(); SelectPage(0); shot(Tr.Code + "-dock-p0");
                 }
-                DropModuleState("srv.tun", PgSettings, null, "log"); RebuildUi(); runs++;
-                if (ModTab("srv.tun") != "log") report.Add("drop: srv.tun tab " + ModTab("srv.tun") + ", expected log");
-                verify("drop tab", "srv.tun", PgSettings);
+                DropModuleState("srv.as", PgSettings, null, "log"); RebuildUi(); runs++;
+                if (ModTab("srv.as") != "log") report.Add("drop: srv.as tab " + ModTab("srv.as") + ", expected log");
+                verify("drop tab", "srv.as", PgSettings);
                 // заголовок страницы = переименованный пункт меню
                 st.NavNames = "1:Xyz"; RebuildUi(); runs++;
                 if (!pages[1].Controls.OfType<Label>().Any(l => l.Text == "Xyz")) report.Add("rename: page title not renamed");
@@ -334,21 +336,21 @@ namespace NetProbe
                 // 3) экспорт / импорт настроек переносит раскладку (места модулей, свои вкладки, названия меню, ширины, Lock)
                 try
                 {
-                    st.ModuleLoc = "srv.tun=p7;set.look=c1"; st.NavNames = "7:Logs X"; st.UiLocked = true; st.DockW = 455; st.Save();
+                    st.ModuleLoc = "srv.as=p7;set.look=c1"; st.NavNames = "7:Logs X"; st.UiLocked = true; st.DockW = 455; st.Save();
                     string json = Backup.Export();
                     st.ModuleLoc = ""; st.NavNames = ""; st.UiLocked = false; st.DockW = 380; st.Save();
                     Backup.Import(json);
                     var re = Settings.Load();
-                    if (re.ModuleLoc != "srv.tun=p7;set.look=c1" || re.NavNames != "7:Logs X" || !re.UiLocked || re.DockW != 455 || re.CustomPages != "c1:Test tab")
+                    if (re.ModuleLoc != "srv.as=p7;set.look=c1" || re.NavNames != "7:Logs X" || !re.UiLocked || re.DockW != 455 || re.CustomPages != "c1:Test tab")
                         report.Add("export/import lost layout: ModuleLoc='" + re.ModuleLoc + "' NavNames='" + re.NavNames + "' Lock=" + re.UiLocked + " DockW=" + re.DockW + " Pages='" + re.CustomPages + "'");
                     st.CopyFrom(re); RebuildUi();
-                    if (PageOf("srv.tun") != 7 || PageOf("set.look") != PgFirstCustom) report.Add("after import: modules not where exported (srv.tun p" + PageOf("srv.tun") + ", set.look p" + PageOf("set.look") + ")");
+                    if (PageOf("srv.as") != 7 || PageOf("set.look") != PgFirstCustom) report.Add("after import: modules not where exported (srv.as p" + PageOf("srv.as") + ", set.look p" + PageOf("set.look") + ")");
                     if (navs.Count > 7 && navs[7].Text != "Logs X") report.Add("after import: menu name not applied: " + navs[7].Text);
                     st.UiLocked = false; CardPanel.Locked = false;
                 }
                 catch (Exception ex) { report.Add("export/import test failed: " + ex.Message); }
                 st.ModuleLoc = keepLoc; st.CustomPages = keepPages; st.NavNames = ""; st.Save(); RebuildUi();
-                try { File.WriteAllLines(Path.Combine(ShotsDir, "layout.txt"), new[] { "modules: " + keys.Count + " (" + string.Join(", ", keys) + ") · pages: " + pc + " · rebuilds: " + runs, report.Count == 0 ? "LAYOUT OK" : "PROBLEMS: " + report.Count }.Concat(report.Distinct().Take(400)).ToArray()); } catch { }
+                try { File.WriteAllLines(Path.Combine(ShotsDir, "layout.txt"), new[] { (ShotsQuick ? "QUICK · " : "") + "modules: " + keys.Count + " (" + string.Join(", ", keys) + ") · pages: " + pc + " · rebuilds: " + runs, report.Count == 0 ? "LAYOUT OK" : "PROBLEMS: " + report.Count }.Concat(report.Distinct().Take(400)).ToArray()); } catch { }
                 st.Theme = keep; ExitApp();
             };
             t.Start();

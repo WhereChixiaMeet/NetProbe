@@ -7,6 +7,16 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "Запуск…", "Iniciando…" },
+            { "Ошибка", "Error" },
+            { " напрямую", " directos" },
+            { "все DC — запасными путями", "todos los DC por rutas de respaldo" },
+            { "Ссылка для Telegram — «Скопировать ссылку» или «Открыть в Telegram»", "Enlace para Telegram: «Copiar enlace» o «Abrir en Telegram»" },
+            { "Соединения", "Conexiones" },
+            { "Отправлено", "Enviado" },
+            { "Получено", "Recibido" },
+            { "активных · всего ", "activas · total " },
+            { "в пуле ", "en pool " },
             { "Неверный IP-адрес", "Dirección IP no válida" },
             { "Секрет — ровно 32 шестнадцатеричных символа", "El secreto debe tener exactamente 32 caracteres hexadecimales" },
             { "Неверная запись DC:IP: ", "Entrada DC:IP no válida: " },
