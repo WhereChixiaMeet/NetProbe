@@ -84,6 +84,13 @@ namespace NetProbe
 
     public static class TgNetUtil
     {
+        // TLS 1.2 (+1.3, если система умеет): «None»/«по умолчанию» в .NET Framework 4.8 для SslStream не принимается
+        public static readonly SslProtocols Tls = TlsProtocols();
+        static SslProtocols TlsProtocols()
+        {
+            try { var p = SslProtocols.Tls12 | (SslProtocols)12288; var v = Environment.OSVersion.Version; return v.Major >= 10 && v.Build >= 20348 ? p : SslProtocols.Tls12; }
+            catch { return SslProtocols.Tls12; }
+        }
         public static void Opts(Socket sk, int bufSize)
         {
             try { sk.NoDelay = true; } catch { }
@@ -148,7 +155,7 @@ namespace NetProbe
                     bool fronting = sni != null;
                     var ssl = new SslStream(st, false, (o, cert, chain, err) => fronting || err == SslPolicyErrors.None);
                     st = ssl;
-                    await TgNetUtil.WithTimeout(ssl.AuthenticateAsClientAsync(sni ?? domain, null, SslProtocols.None, false), Math.Min(timeout, 10), () => tcp.Close()).ConfigureAwait(false);
+                    await TgNetUtil.WithTimeout(ssl.AuthenticateAsClientAsync(sni ?? domain, null, TgNetUtil.Tls, false), Math.Min(timeout, 10), () => tcp.Close()).ConfigureAwait(false);
                 }
                 var bs = new TgBufStream(st, tcp);
                 var key = Convert.ToBase64String(TgConst.Rand(16));

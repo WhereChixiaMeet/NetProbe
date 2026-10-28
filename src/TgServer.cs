@@ -420,6 +420,7 @@ namespace NetProbe
         {
             try
             {
+                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
                 var rq = (HttpWebRequest)WebRequest.Create(url); rq.UserAgent = "tg-ws-proxy"; rq.Timeout = 10000; rq.Proxy = null;
                 using (var r = rq.GetResponse()) using (var sr = new StreamReader(r.GetResponseStream(), Encoding.UTF8)) return sr.ReadToEnd();
             }
@@ -432,7 +433,7 @@ namespace NetProbe
                     c.Connect(ip, 443); c.ReceiveTimeout = c.SendTimeout = 10000;
                     using (var ssl = new SslStream(c.GetStream(), false))
                     {
-                        ssl.AuthenticateAsClient(u.Host);
+                        ssl.AuthenticateAsClient(u.Host, null, TgNetUtil.Tls, false);
                         var req = Encoding.ASCII.GetBytes("GET " + u.PathAndQuery + " HTTP/1.1\r\nHost: " + u.Host + "\r\nUser-Agent: tg-ws-proxy\r\nConnection: close\r\n\r\n");
                         ssl.Write(req); var ms = new MemoryStream(); ssl.CopyTo(ms);
                         var text = Encoding.UTF8.GetString(ms.ToArray()); int i = text.IndexOf("\r\n\r\n");
@@ -454,7 +455,7 @@ namespace NetProbe
                     if (!ar.AsyncWaitHandle.WaitOne(5000)) return Tr.Tx("таймаут");
                     c.EndConnect(ar); c.ReceiveTimeout = c.SendTimeout = 5000;
                     Stream s = c.GetStream();
-                    if (secure) { var ssl = new SslStream(s, false); ssl.AuthenticateAsClient(sni); s = ssl; }
+                    if (secure) { var ssl = new SslStream(s, false); ssl.AuthenticateAsClient(sni, null, TgNetUtil.Tls, false); s = ssl; }
                     var req = Encoding.ASCII.GetBytes("GET " + path + " HTTP/1.1\r\nHost: " + reqHost + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " +
                         Convert.ToBase64String(TgConst.Rand(16)) + "\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: binary\r\n\r\n");
                     s.Write(req, 0, req.Length);

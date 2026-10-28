@@ -305,9 +305,10 @@ namespace NetProbe
                 ShotStep("minimize restore");
                 st.ModuleLoc = "srv.tun=p0"; RebuildUi(); SelectPage(0); runs++;
                 WindowState = FormWindowState.Minimized; Application.DoEvents(); System.Threading.Thread.Sleep(200);
-                WindowState = FormWindowState.Normal; Application.DoEvents(); System.Threading.Thread.Sleep(200); Application.DoEvents();
+                if (hiddenToTray) RestoreFromTray(); else WindowState = FormWindowState.Normal; // «сворачивать в трей» включено — восстановление из трея
+                Application.DoEvents(); System.Threading.Thread.Sleep(200); Application.DoEvents();
                 verify("restore", "srv.tun", 0);
-                st.ModuleLoc = "srv.tun=p0"; Hide(); RebuildUi(); Show(); Application.DoEvents(); SelectPage(0); Application.DoEvents();
+                st.ModuleLoc = "srv.tun=p0"; HideToTray(true); RebuildUi(); RestoreFromTray(); Application.DoEvents(); SelectPage(0); Application.DoEvents();
                 verify("hidden rebuild", "srv.tun", 0);
                 shot(Tr.Code + "-restore-p0");
                 st.ModuleLoc = "";
