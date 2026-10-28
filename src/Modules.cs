@@ -116,7 +116,7 @@ namespace NetProbe
             to.DropDownItems.Add(Tx("Новая вкладка…"), null, (s, e) => { var id = NewCustomPage(); if (id != null) MoveModuleLoc(c.ModuleKey, id, true); });
             cm.Items.Add(to);
             if (cur != home) cm.Items.Add(Tx("Вернуть домой") + " (" + PageName(home) + ")", null, (s, e) => MoveModule(c.ModuleKey, home, true));
-            cm.Items.Add(Tx("Все карточки — на свои места"), null, (s, e) => { st.ModuleLoc = ""; st.Save(); ApplyModules(curPage); });
+            cm.Items.Add(Tx("Все карточки — на свои места"), null, (s, e) => ResetLayout());
             cm.Closed += (s, e) => BeginInvoke((Action)(() => cm.Dispose()));
             cm.Show(Cursor.Position);
         }
@@ -134,6 +134,14 @@ namespace NetProbe
             st.Save();
             Logger.Write(LogLevel.Info, Tx("Карточка «") + (modules.ContainsKey(key) ? modules[key].Title : key) + Tx("» → ") + PageName(page));
             ApplyModules(open ? page : curPage);
+        }
+
+        void ResetLayout()
+        {
+            st.ModuleLoc = ""; st.DockW = 380; st.SrvRightW = 360; st.SideWidth = 214; st.UiLocked = false; CardPanel.Locked = false; st.Save();
+            Logger.Write(LogLevel.Info, Tx("Раскладка интерфейса сброшена: все карточки на своих местах"));
+            if (hiddenToTray) RestoreFromTray();
+            ApplyModules(curPage);
         }
 
         void ApplyModules(int page) { BeginInvoke((Action)(() => { RebuildUi(); SelectPage(Math.Min(page, pages.Count - 1)); })); }
@@ -161,7 +169,7 @@ namespace NetProbe
         // ---- страница = внешняя панель: [прокрутка: содержимое страницы + полоса модулей под ним] + [колонка модулей справа] ----
         // Содержимое страницы НИКОГДА не сжимается: по ширине не уже ContentMin, по высоте — во весь экран.
         // Модули: справа, если колонка влезает; иначе — полосой ПОД страницей (страница прокручивается вниз к ним).
-        sealed class PageFrame { public Panel Outer, Inner, Split, Strip; public ScrollHost Scroll, Dock; }
+        sealed class PageFrame { public Panel Outer, Inner, Split, Strip; public ScrollHost Scroll, Dock; public FlatButton More; }
         readonly Dictionary<int, PageFrame> frames = new Dictionary<int, PageFrame>();
         Panel WrapPage(Panel inner, int idx)
         {
@@ -180,9 +188,20 @@ namespace NetProbe
             f.Split.MouseMove += (s, e) => { if (!drag) return; st.DockW = (int)Math.Round(Math.Max(1, w0 - (Cursor.Position.X - x0)) / Theme.Scale); LayFrame(f); };
             f.Split.MouseUp += (s, e) => { if (!drag) return; drag = false; f.Split.Capture = false; st.Save(); };
             f.Outer.Resize += (s, e) => LayFrame(f);
+            // модули под страницей — кнопка-подсказка внизу: «▼ Модули ниже» (прокручивает к ним); прокрутили — прячется
+            f.More = new FlatButton(Tx("Модули ниже")) { Glyph = "\uE74B", Visible = false, Height = Theme.S(30) };
+            f.More.Click += (s, e) => f.Scroll.ScrollTo(f.Strip.Top);
+            f.Outer.Controls.Add(f.More); f.More.BringToFront();
+            f.Scroll.Scrolled += v => PlaceMore(f);
             return f.Outer;
         }
         static int ContentMin { get { return Theme.S(800); } }
+        void PlaceMore(PageFrame f)
+        {
+            bool show = f.Strip.Visible && f.Scroll.Offset < Theme.S(40);
+            f.More.Visible = show;
+            if (show) { f.More.Location = new Point((f.Scroll.Width - f.More.Width) / 2, f.Outer.ClientSize.Height - f.More.Height - Theme.S(10)); f.More.BringToFront(); }
+        }
         bool layingFrame;
         // модули страницы лежат в f.Dock.Content или f.Strip; отсюда — в колонку справа или в полосу под страницей
         void LayFrame(PageFrame f)
@@ -221,11 +240,19 @@ namespace NetProbe
                     stripH = y + rowH + Theme.S(16);
                 }
                 f.Scroll.Content.Height = H + stripH;
-                f.Scroll.Relayout();
+                f.Scroll.MinContentWidth = 0; f.Scroll.Relayout();
                 int cwid = f.Scroll.Content.Width;
+                // карточка шире окна (узкое окно / широкая левая панель) — полоса шире, снизу горизонтальная прокрутка, ничего не обрезается
+                if (f.Strip.Visible)
+                {
+                    int need = Theme.S(26) * 2 + cards.Max(c => c.Width) + Theme.S(4);
+                    if (need > cwid) { f.Scroll.MinContentWidth = need; f.Scroll.Relayout(); }
+                }
                 f.Inner.SetBounds(0, 0, cwid, H);
-                if (f.Strip.Visible) f.Strip.SetBounds(0, H, cwid, stripH);
+                if (f.Strip.Visible) f.Strip.SetBounds(0, H, Math.Max(cwid, f.Scroll.MinContentWidth), stripH);
                 else f.Scroll.ScrollToTop();
+                f.More.Text = Tx("Модули ниже") + " (" + cards.Count + ")"; f.More.AutoW();
+                PlaceMore(f);
             }
             finally { layingFrame = false; }
         }
@@ -280,6 +307,8 @@ namespace NetProbe
                     var m = Map(st.ModuleLoc, '='); foreach (var k in m.Where(x => x.Value == id).Select(x => x.Key).ToList()) m.Remove(k); st.ModuleLoc = Unmap(m, '=');
                     SaveCustomPages(l); st.Save(); ApplyModules(PgServers);
                 });
+            cm.Items.Add(new ToolStripSeparator());
+            cm.Items.Add(Tx("Сбросить раскладку интерфейса"), null, (s, e) => ResetLayout());
             cm.Closed += (s, e) => BeginInvoke((Action)(() => cm.Dispose()));
             cm.Show(Cursor.Position);
         }
@@ -319,6 +348,7 @@ namespace NetProbe
                     var colY = new int[cols];
                     foreach (var c in mine) { int col = Array.IndexOf(colY, colY.Min()); c.Location = new Point(col * (cw + gap), colY[col]); colY[col] = c.Bottom + gap; }
                     host.Content.Height = colY.Max() + Theme.S(10);
+                    host.MinContentWidth = mine.Count == 0 ? 0 : cw + Theme.S(2);
                     host.Relayout();
                 };
                 customLays[id] = lay;

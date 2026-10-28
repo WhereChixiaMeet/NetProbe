@@ -7,6 +7,9 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "Сбросить раскладку интерфейса", "Restablecer diseño de la interfaz" },
+            { "Раскладка интерфейса сброшена: все карточки на своих местах", "Diseño restablecido: todas las tarjetas en su sitio" },
+            { "Модули ниже", "Módulos abajo" },
             { "Lock interface — ничего не двигается и не переименовывается", "Bloquear interfaz — no se puede mover ni renombrar nada" },
             { "Все карточки — на свои места", "Todas las tarjetas a su sitio" },
             { "Интерфейс заблокирован", "Interfaz bloqueada" },

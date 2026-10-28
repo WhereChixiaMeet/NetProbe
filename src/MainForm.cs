@@ -201,8 +201,15 @@ namespace NetProbe
                     if (!mc.Visible) { report.Add(tag + ": " + key + " not visible on page " + pg); return; }
                     Panel outer; if (!pageOuter.TryGetValue(pg, out outer)) return;
                     var r = outer.RectangleToClient(mc.RectangleToScreen(mc.ClientRectangle));
-                    if (r.Left < -2 || r.Right > outer.ClientSize.Width + 2) report.Add(tag + ": " + key + " sticks out " + r + " / page w=" + outer.ClientSize.Width);
+                    bool hscroll = false; for (var x = mc.Parent; x != null; x = x.Parent) { var sh = x as ScrollHost; if (sh != null && sh.MinContentWidth > sh.Width - Theme.S(14)) hscroll = true; }
+                    if (!hscroll && (r.Left < -2 || r.Right > outer.ClientSize.Width + 2)) report.Add(tag + ": " + key + " sticks out " + r + " / page w=" + outer.ClientSize.Width);
                     if (mc.Width < Theme.S(100) || mc.Height < Theme.S(40)) report.Add(tag + ": " + key + " too small " + mc.Size);
+                    // до модуля можно добраться: на каждом уровне он внутри родителя (в прокрутке — внутри её содержимого)
+                    for (Control x = mc; x != null && x.Parent != null && x != outer; x = x.Parent)
+                    {
+                        var P = x.Parent; if (P is ScrollHost) continue; // содержимое прокрутки выше окна — это нормально, его прокручивают
+                        if (x.Bottom > P.Height + 2 || x.Right > P.Width + 2 || x.Left < -2 || x.Top < -2) { report.Add(tag + ": " + key + " unreachable: " + Name2(x) + " " + x.Bounds + " in " + Name2(P) + " " + P.Size); break; }
+                    }
                     // содержимое самой страницы не сжато модулями: во всю высоту окна и не уже ContentMin
                     PageFrame fr;
                     if (frames.TryGetValue(pg, out fr))
@@ -231,9 +238,12 @@ namespace NetProbe
                         if (pg == 0) persist(tag);
                     }
                 // 2) все модули сразу на одной странице — обычное и минимальное окно
-                foreach (var szName in new[] { "norm", "min" })
+                var scr = Screen.FromControl(this).WorkingArea;
+                foreach (var szName in new[] { "norm", "min", "max", "minwide" })
                 {
-                    Size = szName == "min" ? MinimumSize : keepSize;
+                    // minwide: минимальное окно и самая широкая левая панель — самое узкое место для карточек
+                    st.SideWidth = szName == "minwide" ? 380 : 214;
+                    Size = szName == "min" || szName == "minwide" ? MinimumSize : szName == "max" ? new Size(Math.Max(keepSize.Width, scr.Width), Math.Max(keepSize.Height, scr.Height)) : keepSize;
                     for (int pg = 0; pg < pc; pg++)
                     {
                         st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pg))); RebuildUi(); runs++;
@@ -244,7 +254,12 @@ namespace NetProbe
                         if (szName == "norm") { SelectPage(pg); shot(Tr.Code + "-mod-all-p" + pg); }
                     }
                 }
-                Size = keepSize;
+                Size = keepSize; st.SideWidth = 214;
+                // сброс раскладки возвращает всё домой и снимает Lock
+                st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pc - 1))); st.UiLocked = true; RebuildUi();
+                ResetLayout(); runs++;
+                if (st.ModuleLoc != "" || st.UiLocked || CardPanel.Locked) report.Add("reset: layout not reset");
+                foreach (var key in keys) verify("reset", key, moduleHome[key]);
                 // 3) экспорт / импорт настроек переносит раскладку (места модулей, свои вкладки, названия меню, ширины, Lock)
                 try
                 {
@@ -985,6 +1000,8 @@ namespace NetProbe
             trayMenu.Opening += (s, e) => { if (miCharEdit != null) { miCharEdit.Visible = Theme.Personal; miCharEdit.Checked = charEdit; } };
             trayMenu.Items.Add(miWidget);
             trayMenu.Items.Add(miCharEdit);
+            // страховка: если что-то «потерялось» при раскладке — всё на свои места (работает и при Lock interface)
+            trayMenu.Items.Add(Tx("Сбросить раскладку интерфейса"), null, (s, e) => ResetLayout());
             miMonitor = new ToolStripMenuItem(Tx("Мониторинг"));
             miMonitor.Click += (s, e) => { if (MonOn) StopMonitoring(); else StartMonitoring(); };
             trayMenu.Items.Add(miMonitor);

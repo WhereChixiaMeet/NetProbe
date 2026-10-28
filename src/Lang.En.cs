@@ -7,6 +7,9 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Сбросить раскладку интерфейса", "Reset interface layout" },
+            { "Раскладка интерфейса сброшена: все карточки на своих местах", "Interface layout reset: all cards back in place" },
+            { "Модули ниже", "Modules below" },
             { "Lock interface — ничего не двигается и не переименовывается", "Lock interface — nothing can be moved or renamed" },
             { "Все карточки — на свои места", "All cards back to their places" },
             { "Интерфейс заблокирован", "Interface locked" },
