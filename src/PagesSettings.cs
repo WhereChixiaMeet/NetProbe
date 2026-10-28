@@ -130,6 +130,9 @@ namespace NetProbe
             if (!setTabH.ContainsKey(key)) return;
             setCurTab = key;
             setSwitching = true;
+            // без промежуточной отрисовки: пока элементы прячутся/показываются, окно не рисуется (иначе мелькают чёрные куски)
+            bool redrawOff = setHost.IsHandleCreated && setHost.Visible;
+            if (redrawOff) Native.SendMessage(setHost.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero); // WM_SETREDRAW off
             setBody.SuspendLayout();
             try
             {
@@ -143,7 +146,12 @@ namespace NetProbe
             finally { setBody.ResumeLayout(); setSwitching = false; }
             setBody.Height = setTabH[key];
             setHost.ScrollToTop(); setHost.Relayout();
-            setHost.Invalidate(true);
+            if (redrawOff)
+            {
+                Native.SendMessage(setHost.Handle, 0x000B, (IntPtr)1, IntPtr.Zero);
+                RedrawWindow(setHost.Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100); // INVALIDATE | ERASE | ALLCHILDREN | UPDATENOW
+            }
+            else setHost.Invalidate(true);
             if (st.SetTab != key) { st.SetTab = key; st.Save(); }
         }
 
