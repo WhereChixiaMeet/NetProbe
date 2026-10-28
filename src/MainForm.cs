@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.1.1";
+        public const string Version = "3.1.2";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -168,6 +168,17 @@ namespace NetProbe
                 using (var bb = new Bitmap(800, 500)) using (var gg = Graphics.FromImage(bb)) using (var lg = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0, 0, 800, 500), Color.FromArgb(200, 60, 120), Color.FromArgb(40, 140, 220), 35f)) { gg.FillRectangle(lg, 0, 0, 800, 500); bb.Save(bgTest); }
                 st.BgImage = bgTest; ResetPageBackground(); RebuildUi();
                 for (int i = 0; i < pages.Count; i++) { SelectPage(i); shot(Tr.Code + "-bg-" + i); }
+                // вкладки настроек на своём фоне в теме Kurumi — снимок с экрана (DrawToBitmap не показывает ошибки перерисовки)
+                Theme.Apply(ThemeKind.Kurumi); st.Theme = (int)ThemeKind.Kurumi; ResetPageBackground(); RebuildUi(); SelectPage(PgSettings);
+                TopMost = true; Activate();
+                foreach (var tk in new[] { "win", "look", "vpn", "subs", "mon", "upd", "log", "char", "upd", "win" })
+                {
+                    if (!setTabH.ContainsKey(tk)) continue;
+                    setTabs.Select(tk);
+                    for (int w = 0; w < 6; w++) { Application.DoEvents(); System.Threading.Thread.Sleep(80); }
+                    try { using (var bmp = new Bitmap(Width, Height)) { using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(Left, Top, 0, 0, Size); bmp.Save(Path.Combine(ShotsDir, Tr.Code + "-bgset-" + tk + ".png")); } } catch { }
+                }
+                TopMost = false;
                 st.BgImage = keepBg; ResetPageBackground();
                 st.Theme = keep; ExitApp();
             };

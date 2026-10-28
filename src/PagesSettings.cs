@@ -70,20 +70,21 @@ namespace NetProbe
                 { Tx("Оформление"), "look" }, { Tx("Шрифты"), "look" }, { Tx("Персонаж"), "char" },
                 { "VPN · WireSock", "vpn" }, { "DPI · zapret", "vpn" }, { Tx("Источники"), "vpn" },
                 { Tx("Подписки"), "subs" },
-                { Tx("Мониторинг · канал VPN"), "mon" }, { Tx("Мониторинг · канал напрямую"), "mon" }, { Tx("Тесты"), "mon" }, { Tx("Мониторы: пинг и скорость"), "mon" },
+                { Tx("Мониторинг · канал VPN"), "mon" }, { Tx("Мониторинг · канал напрямую"), "mon" }, { Tx("Тесты"), "mon" }, { Tx("Мониторы: пинг и скорость"), "win" },
                 { Tx("Окно, трей и виджет"), "win" }, { Tx("Обновления"), "upd" }, { Tx("Лог"), "log" }
             };
             var tabs = new List<TabStrip.Tab>
             {
-                new TabStrip.Tab { Key = "look", Text = Tx("Оформление") }, new TabStrip.Tab { Key = "vpn", Text = "VPN · DPI" },
+                new TabStrip.Tab { Key = "look", Text = Tx("Оформление") }, new TabStrip.Tab { Key = "vpn", Text = "Engine" },
                 new TabStrip.Tab { Key = "subs", Text = Tx("Подписки") }, new TabStrip.Tab { Key = "mon", Text = Tx("Мониторинг") },
                 new TabStrip.Tab { Key = "win", Text = Tx("Окно и виджет") }, new TabStrip.Tab { Key = "upd", Text = Tx("Обновления") },
                 new TabStrip.Tab { Key = "log", Text = Tx("Лог") },
                 new TabStrip.Tab { Key = "char", Text = Tx("Персонаж") } // последняя; есть только в Personal-темах (Chisa / Kurumi)
             };
-            // 3.1.1: без вложенных панелей (на своём фоне вложенная прозрачная панель давала артефакты):
-            // элементы остаются в setBody, чужие вкладки просто уезжают за верхний край
-            setTabTop.Clear(); setTabH.Clear();
+            // 3.1.2: элементы остаются в setBody на своих местах внутри вкладки; переключение вкладки — только Visible.
+            // (3.1.0: вложенные панели, 3.1.1: сдвиг за край — на своём фоне оба способа давали чёрные/пустые прямоугольники:
+            // Windows копировала старые пиксели при перемещении, и элементы не перерисовывались)
+            setTabTop.Clear(); setTabH.Clear(); setWant.Clear(); setApplied.Clear();
             var all = setBody.Controls.Cast<Control>().ToList();
             var acc = new Dictionary<string, int>();
             foreach (var t in tabs) acc[t.Key] = 0;
@@ -96,6 +97,20 @@ namespace NetProbe
                 acc[key] = end + off;
             }
             foreach (var t in tabs) setTabH[t.Key] = acc[t.Key] + Theme.S(20);
+            foreach (var kv in setTabTop)
+            {
+                var c = kv.Key; c.Top = kv.Value.Item2;
+                setWant[c] = WantVisible(c); setApplied[c] = setWant[c];
+                c.VisibleChanged += (s2, e2) =>
+                {
+                    if (setSwitching || !setTabTop.ContainsKey(c)) return;
+                    bool w = WantVisible(c); bool ap;
+                    if (setApplied.TryGetValue(c, out ap) && ap == w) return; // это смена видимости страницы, а не кода
+                    setWant[c] = w; // код показал/спрятал элемент (например, предупреждение) — запоминаем
+                    if (w && setTabTop[c].Item1 != setCurTab) { setSwitching = true; try { c.Visible = false; } finally { setSwitching = false; } setApplied[c] = false; }
+                    else setApplied[c] = w;
+                };
+            }
             tabs.RemoveAll(t => acc[t.Key] == 0 || (t.Key == "char" && !Theme.Personal));
             setTabs.SetTabs(tabs);
             string want = tabs.Any(t => t.Key == st.SetTab) ? st.SetTab : "look";
@@ -105,15 +120,30 @@ namespace NetProbe
         }
         readonly Dictionary<Control, Tuple<string, int>> setTabTop = new Dictionary<Control, Tuple<string, int>>();
         readonly Dictionary<string, int> setTabH = new Dictionary<string, int>();
+        readonly Dictionary<Control, bool> setWant = new Dictionary<Control, bool>(), setApplied = new Dictionary<Control, bool>();
+        bool setSwitching; string setCurTab;
+        static readonly System.Reflection.MethodInfo getState = typeof(Control).GetMethod("GetState", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, null, new[] { typeof(int) }, null);
+        // собственный флаг Visible элемента (свойство Visible учитывает и родителя — а страница может быть скрыта)
+        static bool WantVisible(Control c) { try { return getState != null ? (bool)getState.Invoke(c, new object[] { 2 }) : c.Visible; } catch { return c.Visible; } }
         void ShowSettingsTab(string key)
         {
             if (!setTabH.ContainsKey(key)) return;
+            setCurTab = key;
+            setSwitching = true;
             setBody.SuspendLayout();
-            foreach (var kv in setTabTop) kv.Key.Top = kv.Value.Item1 == key ? kv.Value.Item2 : -30000;
-            setBody.ResumeLayout();
+            try
+            {
+                foreach (var kv in setTabTop)
+                {
+                    var c = kv.Key; bool on = kv.Value.Item1 == key && setWant[c];
+                    if (WantVisible(c) != on) c.Visible = on;
+                    setApplied[c] = on;
+                }
+            }
+            finally { setBody.ResumeLayout(); setSwitching = false; }
             setBody.Height = setTabH[key];
             setHost.ScrollToTop(); setHost.Relayout();
-            setBody.Invalidate(true);
+            setHost.Invalidate(true);
             if (st.SetTab != key) { st.SetTab = key; st.Save(); }
         }
 
@@ -462,6 +492,16 @@ namespace NetProbe
             row(Tx("Как часто (zapret / xray / sing-box)"), cbEvery, null);
 
 
+            section(Tx("Мониторы: пинг и скорость"));
+            cAutoMon = Ui.Check(Tx("Запускать мониторинг при старте"), true); check(cAutoMon);
+            cSpeedOn = Ui.Check(Tx("Монитор скорости (выкл — не считается и нигде не показывается)"), true); check(cSpeedOn);
+            cWPing = Ui.Check(Tx("Виджет: пинг (VPN / напрямую)"), true); check(cWPing);
+            cWSpeed = Ui.Check(Tx("Виджет: скорость соединения (↓ / ↑)"), false); check(cWSpeed);
+            cWSplit = Ui.Check(Tx("Пинг и скорость — два отдельных виджета"), false); check(cWSplit);
+            cSidePing = Ui.Check(Tx("Боковая панель: пинг"), true); check(cSidePing);
+            cSideSpeed = Ui.Check(Tx("Боковая панель: скорость"), false); check(cSideSpeed);
+            cSpeedChart = Ui.Check(Tx("График скорости на вкладке Monitor"), true); check(cSpeedChart);
+
             section(Tx("Мониторинг · канал VPN"));
             tbCurl = Ui.TextBox(); row(Tx("Путь к curl.exe"), tbCurl, null);
             tbProxy = Ui.TextBox(); row(Tx("Прокси для VPN-канала"), tbProxy, null);
@@ -510,16 +550,7 @@ namespace NetProbe
             sOpacity.ValueChanged += (s, e) => lOpacity.Text = ((int)sOpacity.Value) + " %";
             row(Tx("Прозрачность виджета"), sOpacity, null);
 
-            section(Tx("Мониторы: пинг и скорость"));
-            cSpeedOn = Ui.Check(Tx("Монитор скорости (выкл — не считается и нигде не показывается)"), true); check(cSpeedOn);
-            cWPing = Ui.Check(Tx("Виджет: пинг (VPN / напрямую)"), true); check(cWPing);
-            cWSpeed = Ui.Check(Tx("Виджет: скорость соединения (↓ / ↑)"), false); check(cWSpeed);
-            cWSplit = Ui.Check(Tx("Пинг и скорость — два отдельных виджета"), false); check(cWSplit);
-            cSidePing = Ui.Check(Tx("Боковая панель: пинг"), true); check(cSidePing);
-            cSideSpeed = Ui.Check(Tx("Боковая панель: скорость"), false); check(cSideSpeed);
-            cSpeedChart = Ui.Check(Tx("График скорости на вкладке Monitor"), true); check(cSpeedChart);
             cNotify = Ui.Check(Tx("Уведомлять об обрывах, переключениях и восстановлении"), true); check(cNotify);
-            cAutoMon = Ui.Check(Tx("Запускать мониторинг при старте"), true); check(cAutoMon);
             cAutorun = Ui.Check(Tx("Запускать вместе с Windows (планировщик, с правами администратора)"), false); check(cAutorun);
             cStartMin = Ui.Check(Tx("Запускать свёрнутым в трей"), false); check(cStartMin);
             setBody.Height = y + Theme.S(20);

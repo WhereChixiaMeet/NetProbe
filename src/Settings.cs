@@ -173,6 +173,7 @@ namespace NetProbe
         public bool SideSpeedOn { get { return SpeedOn && SideSpeed; } }
         public bool SpeedChartOn { get { return SpeedOn && SpeedChart; } }
         public bool SpeedDefaults = false;
+        public bool MonDefaults312 = false;  // 3.1.2: один раз у всех — пинг и скорость включены (дальше можно выключить)
         // ---- 3.1: окно, шрифты ----
         public int WinX = -32000, WinY = -32000, WinW = 0, WinH = 0; // последнее положение/размер окна (0 — по умолчанию)
         public bool WinMax = false;
@@ -262,6 +263,7 @@ namespace NetProbe
             SideWidth = Math.Max(150, Math.Min(380, SideWidth));
             FontBtnSize = Math.Max(7, Math.Min(14, FontBtnSize)); FontMedSize = Math.Max(7, Math.Min(14, FontMedSize));
             FontSmallSize = Math.Max(6, Math.Min(12, FontSmallSize)); FontLargeSize = Math.Max(8, Math.Min(20, FontLargeSize));
+            if (!MonDefaults312) { MonDefaults312 = true; AutoStartMonitor = true; SpeedOn = true; LogProbes = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             if (!SpeedDefaults) { SpeedDefaults = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             PollRate = Math.Max(MinPollRate, Math.Min(MaxPollRate, PollRate));
             TimeoutSec = Math.Max(2, Math.Min(30, TimeoutSec));
