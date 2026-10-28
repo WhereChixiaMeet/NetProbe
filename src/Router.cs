@@ -248,10 +248,10 @@ namespace NetProbe
                 // VLESS / VMess / Trojan: тот же сценарий, другой транспорт (xray + sing-box TUN, списки — process_path_regex)
                 wgDied = false;
                 okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue;
-                var strictL = AppLists.AppsOnly(AppLists.VpnOnlyApps);
+                var strictAll = AppLists.Get(AppLists.VpnOnlyApps);
                 var lists = strictOnly
-                    ? new TunLists { Include = strictL.Concat(new[] { VpnProbe }).ToList(), Exclude = new List<string>() }
-                    : new TunLists { Include = AppLists.AppsOnly(AppLists.HybridApps).Concat(strictL).Distinct(StringComparer.OrdinalIgnoreCase).ToList(), Exclude = AppLists.AppsOnly(TunExclKey(st)) };
+                    ? TunLists.FromLists(strictAll.Concat(new[] { VpnProbe }), new string[0])
+                    : TunLists.FromLists(AppLists.Get(AppLists.HybridApps).Concat(strictAll), AppLists.Get(TunExclKey(st)));
                 string xerr = Wg.StartXray(st, name, lists);
                 if (xerr != null) { TunnelErr(xerr); wgDied = true; return false; }
                 lastTunnelErr = null; OnBackup = backup; StrictOnly = strictOnly;

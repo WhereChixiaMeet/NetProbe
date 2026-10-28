@@ -17,6 +17,14 @@ namespace NetProbe
     public class TunLists
     {
         public List<string> Include = new List<string>(), Exclude = new List<string>();
+        // 3.0.4: домены/IP из Include и «Строго VPN» — в TUN (sing-box) идут через сервер (у WireSock такого нет)
+        public List<string> IncludeHosts = new List<string>();
+        // все записи списков (приложения + домены/IP): приложения отделяются, домены/IP попадают в IncludeHosts / Exclude
+        public static TunLists FromLists(IEnumerable<string> include, IEnumerable<string> exclude)
+        {
+            var inc = include.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return new TunLists { Include = inc.Where(AppLists.IsAppEntry).ToList(), IncludeHosts = inc.Where(x => !AppLists.IsAppEntry(x)).ToList(), Exclude = exclude.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).ToList() };
+        }
         public List<KeyValuePair<string, string>> Domains = new List<KeyValuePair<string, string>>();
     }
 
@@ -58,8 +66,11 @@ namespace NetProbe
             if (ex.Processes.Count > 0) rules.Add(new Dictionary<string, object> { { "process_path_regex", ex.Processes.Select(Rx).ToArray() }, { "outbound", "direct" } });
             if (ex.Domains.Count > 0) rules.Add(new Dictionary<string, object> { { "domain_suffix", ex.Domains.ToArray() }, { "outbound", "direct" } });
             if (ex.Ips.Count > 0) rules.Add(new Dictionary<string, object> { { "ip_cidr", ex.Ips.Select(Cidr).ToArray() }, { "outbound", "direct" } });
-            bool all = include.Count == 0;
-            if (!all)
+            var ih = ExclusionSet.From(l.IncludeHosts ?? new List<string>());
+            if (ih.Domains.Count > 0) rules.Add(new Dictionary<string, object> { { "domain_suffix", ih.Domains.ToArray() }, { "outbound", "proxy" } });
+            if (ih.Ips.Count > 0) rules.Add(new Dictionary<string, object> { { "ip_cidr", ih.Ips.Select(Cidr).ToArray() }, { "outbound", "proxy" } });
+            bool all = include.Count == 0 && ih.Domains.Count == 0 && ih.Ips.Count == 0;
+            if (include.Count > 0)
             {
                 var inc = include.Concat(new[] { "netprobe-vpn.exe" }).Distinct(StringComparer.OrdinalIgnoreCase).Select(Rx).ToArray();
                 rules.Add(new Dictionary<string, object> { { "process_path_regex", inc }, { "outbound", "proxy" } });
@@ -73,7 +84,9 @@ namespace NetProbe
                             new Dictionary<string, object> { { "tag", "remote" }, { "type", "tcp" }, { "server", "1.1.1.1" }, { "detour", "proxy" } },
                             new Dictionary<string, object> { { "tag", "local" }, { "type", "local" } } } },
                         { "final", all ? "remote" : "local" },
-                        { "rules", dnsRules.Concat(all ? new object[0] : new object[] { new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", "remote" } } }).ToArray() },
+                        { "rules", dnsRules
+                            .Concat(ih.Domains.Count > 0 ? new object[] { new Dictionary<string, object> { { "domain_suffix", ih.Domains.ToArray() }, { "server", "remote" } } } : new object[0])
+                            .Concat(include.Count == 0 ? new object[0] : new object[] { new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", "remote" } } }).ToArray() },
                         { "strategy", "ipv4_only" }
                     } },
                 { "inbounds", new object[] { new Dictionary<string, object> {

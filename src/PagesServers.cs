@@ -36,12 +36,8 @@ namespace NetProbe
             router.DpiHold = () => xm.DpiWanted;
             router.ExtraDpiExcl = () => new List<string>();
             // TUN берёт те же списки приложений, что и туннель (вкладка Routing): Include + «Строго VPN» → сервер, Exclude → напрямую.
-            // Домены/IP в карточках приложений движку не передаются.
-            xm.GetTunLists = () =>
-            {
-                var inc = AppLists.AppsOnly(AppLists.HybridApps).Concat(AppLists.AppsOnly(AppLists.VpnOnlyApps)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                return new TunLists { Include = inc, Exclude = AppLists.AppsOnly(Router.TunExclKey(st)), Domains = new List<KeyValuePair<string, string>>() };
-            };
+            // Домены/IP в этих карточках в TUN работают (sing-box: domain_suffix / ip_cidr), в отличие от WireSock.
+            xm.GetTunLists = () => TunLists.FromLists(AppLists.Get(AppLists.HybridApps).Concat(AppLists.Get(AppLists.VpnOnlyApps)), AppLists.Get(Router.TunExclKey(st)));
             ZapretRunner.ExtraDomains = () => new List<string>();
             XrayConfig.DirectDomains = () => new List<string>();
             xm.TunBlocked = () => router.Wg.Running ? Tx("TUN не запущен: работает туннель WireSock (вкладка Routing)") : null;

@@ -177,7 +177,7 @@ namespace NetProbe
             // строка-подсказка контракта маршрутизации
             lRouteHint = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Color.Transparent, UseMnemonic = false, AutoEllipsis = true,
                 Text = Tx("DPI глобален: касается всего вне туннеля. Домены для DPI — на вкладке DPI  ·  Приоритет: «Строго VPN» > домен > приложение") };
-            tip.SetToolTip(lRouteHint, Tx("Списки принимают только приложения. Домен, вписанный сюда, остаётся серым и в туннель не передаётся. Приложение из Include при активном туннеле автоматически вне DPI."));
+            tip.SetToolTip(lRouteHint, Tx("Домены и IP в этих списках работают в TUN (подписки, туннели VLESS / VMess / Trojan); WireSock понимает только приложения. Приложение из Include при активном туннеле автоматически вне DPI."));
 
             // --- списки приложений: Include · Строго VPN · Exclude ---
             listCards = new ListCard[3];
@@ -191,7 +191,7 @@ namespace NetProbe
                 };
                 lc.Box.DoubleClick += (s, e) => lc.BAdd.PerformClick2();
                 lc.BPaste.Click += (s, e) => PasteToList(lc.Key, lc.Box);
-                lc.Box.DimReason = AppLists.NotAppReason; // домен/IP в списке приложений: серым + причина
+                // 3.0.4: домены/IP в списках приложений не серые — в TUN (подписки, VLESS/VMess/Trojan) они работают; проверяет сам пользователь
                 AttachPathMenu(lc.Box, this);
                 var lcRef = lc;
                 lc.Box.RightText = n => n == ListCard.BuiltIn ? Tx("встроено") : null; // домены в списках приложений — без подписи «not used» (только серым + подсказка)

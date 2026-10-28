@@ -51,7 +51,7 @@ namespace NetProbe
             {
                 var cs = st.Clone(); cs.SocksPort = st.TunnelSocksPort; cs.TunMode = true;
                 sb.AppendLine("--- xray tunnel config ---\r\n" + XrayConfig.Build(cs, demo));
-                sb.AppendLine("--- sing-box TUN config (Include=Discord.exe, Exclude=steam.exe) ---\r\n" + SingBoxConfig.Build(cs, new TunLists { Include = new[] { "Discord.exe" }.ToList(), Exclude = new[] { "steam.exe" }.ToList() }));
+                sb.AppendLine("--- sing-box TUN config (Include=Discord.exe+youtube.com+1.2.3.4, Exclude=steam.exe+ru.example) ---\r\n" + SingBoxConfig.Build(cs, TunLists.FromLists(new[] { "Discord.exe", "youtube.com", "1.2.3.4" }, new[] { "steam.exe", "ru.example" })));
             }
             // 3.0.1: форматы подписок (синтетические данные, ничего не скачивается и не подключается)
             const string U0 = "00000000-0000-0000-0000-000000000000";
