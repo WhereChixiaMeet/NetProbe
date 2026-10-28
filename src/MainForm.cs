@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.0.7";
+        public const string Version = "3.0.8";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -26,7 +26,7 @@ namespace NetProbe
         readonly Router router = new Router();
 
         NotifyIcon tray; ContextMenuStrip trayMenu; ToolStripMenuItem miWidget, miMonitor, miConnect; ToolStripMenuItem[] miModes;
-        WidgetForm widget;
+        WidgetForm widget, widget2; // widget2 — отдельный виджет скорости (режим «два виджета»)
         IntPtr trayIconHandle = IntPtr.Zero;
         bool exiting, hiddenToTray, trayHintShown, startHidden;
         readonly System.Windows.Forms.Timer refreshTimer = new System.Windows.Forms.Timer { Interval = 20000 };
@@ -100,6 +100,9 @@ namespace NetProbe
             refreshTimer.Start();
             uiTimer.Tick += (s, e) => OnUiTick();
             uiTimer.Start();
+            SpeedMeter.AdapterId = () => { var d = direct; return d != null ? d.Id : null; };
+            SpeedMeter.Sample += (d, u) => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => OnSpeed(d, u))); } catch { } };
+            SpeedMeter.Start();
             NetworkChange.NetworkAddressChanged += (s, e) => { if (IsHandleCreated) try { BeginInvoke((Action)(() => RefreshAdapters(false))); } catch { } };
         }
 
@@ -147,7 +150,10 @@ namespace NetProbe
                     string pre = Tr.Code + "-" + k + "-";
                     for (int i = 0; i < pages.Count; i++) { SelectPage(i); shot(pre + i); }
                     SelectPage(PgDpi); ShowDpiTab(2); shot(pre + "dpi-sites"); ShowDpiTab(0);
+                    widget.SetParts(true, true);
                     using (var bmp = new Bitmap(widget.Width, widget.Height)) { widget.DrawToBitmap(bmp, new Rectangle(0, 0, widget.Width, widget.Height)); bmp.Save(Path.Combine(ShotsDir, pre + "widget.png")); }
+                    widget2.SetParts(false, true);
+                    using (var bmp = new Bitmap(widget2.Width, widget2.Height)) { widget2.DrawToBitmap(bmp, new Rectangle(0, 0, widget2.Width, widget2.Height)); bmp.Save(Path.Combine(ShotsDir, pre + "widget2.png")); }
                 }
                 // минимальный размер окна: всё должно помещаться
                 var keepSize = Size; Theme.Apply(ThemeKind.Dark); st.Theme = 0; RebuildUi();
@@ -202,10 +208,20 @@ namespace NetProbe
             // подключиться параллельно с туннелем и «не выключался» кнопкой VPN маршрутизатора)
             if (handoff == null)
             {
+                // 3.2: «подключаться к последнему серверу при запуске» — к тому серверу, к которому был подключён последним (ActiveServer)
+                var last = st.XrayAutoConnect && File.Exists(XrayProcess.Exe(st)) ? ServerStore.Find(st.ActiveServer) : null;
+                if (last != null && st.HybridMode && TunnelCount > 0 && st.Source != 1) { st.Source = 1; st.Save(); } // в гибриде — переключить источник на подписки
                 var src0 = ActiveSource();
-                if (st.AutoConnect && (st.RunMode == RouteMode.DpiOnly || src0 == Source.Vpn)) ConnectCurrent(false);
-                else if ((st.AutoConnect || st.XrayAutoConnect) && st.RunMode != RouteMode.DpiOnly && src0 == Source.Subs) ConnectCurrent(false);
+                if (last != null && src0 == Source.Subs)
+                {
+                    Logger.Write(LogLevel.Info, Tx("Автоподключение к последнему серверу: ") + last.Name);
+                    StartMonitoringIfProxy(); XConnect(last.Id, true);
+                }
+                else if (st.AutoConnect && (st.RunMode == RouteMode.DpiOnly || src0 == Source.Vpn)) ConnectCurrent(false);
+                else if (st.AutoConnect && src0 == Source.Subs) ConnectCurrent(false);
                 else if (st.AutoConnect) Logger.Write(LogLevel.Info, Tx("Автоподключение пропущено: основной VPN-туннель не выбран"));
+                if (st.XrayAutoConnect && last == null) Logger.Write(LogLevel.Info, Tx("Автоподключение к серверу: последний сервер не найден — подключись к нему один раз вручную"));
+                else if (last != null && src0 != Source.Subs) Logger.Write(LogLevel.Warn, Tx("Автоподключение к серверу пропущено: ") + (SubsBlockedReason() ?? ""));
             }
             ScheduledUpdateCheck(true);
             updTimer.Tick += (s, e) => ScheduledUpdateCheck(false); updTimer.Start();
@@ -266,9 +282,9 @@ namespace NetProbe
             RedrawLog();
             Native.TitleTheme(Handle, Theme.IsDark); DwmTheme.Apply(Handle);
             trayMenu.Renderer = new ThemedMenuRenderer();
-            var wv = widget.Visible;
-            widget.Dispose();
-            widget = NewWidget();
+            var wv = widget.Visible || widget2 != null && widget2.Visible;
+            widget.Dispose(); if (widget2 != null) widget2.Dispose();
+            widget = NewWidget(false); widget2 = NewWidget(true);
             if (wv) ApplyWidgetVisibility();
             if (monVpn.Running) { foreach (var c in new[] { cardVpn, cardDir }) { c.Level = Level.Wait; c.Value = "…"; } btnMon.Text = Tx("Остановить мониторинг"); btnMon.Primary = false; }
             UpdateInfo(); UpdateTray(); BeginInvoke((Action)UpdateChars);
@@ -320,12 +336,12 @@ namespace NetProbe
             sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
             side.Controls.Add(sideStatus);
             // маленькая копия виджета Monitor — над строкой состояния
-            var oldMini = miniMon; miniMon = new MiniMonitor(); miniMon.CopyFrom(oldMini);
+            var oldMini = miniMon; miniMon = new MiniMonitor(); miniMon.CopyFrom(oldMini); miniMon.SetParts(st.SidePing, st.SideSpeed);
             miniMon.DoubleClick += (s, e) => SelectPage(PgMonitor);
             miniMon.Click += (s, e) => SelectPage(PgMonitor);
             Ui.Tip().SetToolTip(miniMon, Tx("Мониторинг: VPN и напрямую — клик открывает вкладку Monitor"));
             side.Controls.Add(miniMon);
-            Action laySide = () =>
+            laySide = () =>
             {
                 sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
                 miniMon.SetBounds(Theme.S(12), sideStatus.Top - Theme.S(4) - miniMon.Height, side.Width - Theme.S(26), miniMon.Height);
@@ -334,7 +350,7 @@ namespace NetProbe
             };
             side.Resize += (s, e) => laySide(); laySide();
         }
-        Label sideStatus; MiniMonitor miniMon;
+        Label sideStatus; MiniMonitor miniMon; Action laySide;
 
         Panel NewPage(string title, string subtitle)
         {
@@ -607,25 +623,45 @@ namespace NetProbe
             UpdateModeUi();
             UpdateDpiState();
             UpdateTray();
-            if (widget != null) { widget.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : ""; widget.Invalidate(); }
+            UpdateWidgetHeader();
             if (miniMon != null && !miniMon.IsDisposed) { miniMon.Header = ""; /* без статуса — только MONITOR */ miniMon.Invalidate(); }
+        }
+
+        // в виджетах — тип подключения: протокол сервера (VLESS · REALITY · xray) или туннеля (WIREGUARD · WireSock)
+        void UpdateWidgetHeader()
+        {
+            string h = AnyActive ? EngineText() : "";
+            foreach (var w in new[] { widget, widget2 })
+                if (w != null && !w.IsDisposed && w.Header != h) { w.Header = h; w.Invalidate(); }
+        }
+
+        void OnSpeed(double d, double u)
+        {
+            string sd = SpeedMeter.Short(d) + "b/s", su = SpeedMeter.Short(u) + "b/s";
+            foreach (var w in new[] { widget, widget2 })
+                if (w != null && !w.IsDisposed) { w.SetRow(2, Level.Good, sd, d); w.SetRow(3, Level.Good, su, u); }
+            if (miniMon != null && !miniMon.IsDisposed) { miniMon.SetRow(2, Level.Good, sd, d); miniMon.SetRow(3, Level.Good, su, u); }
+            if (speedChart != null && !speedChart.IsDisposed) { speedChart.Adapter = SpeedMeter.AdapterName; speedChart.Add(d, u); }
         }
 
         void OnUiTick()
         {
+            UpdateWidgetHeader();
             if (curPage == PgConnect) UpdateConnectUi();
             History.Tick();
             if (curPage == PgTasks && chkTasksAuto != null && chkTasksAuto.Checked) RefreshTasks();
         }
 
         // ================= Tray & widget =================
-        WidgetForm NewWidget()
+        WidgetForm NewWidget(bool second)
         {
             var w = new WidgetForm(trayMenu) { TopMost = st.WidgetTopMost, Opacity = st.WidgetOpacity / 100.0 };
             w.OpenRequested += (s, e) => RestoreFromTray();
-            w.Moved += (s, e) => { st.WidgetX = w.Left; st.WidgetY = w.Top; st.Save(); };
-            w.Header = router.Active ? Router.StateName(router.State).ToUpperInvariant() : "";
-            HookWidgetChars(w);
+            if (second) w.Moved += (s, e) => { st.Widget2X = w.Left; st.Widget2Y = w.Top; st.Save(); };
+            else w.Moved += (s, e) => { st.WidgetX = w.Left; st.WidgetY = w.Top; st.Save(); };
+            w.Header = AnyActive ? EngineText() : "";
+            if (second) w.SetParts(false, true); else w.SetParts(st.WidgetPing, st.WidgetSpeed && !(st.WidgetSplit && st.WidgetPing));
+            if (!second) HookWidgetChars(w);
             return w;
         }
 
@@ -634,7 +670,7 @@ namespace NetProbe
             BuildTrayMenu();
             tray = new NotifyIcon { Text = "NetProbe", ContextMenuStrip = trayMenu, Visible = true };
             tray.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) { if (hiddenToTray) RestoreFromTray(); else HideToTray(false); } };
-            widget = NewWidget();
+            widget = NewWidget(false); widget2 = NewWidget(true);
             UpdateTray();
         }
 
@@ -672,7 +708,7 @@ namespace NetProbe
             var old = trayMenu;
             BuildTrayMenu();
             tray.ContextMenuStrip = trayMenu;
-            widget.ContextMenuStrip = trayMenu;
+            widget.ContextMenuStrip = trayMenu; if (widget2 != null) widget2.ContextMenuStrip = trayMenu;
             try { old.Dispose(); } catch { }
             OnRouteChanged();
         }
@@ -804,12 +840,42 @@ namespace NetProbe
 
         void ApplyWidgetVisibility()
         {
+            bool split = st.WidgetSplit && st.WidgetPing && st.WidgetSpeed;
+            widget.SetParts(st.WidgetPing || !st.WidgetSpeed, st.WidgetSpeed && !split);
+            if (widget2 != null) widget2.SetParts(false, true);
             if (hiddenToTray && st.ShowWidget)
             {
                 if (!widget.Visible) { widget.EnsureOnScreen(st.WidgetX, st.WidgetY); widget.Show(); }
                 widget.TopMost = st.WidgetTopMost; widget.Opacity = st.WidgetOpacity / 100.0; widget.Invalidate();
+                if (widget2 != null)
+                {
+                    if (split)
+                    {
+                        if (!widget2.Visible)
+                        {
+                            // по умолчанию второй виджет — над первым
+                            int x2 = st.Widget2X, y2 = st.Widget2Y;
+                            if (x2 == -1 && y2 == -1) { x2 = widget.Left; y2 = widget.Top - widget2.Height - Theme.S(8); }
+                            widget2.EnsureOnScreen(x2, y2); widget2.Show();
+                        }
+                        widget2.TopMost = st.WidgetTopMost; widget2.Opacity = st.WidgetOpacity / 100.0; widget2.Invalidate();
+                    }
+                    else if (widget2.Visible) widget2.Hide();
+                }
             }
-            else if (widget.Visible) widget.Hide();
+            else
+            {
+                if (widget.Visible) widget.Hide();
+                if (widget2 != null && widget2.Visible) widget2.Hide();
+            }
+        }
+
+        // настройки мониторов (виджет, боковая панель, график скорости) применяются сразу
+        void ApplyMonitorParts()
+        {
+            ApplyWidgetVisibility();
+            if (miniMon != null && !miniMon.IsDisposed) { miniMon.SetParts(st.SidePing, st.SideSpeed); if (laySide != null) laySide(); }
+            if (layMonitor != null) layMonitor();
         }
 
         void HideToTray(bool silent)

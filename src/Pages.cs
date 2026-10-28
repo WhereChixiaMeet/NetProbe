@@ -46,6 +46,7 @@ namespace NetProbe
             });
         }
 
+        SpeedChart speedChart; Action layMonitor;
         void BuildMonitorPage()
         {
             var p = NewPage(Tx("Мониторинг"), Tx("Задержка и потери на обоих маршрутах"));
@@ -64,7 +65,9 @@ namespace NetProbe
             monPeriod.Selected += k => LoadPeriod(k);
             infoLabel = new Label { AutoSize = false, ForeColor = Theme.Muted, Font = Theme.Small, BackColor = Theme.Bg, AutoEllipsis = true, UseMnemonic = false };
             warnLabel = new Label { AutoSize = false, ForeColor = Theme.Orange, Font = Theme.Small, BackColor = Theme.Bg, AutoEllipsis = true, Visible = false };
-            p.Controls.AddRange(new Control[] { cardVpn, cardDir, chart, btnMon, btnReset, monPeriod, infoLabel, warnLabel });
+            var oldSpeed = speedChart; speedChart = new SpeedChart();
+            if (oldSpeed != null) { speedChart.Down.AddRange(oldSpeed.Down); speedChart.Up.AddRange(oldSpeed.Up); speedChart.Adapter = oldSpeed.Adapter; }
+            p.Controls.AddRange(new Control[] { cardVpn, cardDir, chart, speedChart, btnMon, btnReset, monPeriod, infoLabel, warnLabel });
             Action lay = () =>
             {
                 // сверху справа — общие кнопки «Маршрут · DPI · VPN»; управление монитором — строкой ниже
@@ -79,8 +82,18 @@ namespace NetProbe
                 infoLabel.SetBounds(L, by - Theme.S(18), W, Theme.S(18));
                 warnLabel.SetBounds(L, by - Theme.S(38), W, Theme.S(18));
                 int cy = T + ch + gap;
-                chart.SetBounds(L, cy, W, Math.Max(Theme.S(120), by - Theme.S(44) - cy));
+                int avail = Math.Max(Theme.S(120), by - Theme.S(44) - cy);
+                // под графиком задержки — график скорости (можно выключить в настройках)
+                speedChart.Visible = st.SpeedChart && avail >= Theme.S(250);
+                if (speedChart.Visible)
+                {
+                    int sh = Math.Max(Theme.S(120), Math.Min(Theme.S(220), (avail - gap) * 2 / 5));
+                    chart.SetBounds(L, cy, W, avail - gap - sh);
+                    speedChart.SetBounds(L, cy + avail - sh, W, sh);
+                }
+                else chart.SetBounds(L, cy, W, avail);
             };
+            layMonitor = lay;
             p.Resize += (s, e) => lay();
             lay();
         }

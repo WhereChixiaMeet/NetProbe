@@ -159,6 +159,14 @@ namespace NetProbe
         public int WidgetOpacity = 92;
         public int WidgetX = -1;
         public int WidgetY = -1;
+        public bool WidgetPing = true;       // виджет: строки пинга (VPN / Напрямую)
+        public bool WidgetSpeed = false;     // виджет: строки скорости (↓ / ↑)
+        public bool WidgetSplit = false;     // пинг и скорость — два отдельных виджета
+        public int Widget2X = -1;            // позиция второго виджета (скорость)
+        public int Widget2Y = -1;
+        public bool SidePing = true;         // мини-монитор в боковой панели: пинг
+        public bool SideSpeed = false;       // мини-монитор в боковой панели: скорость
+        public bool SpeedChart = true;       // график скорости на вкладке Monitor
         public bool AutoStartMonitor = true;
         public bool StartMinimized = false;
         public bool Autorun = true;          // по умолчанию запуск вместе с Windows

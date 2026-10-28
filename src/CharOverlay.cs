@@ -20,7 +20,7 @@ namespace NetProbe
         public static Func<string, int[]> GetLayout;          // ключ "chisa.frame" → { dx, dy, h } (смещение от левого верхнего угла окна-хозяина, высота) или null
         public static Action<string, int[]> SetLayout;
         public event Action EditEnded;
-        bool edit; int curH;
+        bool edit; int curH; string renderKey;
         public string Slot { get { return widget ? "widget" : "frame"; } }
         string Key { get { return (Theme.Kurumi ? "kurumi." : "chisa.") + Slot; } }
 
@@ -63,7 +63,7 @@ namespace NetProbe
             int ex = GetWindowLong(Handle, -20);
             ex = on ? ex & ~0x20 & ~0x08000000 : ex | 0x20 | 0x08000000; // WS_EX_TRANSPARENT / WS_EX_NOACTIVATE
             SetWindowLong(Handle, -20, ex);
-            Cursor = on ? Cursors.SizeAll : Cursors.Default;
+            Cursor = on ? Cursors.SizeAll : Cursors.Default; renderKey = null;
             if (host != null && !host.IsDisposed && host.Visible) Place(lastOpacity);
         }
         public bool Editing { get { return edit; } }
@@ -89,6 +89,7 @@ namespace NetProbe
         int lastOpacity = 85;
 
         [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+        [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
         [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
 
         public static string Folder(ThemeKind k) { var d = Path.Combine(Settings.Sub("themes"), k == ThemeKind.Chisa ? "chisa" : "kurumi"); try { Directory.CreateDirectory(d); } catch { } return d; }
@@ -101,7 +102,24 @@ namespace NetProbe
             if (artKey == key && art != null) return art;
             if (art != null) { art.Dispose(); art = null; }
             artKey = key;
-            try { if (File.Exists(p)) using (var b = new Bitmap(p)) art = new Bitmap(b); } catch { art = null; }
+            try
+            {
+                if (File.Exists(p))
+                    using (var b = new Bitmap(p))
+                    {
+                        // 3.2: огромную картинку (4K и больше) один раз уменьшаем — иначе каждое движение окна перемасштабировало её заново и всё подвисало
+                        int maxH = 1400;
+                        if (b.Height <= maxH) art = new Bitmap(b);
+                        else
+                        {
+                            int nw = Math.Max(1, b.Width * maxH / b.Height);
+                            art = new Bitmap(nw, maxH, PixelFormat.Format32bppPArgb);
+                            using (var g = Graphics.FromImage(art)) { g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality; g.DrawImage(b, new Rectangle(0, 0, nw, maxH)); }
+                        }
+                    }
+            }
+            catch { art = null; }
+            renderKey = null;
             return art;
         }
 
@@ -142,6 +160,14 @@ namespace NetProbe
             else if (!wa.Contains(new Point(r.Left, r.Top)) || r.Right > wa.Right + 2 || r.Bottom > wa.Bottom + 2 || r.Left < wa.Left - 2) return false;
             curH = h; lastOpacity = opacityPercent;
             Opacity255 = edit ? 255 : (int)(255 * Math.Max(20, Math.Min(100, opacityPercent)) / 100.0);
+            // та же картинка того же размера — только сдвигаем окно (без перерисовки): плавно при перетаскивании окна/виджета
+            string rk = artKey + "|" + w + "x" + h + "|" + Opacity255 + "|" + edit + "|" + Theme.Accent.ToArgb();
+            if (rk == renderKey && IsHandleCreated)
+            {
+                if (Left != x || Top != y) SetWindowPos(Handle, IntPtr.Zero, x, y, 0, 0, 0x0001 | 0x0004 | 0x0010); // NOSIZE | NOZORDER | NOACTIVATE
+                return true;
+            }
+            renderKey = rk;
             using (var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb))
             {
                 using (var g = Graphics.FromImage(bmp))

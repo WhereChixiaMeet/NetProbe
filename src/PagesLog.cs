@@ -207,6 +207,7 @@ namespace NetProbe
         void AppendLine(Tuple<DateTime, LogLevel, string> it)
         {
             if (!LogVisible(it)) return;
+            if (++shownLines > 4000) { RedrawLog(); return; } // окно не растёт бесконечно (быстрая перерисовка последних 3000)
             logBox.SelectionStart = logBox.TextLength; logBox.SelectionLength = 0;
             logBox.SelectionColor = Theme.Dim; logBox.AppendText(it.Item1.ToString("HH:mm:ss") + "  ");
             logBox.SelectionColor = LogColor(it.Item2); logBox.AppendText(Logger.Tag(it.Item2) + "  ");
@@ -214,14 +215,44 @@ namespace NetProbe
             logBox.SelectionStart = logBox.TextLength; logBox.ScrollToCaret();
         }
 
+        // 3.2: перерисовка одним RTF-блоком (раньше — построчно с цветом и прокруткой: на тысячах строк окно висло)
         void RedrawLog()
         {
             if (logBox == null || logBox.IsDisposed) return;
-            logBox.SuspendLayout();
-            logBox.Clear();
             var items = ViewItems().ToList();
-            foreach (var it in items.Skip(Math.Max(0, items.Count - 4000))) AppendLine(it);
-            logBox.ResumeLayout();
+            var tail = items.Skip(Math.Max(0, items.Count - 3000)).ToList();
+            var colors = new[] { Theme.Dim, Theme.Text, Theme.Muted, Theme.Green, Theme.Yellow, Theme.Red };
+            Func<Color, int> ci = c => { for (int i = 0; i < colors.Length; i++) if (colors[i].ToArgb() == c.ToArgb()) return i + 1; return 2; };
+            var sb = new StringBuilder(tail.Count * 90 + 512);
+            sb.Append(@"{\rtf1\ansi\deff0{\fonttbl{\f0 " + logBox.Font.Name + @";}}{\colortbl ;");
+            foreach (var c in colors) sb.Append(@"\red" + c.R + @"\green" + c.G + @"\blue" + c.B + ";");
+            sb.Append(@"}\f0\fs" + (int)Math.Round(logBox.Font.SizeInPoints * 2) + " ");
+            foreach (var it in tail)
+            {
+                sb.Append(@"\cf" + ci(Theme.Dim) + " ").Append(it.Item1.ToString("HH:mm:ss")).Append("  ");
+                sb.Append(@"\cf" + ci(LogColor(it.Item2)) + " ").Append(Logger.Tag(it.Item2)).Append("  ");
+                sb.Append(@"\cf" + (it.Item2 == LogLevel.Poll ? ci(Theme.Muted) : ci(Theme.Text)) + " ").Append(RtfEsc(it.Item3)).Append(@"\par ");
+            }
+            sb.Append("}");
+            Native.SendMessage(logBox.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero); // WM_SETREDRAW off
+            try { logBox.Rtf = sb.ToString(); logBox.SelectionStart = logBox.TextLength; logBox.ScrollToCaret(); }
+            finally { Native.SendMessage(logBox.Handle, 0x000B, (IntPtr)1, IntPtr.Zero); logBox.Invalidate(); }
+            shownLines = tail.Count;
+        }
+        int shownLines;
+
+        static string RtfEsc(string s)
+        {
+            var b = new StringBuilder(s.Length + 8);
+            foreach (char ch in s)
+            {
+                if (ch == '\\' || ch == '{' || ch == '}') b.Append('\\').Append(ch);
+                else if (ch == '\n') b.Append(@"\line ");
+                else if (ch == '\r') { }
+                else if (ch > 127) b.Append(@"\u" + (int)(short)ch + "?");
+                else b.Append(ch);
+            }
+            return b.ToString();
         }
     }
 }

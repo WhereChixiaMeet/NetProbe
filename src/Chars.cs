@@ -56,15 +56,24 @@ namespace NetProbe
             var h = charEditChanged; if (h != null) h();
         }
 
+        // много событий подряд (перетаскивание, пересборка интерфейса) — одно обновление персонажей
+        bool charsQueued;
+        void QueueChars()
+        {
+            if (charsQueued || IsDisposed || !IsHandleCreated) return;
+            charsQueued = true;
+            try { BeginInvoke((Action)(() => { charsQueued = false; UpdateChars(); })); } catch { charsQueued = false; }
+        }
+
         void HookChars()
         {
-            EventHandler h = (s, e) => UpdateChars();
+            EventHandler h = (s, e) => QueueChars();
             LocationChanged += h; SizeChanged += h; VisibleChanged += h;
         }
 
         void HookWidgetChars(WidgetForm w)
         {
-            EventHandler h = (s, e) => UpdateChars();
+            EventHandler h = (s, e) => QueueChars();
             w.LocationChanged += h; w.VisibleChanged += h; w.Moved += h;
         }
     }

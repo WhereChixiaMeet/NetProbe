@@ -18,6 +18,7 @@ namespace NetProbe
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
         Spin nTimeout, nPingCount, nDown, nUp, nStreams, nGood, nWarn, nExclRefresh;
         DarkCombo cbLang, cbMode, cbAdapter, cbTheme, cbWsLog, cbRetSet;
+        ThemedCheck cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
         ThemedCheck cMinTray, cCloseTray, cWidget, cWidgetTop, cNotify, cAutoMon, cAutorun, cStartMin, cLogFile, cWsAdapter;
         Slider sOpacity; Label lOpacity, lSvc;
 
@@ -360,6 +361,14 @@ namespace NetProbe
             lOpacity = Ui.Label("", Theme.Body, Theme.Muted);
             sOpacity.ValueChanged += (s, e) => lOpacity.Text = ((int)sOpacity.Value) + " %";
             row(Tx("Прозрачность виджета"), sOpacity, null);
+
+            section(Tx("Мониторы: пинг и скорость"));
+            cWPing = Ui.Check(Tx("Виджет: пинг (VPN / напрямую)"), true); check(cWPing);
+            cWSpeed = Ui.Check(Tx("Виджет: скорость соединения (↓ / ↑)"), false); check(cWSpeed);
+            cWSplit = Ui.Check(Tx("Пинг и скорость — два отдельных виджета"), false); check(cWSplit);
+            cSidePing = Ui.Check(Tx("Боковая панель: пинг"), true); check(cSidePing);
+            cSideSpeed = Ui.Check(Tx("Боковая панель: скорость"), false); check(cSideSpeed);
+            cSpeedChart = Ui.Check(Tx("График скорости на вкладке Monitor"), true); check(cSpeedChart);
             cNotify = Ui.Check(Tx("Уведомлять об обрывах, переключениях и восстановлении"), true); check(cNotify);
             cAutoMon = Ui.Check(Tx("Запускать мониторинг при старте"), true); check(cAutoMon);
             cAutorun = Ui.Check(Tx("Запускать вместе с Windows (планировщик, с правами администратора)"), false); check(cAutorun);
@@ -500,6 +509,8 @@ namespace NetProbe
             tbLogDirSet.Text = st.LogDir; cbRetSet.SelectedIndex = st.LogRetention; cLogFile.Checked = st.LogToFile;
             cMinTray.Checked = st.MinimizeToTray; cCloseTray.Checked = st.CloseToTray; cWidget.Checked = st.ShowWidget; cWidgetTop.Checked = st.WidgetTopMost;
             sOpacity.Value = st.WidgetOpacity; lOpacity.Text = st.WidgetOpacity + " %";
+            cWPing.Checked = st.WidgetPing; cWSpeed.Checked = st.WidgetSpeed; cWSplit.Checked = st.WidgetSplit;
+            cSidePing.Checked = st.SidePing; cSideSpeed.Checked = st.SideSpeed; cSpeedChart.Checked = st.SpeedChart;
             cNotify.Checked = st.Notify; cAutoMon.Checked = st.AutoStartMonitor; cAutorun.Checked = st.Autorun; cStartMin.Checked = st.StartMinimized;
             UpdateSvc();
         }
@@ -518,6 +529,10 @@ namespace NetProbe
             n.MinimizeToTray = cMinTray.Checked; n.CloseToTray = cCloseTray.Checked; n.ShowWidget = cWidget.Checked; n.WidgetTopMost = cWidgetTop.Checked;
             n.WidgetOpacity = (int)sOpacity.Value; n.Notify = cNotify.Checked; n.AutoStartMonitor = cAutoMon.Checked; n.Autorun = cAutorun.Checked;
             n.StartMinimized = cStartMin.Checked;
+            n.WidgetPing = cWPing.Checked; n.WidgetSpeed = cWSpeed.Checked; n.WidgetSplit = cWSplit.Checked;
+            n.SidePing = cSidePing.Checked; n.SideSpeed = cSideSpeed.Checked; n.SpeedChart = cSpeedChart.Checked;
+            if (!n.WidgetPing && !n.WidgetSpeed) n.WidgetPing = true;
+            if (!n.SidePing && !n.SideSpeed) n.SidePing = true;
             if (n.LogDir != "" && !Directory.Exists(n.LogDir)) { try { Directory.CreateDirectory(n.LogDir); } catch (Exception ex) { MessageBox.Show(this, Tx("Папка лога недоступна: ") + ex.Message, "NetProbe"); return; } }
             ApplySettings(n);
             if (!auto) LoadSettingsUi();
@@ -556,6 +571,7 @@ namespace NetProbe
             UpdateLogDirLabel(); FillLogDays();
             miWidget.Checked = st.ShowWidget;
             widget.TopMost = st.WidgetTopMost; widget.Opacity = st.WidgetOpacity / 100.0;
+            ApplyMonitorParts();
             if (autorunApplied == null || st.Autorun != autorunApplied.Value) { SetAutorun(st.Autorun); autorunApplied = st.Autorun; }
             RefreshAdapters(false);
             monVpn.Kick(); monDir.Kick();

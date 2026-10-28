@@ -7,6 +7,23 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { " Гбит/с", " Gbit/s" },
+            { " Кбит/с", " Kbit/s" },
+            { " Мбит/с", " Mbit/s" },
+            { "Автоподключение к последнему серверу: ", "Conexión automática al último servidor: " },
+            { "Автоподключение к серверу пропущено: ", "Conexión automática al servidor omitida: " },
+            { "Автоподключение к серверу: последний сервер не найден — подключись к нему один раз вручную", "Conexión automática: no hay último servidor — conéctate a uno manualmente una vez" },
+            { "Боковая панель: пинг", "Panel lateral: ping" },
+            { "Боковая панель: скорость", "Panel lateral: velocidad" },
+            { "Виджет: пинг (VPN / напрямую)", "Widget: ping (VPN / directo)" },
+            { "Виджет: скорость соединения (↓ / ↑)", "Widget: velocidad de conexión (↓ / ↑)" },
+            { "График скорости на вкладке Monitor", "Gráfico de velocidad en la pestaña Monitor" },
+            { "Мониторы: пинг и скорость", "Monitores: ping y velocidad" },
+            { "Пинг и скорость — два отдельных виджета", "Ping y velocidad en dos widgets separados" },
+            { "Подключаться к последнему серверу при запуске", "Conectar al último servidor al iniciar" },
+            { "Пока нет данных — адаптер не найден", "Aún no hay datos — adaptador no encontrado" },
+            { "При запуске NetProbe подключается к серверу, к которому был подключён последним", "Al iniciar, NetProbe se conecta al último servidor usado" },
+            { "Скорость, Мбит/с", "Velocidad, Mbit/s" },
             { "нет источника", "sin fuente" },
             { "туннель не выбран", "ningún túnel seleccionado" },
             { "Обновить ядра", "Actualizar núcleos" },

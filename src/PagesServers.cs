@@ -15,7 +15,7 @@ namespace NetProbe
     {
         readonly XrayManager xm = new XrayManager();
         StatusBoard xBoard; FlatButton btnCore, btnUpdSub; DataGridView srvGrid; TextBox tbSrvSearch; Label lSrvInfo;
-        TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; TopButtons topSrv;
+        TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; TopButtons topSrv; ThemedCheck cXAutoTun;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb, btnTest, btnSpeed; ServerEntry speedNow;
         readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
         static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
@@ -272,12 +272,17 @@ namespace NetProbe
             note.BackColor = Theme.Card;
             var bGo = new FlatButton("Routing") { Glyph = "" }.AutoW();
             bGo.Click += (s, e) => SelectPage(PgConnect);
-            card.Controls.AddRange(new Control[] { tgTun, note, bGo });
+            // 3.2: автоподключение к последнему серверу при запуске NetProbe
+            cXAutoTun = Ui.Check(Tx("Подключаться к последнему серверу при запуске"), st.XrayAutoConnect); cXAutoTun.BackColor = Theme.Card; cXAutoTun.Font = Theme.Small;
+            cXAutoTun.CheckedChanged += (s, e) => { st.XrayAutoConnect = cXAutoTun.Checked; st.Save(); };
+            srvTip.SetToolTip(cXAutoTun, Tx("При запуске NetProbe подключается к серверу, к которому был подключён последним"));
+            card.Controls.AddRange(new Control[] { tgTun, note, bGo, cXAutoTun });
             int ip = Theme.S(16);
             tgTun.Location = new Point(w - ip - tgTun.Width, Theme.S(12));
             note.Location = new Point(ip, Theme.S(44));
             bGo.Location = new Point(ip, note.Bottom + Theme.S(8));
-            card.SetBounds(0, 0, w, bGo.Bottom + Theme.S(12));
+            cXAutoTun.Location = new Point(ip, bGo.Bottom + Theme.S(10));
+            card.SetBounds(0, 0, w, cXAutoTun.Bottom + Theme.S(12));
             body.Controls.Add(card);
             return card.Bottom + Theme.S(12);
         }
@@ -448,7 +453,7 @@ namespace NetProbe
                 });
             srvTabs.SelectedKey = st.SrvTab;
             srvTabs.SetTabs(tabs);
-            if (srvTabs.SelectedKey != st.SrvTab) { st.SrvTab = srvTabs.SelectedKey; st.Save(); }
+            // 3.2: выбранную группу не затираем, если её вкладки пока нет (подписки ещё не загружены) — откроется, как только появится
             var cur = CurSub();
             srvTip.SetToolTip(btnUpdSub, cur != null ? Tx("Обновить подписку «") + cur.Name + "»" : Tx("Обновить подписки"));
         }
@@ -520,6 +525,7 @@ namespace NetProbe
             var s = xm.State;
             var cur = ServerStore.Find(st.ActiveServer);
             if (tgTun != null && tgTun.On != st.TunMode) tgTun.On = st.TunMode;
+            if (cXAutoTun != null && !cXAutoTun.IsDisposed && cXAutoTun.Checked != st.XrayAutoConnect) cXAutoTun.Checked = st.XrayAutoConnect;
             xBoard.State = XrayManager.StateName(s) + (cur != null && xm.Active ? "  ·  " + cur.Name : "");
             xBoard.Lv = s == XState.Off ? Level.Off : s == XState.Connected ? (xm.LastDelay == -2 ? Level.Slow : Level.Good) : s == XState.AllDown ? Level.Down : Level.Wait;
             string traffic = xm.SessionDown + xm.SessionUp > 0 ? "  ·  ↓ " + Bytes(xm.SessionDown) + " ↑ " + Bytes(xm.SessionUp) : "";

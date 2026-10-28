@@ -3,5 +3,5 @@ using System.Reflection;
 [assembly: AssemblyDescription("Protocol router (WireGuard / VLESS / VMess / Trojan) + DPI bypass and network monitor")]
 [assembly: AssemblyProduct("NetProbe")]
 [assembly: AssemblyCopyright("2026")]
-[assembly: AssemblyVersion("3.0.7.0")]
-[assembly: AssemblyFileVersion("3.0.7.0")]
+[assembly: AssemblyVersion("3.0.8.0")]
+[assembly: AssemblyFileVersion("3.0.8.0")]

@@ -8,11 +8,23 @@ using static NetProbe.Tr;
 namespace NetProbe
 {
     // Мини-виджет на рабочем столе, пока главное окно свернуто в трей. Цвет фона берётся из темы (монохром).
+    public class MonRow { public string Name; public Color Series; public Level Lv = Level.Off; public string Val = "—"; public List<double> Spark = new List<double>(); }
+
     public class WidgetForm : Form
     {
-        class Row { public string Name; public Color Series; public Level Lv = Level.Off; public string Val = "—"; public List<double> Spark = new List<double>(); }
-        readonly Row[] rows = { new Row { Name = "VPN", Series = Theme.Vpn }, new Row { Name = Tx("Напрямую"), Series = Theme.Direct } };
+        // строки 0-1 — пинг (VPN / Напрямую), 2-3 — скорость (↓ / ↑)
+        readonly MonRow[] rows = MonRows.New();
         public string Header = "";
+        bool showPing = true, showSpeed = false;
+        public void SetParts(bool ping, bool speed)
+        {
+            if (!ping && !speed) ping = true;
+            if (ping == showPing && speed == showSpeed && IsHandleCreated) return;
+            showPing = ping; showSpeed = speed;
+            Size = new Size(Theme.S(264), Theme.S(36) + Theme.S(30) * MonRows.Visible(ping, speed).Length);
+            if (IsHandleCreated) ApplyShape();
+            Invalidate();
+        }
         public event EventHandler OpenRequested, Moved;
         readonly bool win11;
 
@@ -32,6 +44,10 @@ namespace NetProbe
         protected override void OnHandleCreated(EventArgs e)
         {
             base.OnHandleCreated(e);
+            ApplyShape();
+        }
+        void ApplyShape()
+        {
             if (Theme.Classic) { Native.RoundCorners(Handle, false); return; }
             if (!(win11 && Native.RoundCorners(Handle, true)))
                 using (var p = Gfx.Round(new RectangleF(0, 0, Width, Height), Theme.S(10))) Region = new Region(p);
@@ -92,10 +108,11 @@ namespace NetProbe
             Gfx.Text(g, "NETPROBE", Theme.Small, Theme.Dim, new Rectangle(pad, Theme.S(6), Theme.S(120), Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             Gfx.Text(g, Header, Theme.Small, Theme.Muted, new Rectangle(Width - pad - Theme.S(170), Theme.S(6), Theme.S(170), Theme.S(18)), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             int y = Theme.S(28), rh = Theme.S(30);
-            for (int i = 0; i < rows.Length; i++)
+            var vis = MonRows.Visible(showPing, showSpeed);
+            for (int k = 0; k < vis.Length; k++)
             {
-                var r = rows[i];
-                float cy = y + rh * i + rh / 2f;
+                var r = rows[vis[k]];
+                float cy = y + rh * k + rh / 2f;
                 Color lc = Theme.LevelColor(r.Lv);
                 Gfx.Dot(g, lc, pad + Theme.S(6), cy, Theme.S(5.5), r.Lv != Level.Off);
                 Gfx.Text(g, r.Name, Theme.Bold, Theme.Text, new Rectangle(pad + Theme.S(18), (int)cy - Theme.S(10), Theme.S(76), Theme.S(20)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
@@ -133,11 +150,18 @@ namespace NetProbe
     // спарклайн и последнее значение. Данные — те же, что у виджета рабочего стола. Двойной клик — вкладка Monitor.
     public class MiniMonitor : DoubleBufferedControl
     {
-        class Row { public string Name; public Color Series; public Level Lv = Level.Off; public string Val = "—"; public List<double> Spark = new List<double>(); }
-        readonly Row[] rows = { new Row { Name = "VPN", Series = Theme.Vpn }, new Row { Name = Tx("Напрямую"), Series = Theme.Direct } };
+        MonRow[] rows = MonRows.New();
         public string Header = "";
+        bool showPing = true, showSpeed = false;
 
         public MiniMonitor() { Height = Theme.S(76); Cursor = Cursors.Hand; }
+        public void SetParts(bool ping, bool speed)
+        {
+            if (!ping && !speed) ping = true;
+            showPing = ping; showSpeed = speed;
+            Height = Theme.S(26) + Theme.S(25) * MonRows.Visible(ping, speed).Length;
+            Invalidate();
+        }
 
         public void SetRow(int i, Level lv, string val, double sample)
         {
@@ -151,6 +175,7 @@ namespace NetProbe
         {
             if (o == null) return;
             for (int i = 0; i < rows.Length; i++) { rows[i].Lv = o.rows[i].Lv; rows[i].Val = o.rows[i].Val; rows[i].Spark = new List<double>(o.rows[i].Spark); }
+            showPing = o.showPing; showSpeed = o.showSpeed; Height = o.Height;
             Header = o.Header;
         }
 
@@ -163,17 +188,33 @@ namespace NetProbe
             Gfx.Text(g, "MONITOR", Theme.Small, Theme.Dim, new Rectangle(pad, Theme.S(4), Theme.S(70), Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
             if (Header != "") Gfx.Text(g, Header, Theme.Small, Theme.Muted, new Rectangle(pad + Theme.S(66), Theme.S(4), Width - pad * 2 - Theme.S(66), Theme.S(18)), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             int y = Theme.S(22), rh = Theme.S(25);
-            int nameW = Theme.S(60), valW = Theme.S(52);
-            for (int i = 0; i < rows.Length; i++)
+            int nameW = Theme.S(60), valW = Theme.S(58);
+            var vis = MonRows.Visible(showPing, showSpeed);
+            for (int k = 0; k < vis.Length; k++)
             {
-                var r = rows[i];
-                float cy = y + rh * i + rh / 2f;
+                var r = rows[vis[k]];
+                float cy = y + rh * k + rh / 2f;
                 Gfx.Dot(g, Theme.LevelColor(r.Lv), pad + Theme.S(4), cy, Theme.S(4.5), r.Lv != Level.Off);
                 Gfx.Text(g, r.Name, Theme.Small, Theme.Text, new Rectangle(pad + Theme.S(12), (int)cy - Theme.S(9), nameW, Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
                 int sx = pad + Theme.S(12) + nameW + Theme.S(2), sw = Width - pad - valW - Theme.S(4) - sx;
                 if (sw > Theme.S(16)) WidgetForm.DrawSpark(g, new RectangleF(sx, cy - Theme.S(7), sw, Theme.S(14)), r.Spark, r.Series);
                 Gfx.Text(g, r.Val, Theme.Small, r.Lv == Level.Down ? Theme.Red : Theme.Text, new Rectangle(Width - pad - valW, (int)cy - Theme.S(9), valW, Theme.S(18)), TextFormatFlags.Right | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             }
+        }
+    }
+
+    public static class MonRows
+    {
+        public static MonRow[] New()
+        {
+            return new[] {
+                new MonRow { Name = "VPN", Series = Theme.Vpn }, new MonRow { Name = Tx("Напрямую"), Series = Theme.Direct },
+                new MonRow { Name = "↓ " + Tx("Загрузка"), Series = Theme.Green }, new MonRow { Name = "↑ " + Tx("Отдача"), Series = Theme.Accent } };
+        }
+        public static int[] Visible(bool ping, bool speed)
+        {
+            if (ping && speed) return new[] { 0, 1, 2, 3 };
+            return speed ? new[] { 2, 3 } : new[] { 0, 1 };
         }
     }
 }
