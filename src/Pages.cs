@@ -17,34 +17,27 @@ namespace NetProbe
     {
         // ================= Monitor page =================
         IndicatorCard cardVpn, cardDir; LatencyChart chart; FlatButton btnMon; Label infoLabel, warnLabel; TabStrip monPeriod;
-        int periodReq;
+        volatile bool periodBusy;
 
         // расчёт в фоне, отрисовка в UI-потоке
         void LoadPeriod(string k)
         {
             if (k == "s") { chart.HA = chart.HB = null; chart.HistSub = chart.HistEmpty = null; chart.Invalidate(); return; }
             int days = k == "d" ? 1 : 7;
-            chart.HistSub = days == 1 ? Tx("сегодня · 1 точка в минуту · пропуски = нет данных") : Tx("7 дней · 1 точка в 30 мин · пропуски = нет данных");
-            if (chart.HA == null) { chart.HistEmpty = Tx("Загрузка…"); }
-            chart.Invalidate();
-            // 3.0.2: каждый запрос со своим номером — быстрый Day→Week больше не оставляет вечное «Загрузка…»
-            int req = ++periodReq;
+            chart.HA = chart.HB = null; chart.HistSub = days == 1 ? Tx("сегодня · 1 точка в минуту · пропуски = нет данных") : Tx("7 дней · 1 точка в 30 мин · пропуски = нет данных"); chart.HistEmpty = Tx("Загрузка…"); chart.Invalidate();
+            if (periodBusy) return; periodBusy = true;
             string dir = st.LogPath;
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 Tuple<List<double>, List<double>> r = null;
                 try { r = History.Load(dir, days); } catch { }
+                periodBusy = false;
                 try
                 {
                     BeginInvoke((Action)(() =>
                     {
-                        if (req != periodReq || monPeriod.SelectedKey != k) return;
-                        if (r == null)
-                        {
-                            chart.HA = chart.HB = null;
-                            chart.HistEmpty = monVpn.Running ? Tx("Пока нет точек — первая появится через минуту после запуска мониторинга")
-                                                             : Tx("Нет данных: мониторинг выключен. Точки пишутся раз в минуту, пока он запущен (кнопка «Запустить мониторинг»)");
-                        }
+                        if (monPeriod.SelectedKey != k) return;
+                        if (r == null) { chart.HistEmpty = Tx("Нет данных за период — мониторинг пишет точку в лог раз в минуту, пока запущен"); chart.HA = chart.HB = null; }
                         else { chart.HA = r.Item1; chart.HB = r.Item2; chart.HistEmpty = null; }
                         chart.Invalidate();
                     }));

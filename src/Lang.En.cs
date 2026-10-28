@@ -7,6 +7,7 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Нет данных: выключено «Писать лог в файл» — точки Day/Week хранятся в дневных логах (Лог и опрос)", "No data: “Write log to file” is off — Day/Week points are stored in the daily logs (Log & polling)" },
             { "Выбрать из списка", "Choose from list" },
             { "Пока нет точек — первая появится через минуту после запуска мониторинга", "No points yet — the first one appears a minute after monitoring starts" },
             { "Нет данных: мониторинг выключен. Точки пишутся раз в минуту, пока он запущен (кнопка «Запустить мониторинг»)", "No data: monitoring is off. A point is written every minute while it runs (“Start monitoring” button)" },

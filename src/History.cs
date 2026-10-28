@@ -33,19 +33,18 @@ namespace NetProbe
         }
 
         // вызывается из UI-тика: раз в минуту — одна строка в лог (если были опросы)
-        public static bool Tick()
+        public static void Tick()
         {
             string line = null;
             lock (lk)
             {
-                if ((DateTime.Now - lastFlush).TotalSeconds < 60) return false;
+                if ((DateTime.Now - lastFlush).TotalSeconds < 60) return;
                 lastFlush = DateTime.Now;
-                if (vpn.N + dir.N == 0) return false;
+                if (vpn.N + dir.N == 0) return;
                 line = "STAT vpn " + Part(vpn) + " | direct " + Part(dir);
                 vpn.Sum = dir.Sum = 0; vpn.N = vpn.Fail = dir.N = dir.Fail = 0;
             }
-            Logger.Write(LogLevel.Poll, line, true);
-            return true;
+            Logger.Write(LogLevel.Poll, line);
         }
 
         static readonly Regex Rx = new Regex(@"^(\d\d):(\d\d):\d\d\.\d+ \[POLL\] STAT vpn (\S+) (\d+)/(\d+) \| direct (\S+) (\d+)/(\d+)", RegexOptions.Compiled);
