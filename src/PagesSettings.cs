@@ -56,103 +56,90 @@ namespace NetProbe
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
         Spin nDownAfter, nTimeout, nPingCount, nDown, nUp, nStreams, nGood, nWarn, nExclRefresh;
         DarkCombo cbLang, cbMode, cbAdapter, cbTheme, cbWsLog, cbRetSet;
-        ThemedCheck cLogProbes, cSpeedOn, cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
+        ThemedCheck cLock, cLogProbes, cSpeedOn, cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
         ThemedCheck cMinTray, cCloseTray, cWidget, cWidgetTop, cNotify, cAutoMon, cAutorun, cStartMin, cLogFile, cWsAdapter;
         Slider sOpacity; Label lOpacity, lSvc;
 
-        // ---- вкладки настроек: разделы раскладываются по панелям, видна одна вкладка (без бесконечной прокрутки) ----
-        TabStrip setTabs;
+        // ---- 3.2: разделы настроек — карточки-модули. Видна одна вкладка; любую карточку можно унести на любую страницу ----
+        TabStrip setTabs; string setCurTab;
+        static readonly string[][] SetTabsDef = { new[] { "look", "Оформление" }, new[] { "vpn", "Engine" }, new[] { "subs", "Подписки" }, new[] { "mon", "Мониторинг" },
+                                                  new[] { "win", "Окно и виджет" }, new[] { "upd", "Обновления" }, new[] { "log", "Лог" }, new[] { "char", "Персонаж" } };
+        // раздел (русский заголовок) → постоянный ключ модуля и вкладка настроек
+        static readonly string[][] SetSections = {
+            new[] { "Оформление", "set.look", "look" }, new[] { "Шрифты", "set.fonts", "look" }, new[] { "Персонаж", "set.char", "char" },
+            new[] { "VPN · WireSock", "set.ws", "vpn" }, new[] { "DPI · zapret", "set.dpi", "vpn" }, new[] { "Источники", "set.src", "vpn" },
+            new[] { "Подписки", "set.subs", "subs" }, new[] { "Обновления", "set.upd", "upd" }, new[] { "Мониторы: пинг и скорость", "set.mons", "win" },
+            new[] { "Мониторинг · канал VPN", "set.monvpn", "mon" }, new[] { "Мониторинг · канал напрямую", "set.mondir", "mon" }, new[] { "Тесты", "set.tests", "mon" },
+            new[] { "Лог", "set.log", "log" }, new[] { "Окно, трей и виджет", "set.win", "win" } };
+
+        // плоско построенные разделы → карточки (заголовок раздела становится заголовком карточки)
         void BuildSettingsTabs(List<Tuple<string, int>> secs, int endY)
         {
-            // раздел → вкладка
-            var tabOf = new Dictionary<string, string>
-            {
-                { Tx("Оформление"), "look" }, { Tx("Шрифты"), "look" }, { Tx("Персонаж"), "char" },
-                { "VPN · WireSock", "vpn" }, { "DPI · zapret", "vpn" }, { Tx("Источники"), "vpn" },
-                { Tx("Подписки"), "subs" },
-                { Tx("Мониторинг · канал VPN"), "mon" }, { Tx("Мониторинг · канал напрямую"), "mon" }, { Tx("Тесты"), "mon" }, { Tx("Мониторы: пинг и скорость"), "win" },
-                { Tx("Окно, трей и виджет"), "win" }, { Tx("Обновления"), "upd" }, { Tx("Лог"), "log" }
-            };
-            var tabs = new List<TabStrip.Tab>
-            {
-                new TabStrip.Tab { Key = "look", Text = Tx("Оформление") }, new TabStrip.Tab { Key = "vpn", Text = "Engine" },
-                new TabStrip.Tab { Key = "subs", Text = Tx("Подписки") }, new TabStrip.Tab { Key = "mon", Text = Tx("Мониторинг") },
-                new TabStrip.Tab { Key = "win", Text = Tx("Окно и виджет") }, new TabStrip.Tab { Key = "upd", Text = Tx("Обновления") },
-                new TabStrip.Tab { Key = "log", Text = Tx("Лог") },
-                new TabStrip.Tab { Key = "char", Text = Tx("Персонаж") } // последняя; есть только в Personal-темах (Chisa / Kurumi)
-            };
-            // 3.1.2: элементы остаются в setBody на своих местах внутри вкладки; переключение вкладки — только Visible.
-            // (3.1.0: вложенные панели, 3.1.1: сдвиг за край — на своём фоне оба способа давали чёрные/пустые прямоугольники:
-            // Windows копировала старые пиксели при перемещении, и элементы не перерисовывались)
-            setTabTop.Clear(); setTabH.Clear(); setWant.Clear(); setApplied.Clear();
             var all = setBody.Controls.Cast<Control>().ToList();
-            var acc = new Dictionary<string, int>();
-            foreach (var t in tabs) acc[t.Key] = 0;
+            int pad = Theme.S(16), top = Theme.S(44);
             for (int i = 0; i < secs.Count; i++)
             {
                 int start = secs[i].Item2, end = i + 1 < secs.Count ? secs[i + 1].Item2 - Theme.S(18) : endY;
-                string key; if (!tabOf.TryGetValue(secs[i].Item1, out key)) key = "look";
-                int off = acc[key] - start + (acc[key] > 0 ? Theme.S(18) : 0);
-                foreach (var c in all.Where(c => c.Top >= start && c.Top < end)) setTabTop[c] = Tuple.Create(key, c.Top + off);
-                acc[key] = end + off;
-            }
-            foreach (var t in tabs) setTabH[t.Key] = acc[t.Key] + Theme.S(20);
-            foreach (var kv in setTabTop)
-            {
-                var c = kv.Key; c.Top = kv.Value.Item2;
-                setWant[c] = WantVisible(c); setApplied[c] = setWant[c];
-                c.VisibleChanged += (s2, e2) =>
+                var def = SetSections.FirstOrDefault(d => (d[0].StartsWith("VPN") || d[0].StartsWith("DPI") ? d[0] : Tx(d[0])) == secs[i].Item1);
+                string key = def != null ? def[1] : "set.x" + i, tab = def != null ? def[2] : "look";
+                var card = new CardPanel { Title = secs[i].Item1 };
+                var mine = all.Where(c => c.Top >= start && c.Top < end).ToList();
+                int maxR = 0, maxB = 0;
+                foreach (var c in mine)
                 {
-                    if (setSwitching || !setTabTop.ContainsKey(c)) return;
-                    bool w = WantVisible(c); bool ap;
-                    if (setApplied.TryGetValue(c, out ap) && ap == w) return; // это смена видимости страницы, а не кода
-                    setWant[c] = w; // код показал/спрятал элемент (например, предупреждение) — запоминаем
-                    if (w && setTabTop[c].Item1 != setCurTab) { setSwitching = true; try { c.Visible = false; } finally { setSwitching = false; } setApplied[c] = false; }
-                    else setApplied[c] = w;
-                };
+                    setBody.Controls.Remove(c);
+                    // строка заголовка раздела и линия под ним — теперь заголовок карточки
+                    if (c.Top < start + Theme.S(30) && (c is Label) && (c.Height <= 2 || c.Text == secs[i].Item1.ToUpper())) { c.Dispose(); continue; }
+                    if (c.BackColor == Theme.Bg) c.BackColor = Theme.Card;
+                    foreach (Control cc in c.Controls) if (cc.BackColor == Theme.Bg) cc.BackColor = Theme.Card;
+                    c.Location = new Point(c.Left + pad, c.Top - start - Theme.S(32) + top);
+                    card.Controls.Add(c);
+                    maxR = Math.Max(maxR, c.Right); maxB = Math.Max(maxB, c.Bottom);
+                }
+                card.Size = new Size(Math.Max(maxR + pad, Theme.S(420)), Math.Max(maxB + Theme.S(14), top + Theme.S(10)));
+                RegisterModule(card, key, PgSettings, tab);
             }
-            tabs.RemoveAll(t => acc[t.Key] == 0 || (t.Key == "char" && !Theme.Personal));
-            setTabs.SetTabs(tabs);
-            string want = tabs.Any(t => t.Key == st.SetTab) ? st.SetTab : "look";
-            setTabs.SelectedKey = want;
             setTabs.Selected += k => ShowSettingsTab(k);
+        }
+
+        // вкладки — только с карточками; карточки вкладки стопкой
+        void FillSettingsTabs()
+        {
+            var have = new HashSet<string>(ModuleKeys().Where(k => PageOf(k) == PgSettings).Select(k => ModTab(k)));
+            var tabs = SetTabsDef.Where(t => have.Contains(t[0]) && (t[0] != "char" || Theme.Personal))
+                                 .Select(t => new TabStrip.Tab { Key = t[0], Text = t[1] == "Engine" ? "Engine" : Tx(t[1]) }).ToList();
+            setTabs.SetTabs(tabs);
+            string want = tabs.Any(t => t.Key == st.SetTab) ? st.SetTab : tabs.Count > 0 ? tabs[0].Key : "look";
+            setTabs.SelectedKey = want;
             ShowSettingsTab(want);
         }
-        readonly Dictionary<Control, Tuple<string, int>> setTabTop = new Dictionary<Control, Tuple<string, int>>();
-        readonly Dictionary<string, int> setTabH = new Dictionary<string, int>();
-        readonly Dictionary<Control, bool> setWant = new Dictionary<Control, bool>(), setApplied = new Dictionary<Control, bool>();
-        bool setSwitching; string setCurTab;
-        static readonly System.Reflection.MethodInfo getState = typeof(Control).GetMethod("GetState", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, null, new[] { typeof(int) }, null);
-        // собственный флаг Visible элемента (свойство Visible учитывает и родителя — а страница может быть скрыта)
-        static bool WantVisible(Control c) { try { return getState != null ? (bool)getState.Invoke(c, new object[] { 2 }) : c.Visible; } catch { return c.Visible; } }
+
         void ShowSettingsTab(string key)
         {
-            if (!setTabH.ContainsKey(key)) return;
+            if (setBody == null || setBody.IsDisposed) return;
             setCurTab = key;
-            setSwitching = true;
-            // без промежуточной отрисовки: пока элементы прячутся/показываются, окно не рисуется (иначе мелькают чёрные куски)
+            // без промежуточной отрисовки: пока карточки прячутся/показываются, окно не рисуется
             bool redrawOff = setHost.IsHandleCreated && setHost.Visible;
-            if (redrawOff) Native.SendMessage(setHost.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero); // WM_SETREDRAW off
-            setBody.SuspendLayout();
+            if (redrawOff) Native.SendMessage(setHost.Handle, 0x000B, IntPtr.Zero, IntPtr.Zero);
+            int y = 0;
             try
             {
-                foreach (var kv in setTabTop)
+                foreach (var k in ModuleKeys())
                 {
-                    var c = kv.Key; bool on = kv.Value.Item1 == key && setWant[c];
-                    if (WantVisible(c) != on) c.Visible = on;
-                    setApplied[c] = on;
+                    CardPanel c; if (!modules.TryGetValue(k, out c) || c.Parent != setBody) continue;
+                    bool on = ModTab(k) == key;
+                    c.Visible = on;
+                    if (on) { c.Location = new Point(0, y); y = c.Bottom + Theme.S(12); }
                 }
             }
-            finally { setBody.ResumeLayout(); setSwitching = false; }
-            setBody.Height = setTabH[key];
-            setHost.ScrollToTop(); setHost.Relayout();
-            if (redrawOff)
+            finally
             {
-                Native.SendMessage(setHost.Handle, 0x000B, (IntPtr)1, IntPtr.Zero);
-                RedrawWindow(setHost.Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100); // INVALIDATE | ERASE | ALLCHILDREN | UPDATENOW
+                setBody.Height = y + Theme.S(10);
+                setHost.ScrollToTop(); setHost.Relayout();
+                if (redrawOff) { Native.SendMessage(setHost.Handle, 0x000B, (IntPtr)1, IntPtr.Zero); RedrawWindow(setHost.Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100); }
+                else setHost.Invalidate(true);
             }
-            else setHost.Invalidate(true);
-            if (st.SetTab != key) { st.SetTab = key; st.Save(); }
+            if (st.SetTab != key && setTabs.Tabs.Any(t => t.Key == key)) { st.SetTab = key; st.Save(); }
         }
 
         class AdItem { public string Id, Text; public override string ToString() { return Text; } }
@@ -259,6 +246,9 @@ namespace NetProbe
             pick(Tx("Иконка приложения"), Tx("Иконки и картинки") + " (*.ico;*.png;*.jpg;*.exe)|*.ico;*.png;*.jpg;*.jpeg;*.exe", f => { st.AppIconPath = f; st.Save(); ApplyAppIcon(); });
             var cIcons = Ui.Check(Tx("Иконки приложений в списках"), st.ShowAppIcons); check(cIcons);
             cIcons.CheckedChanged += (s, e) => { st.ShowAppIcons = cIcons.Checked; st.Save(); SetupListCards(); };
+            // Lock interface: карточки не перетаскиваются, разделители и левая панель не тянутся, пункты меню не переименовываются
+            cLock = Ui.Check(Tx("Lock interface — ничего не двигается и не переименовывается"), st.UiLocked); check(cLock);
+            cLock.CheckedChanged += (s, e) => { if (loadingSettings || cLock.Checked == st.UiLocked) return; SetUiLocked(cLock.Checked); };
 
             // ---- персонаж: отдельная вкладка настроек; до 4 картинок, редактор размещения ----
             section(Tx("Персонаж"));

@@ -183,6 +183,12 @@ namespace NetProbe
         public int LastPage = 0;             // вкладка, открытая при выходе
         public int SideWidth = 214;
         public string SetTab = "look";       // открытая вкладка настроек
+        public string ModuleLoc = "";        // 3.2: где лежат карточки-модули: ключ=home|settings|c<N>;…
+        public string CustomPages = "";      // свои вкладки: c1:Название;…
+        public string NavNames = "";         // свои названия пунктов меню: индекс:Название;…
+        public int SrvRightW = 360;
+        public int DockW = 380;              // ширина правой колонки модулей на остальных страницах
+        public bool UiLocked = false;        // Lock interface: карточки, разделители и пункты меню не двигаются и не меняются          // ширина правой колонки Subscriptions (тянется мышкой)
         public string SrvSorts = "";         // сортировка таблицы серверов по вкладкам: id=колонка:a|d;… («*» — общая)          // ширина левой панели (перетаскивается за край)
         public string FontBtnFamily = "Segoe UI", FontLargeFamily = "Segoe UI", FontMedFamily = "Segoe UI", FontSmallFamily = "Segoe UI";
         public double FontBtnSize = 9, FontLargeSize = 11, FontMedSize = 9, FontSmallSize = 8;   // 3.0.9: один раз включить скорость везде (в 3.0.8 по умолчанию была выключена)

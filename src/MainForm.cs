@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.1.5";
+        public const string Version = "3.2.0";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -63,7 +63,7 @@ namespace NetProbe
             MinimumSize = new Size(Theme.S(1040), Theme.S(680));
             StartPosition = FormStartPosition.CenterScreen;
             RestoreWindowBounds();
-            curPage = st.LastPage >= 0 && st.LastPage <= PgSettings ? st.LastPage : 0;
+            curPage = st.LastPage >= 0 ? st.LastPage : 0; // свои вкладки — после «Настроек»; лишний номер поправит BuildUi
             ApplyAppIcon();
             DoubleBuffered = true;
 
@@ -173,7 +173,7 @@ namespace NetProbe
                 TopMost = true; Activate();
                 foreach (var tk in new[] { "win", "look", "vpn", "subs", "mon", "upd", "log", "char", "upd", "win" })
                 {
-                    if (!setTabH.ContainsKey(tk)) continue;
+                    if (setTabs == null || !setTabs.Tabs.Any(t => t.Key == tk)) continue;
                     setTabs.Select(tk);
                     for (int w = 0; w < 6; w++) { Application.DoEvents(); System.Threading.Thread.Sleep(80); }
                     // PrintWindow(PW_RENDERFULLCONTENT): настоящая отрисовка окна, даже если его закрывает консоль
@@ -181,6 +181,77 @@ namespace NetProbe
                 }
                 TopMost = false;
                 st.BgImage = keepBg; ResetPageBackground();
+                // ===== матрица модулей: каждый модуль на каждой странице + все модули на одной странице (обычное и минимальное окно) =====
+                // проверки: модуль на нужной странице и виден, не вылезает за край, карточки не налезают друг на друга,
+                // место сохраняется в settings.ini и читается обратно (после перезапуска модуль окажется там же) → layout.txt
+                var keepLoc = st.ModuleLoc; var keepPages = st.CustomPages;
+                st.CustomPages = "c1:Test tab";
+                Theme.Apply(ThemeKind.Dark); st.Theme = 0; st.ModuleLoc = ""; RebuildUi();
+                var report = new List<string>();
+                var keys = moduleKeys.ToList(); int pc = PageCount, runs = 0;
+                Action<string, string, int> verify = (tag, key, pg) =>
+                {
+                    CardPanel mc;
+                    if (!modules.TryGetValue(key, out mc) || mc.IsDisposed) { report.Add(tag + ": " + key + " lost"); return; }
+                    int on = -1;
+                    for (int q = 0; q < pages.Count; q++) { Panel o; var root = pageOuter.TryGetValue(q, out o) ? o : pages[q]; for (var x = mc.Parent; x != null; x = x.Parent) if (x == root) on = q; }
+                    if (on != pg) { report.Add(tag + ": " + key + " on page " + on + ", expected " + pg); return; }
+                    SelectPage(pg); if (pg == PgSettings && setTabs != null) setTabs.Select(ModTab(key));
+                    Application.DoEvents();
+                    if (!mc.Visible) { report.Add(tag + ": " + key + " not visible on page " + pg); return; }
+                    Panel outer; if (!pageOuter.TryGetValue(pg, out outer)) return;
+                    var r = outer.RectangleToClient(mc.RectangleToScreen(mc.ClientRectangle));
+                    if (r.Left < -2 || r.Right > outer.ClientSize.Width + 2) report.Add(tag + ": " + key + " sticks out " + r + " / page w=" + outer.ClientSize.Width);
+                    if (mc.Width < Theme.S(100) || mc.Height < Theme.S(40)) report.Add(tag + ": " + key + " too small " + mc.Size);
+                };
+                Action<string> persist = tag =>
+                {
+                    st.Save(); var re = Settings.Load();
+                    if ((re.ModuleLoc ?? "") != (st.ModuleLoc ?? "")) report.Add(tag + ": ModuleLoc not saved: '" + re.ModuleLoc + "' vs '" + st.ModuleLoc + "'");
+                };
+                // 1) каждый модуль по одному на каждой странице
+                foreach (var key in keys)
+                    for (int pg = 0; pg < pc; pg++)
+                    {
+                        st.ModuleLoc = key + "=" + LocOfPage(pg); RebuildUi(); runs++;
+                        string tag = "one " + key + "→p" + pg;
+                        verify(tag, key, pg);
+                        foreach (var line in CheckLayout(pageOuter.ContainsKey(pg) ? (Control)pageOuter[pg] : pages[pg])) report.Add(tag + ": " + line);
+                        if (pg == 0) persist(tag);
+                    }
+                // 2) все модули сразу на одной странице — обычное и минимальное окно
+                foreach (var szName in new[] { "norm", "min" })
+                {
+                    Size = szName == "min" ? MinimumSize : keepSize;
+                    for (int pg = 0; pg < pc; pg++)
+                    {
+                        st.ModuleLoc = string.Join(";", keys.Select(k => k + "=" + LocOfPage(pg))); RebuildUi(); runs++;
+                        string tag = "all→p" + pg + " " + szName;
+                        foreach (var key in keys) verify(tag, key, pg);
+                        foreach (var line in CheckLayout(pageOuter.ContainsKey(pg) ? (Control)pageOuter[pg] : pages[pg])) report.Add(tag + ": " + line);
+                        persist(tag);
+                        if (szName == "norm") { SelectPage(pg); shot(Tr.Code + "-mod-all-p" + pg); }
+                    }
+                }
+                Size = keepSize;
+                // 3) экспорт / импорт настроек переносит раскладку (места модулей, свои вкладки, названия меню, ширины, Lock)
+                try
+                {
+                    st.ModuleLoc = "srv.tun=p7;set.look=c1"; st.NavNames = "7:Logs X"; st.UiLocked = true; st.DockW = 455; st.Save();
+                    string json = Backup.Export();
+                    st.ModuleLoc = ""; st.NavNames = ""; st.UiLocked = false; st.DockW = 380; st.Save();
+                    Backup.Import(json);
+                    var re = Settings.Load();
+                    if (re.ModuleLoc != "srv.tun=p7;set.look=c1" || re.NavNames != "7:Logs X" || !re.UiLocked || re.DockW != 455 || re.CustomPages != "c1:Test tab")
+                        report.Add("export/import lost layout: ModuleLoc='" + re.ModuleLoc + "' NavNames='" + re.NavNames + "' Lock=" + re.UiLocked + " DockW=" + re.DockW + " Pages='" + re.CustomPages + "'");
+                    st = re; RebuildUi();
+                    if (PageOf("srv.tun") != 7 || PageOf("set.look") != PgSettings + 1) report.Add("after import: modules not where exported (srv.tun p" + PageOf("srv.tun") + ", set.look p" + PageOf("set.look") + ")");
+                    if (navs.Count > 7 && navs[7].Text != "Logs X") report.Add("after import: menu name not applied: " + navs[7].Text);
+                    st.UiLocked = false; CardPanel.Locked = false;
+                }
+                catch (Exception ex) { report.Add("export/import test failed: " + ex.Message); }
+                st.ModuleLoc = keepLoc; st.CustomPages = keepPages; st.NavNames = ""; st.Save(); RebuildUi();
+                try { File.WriteAllLines(Path.Combine(ShotsDir, "layout.txt"), new[] { "modules: " + keys.Count + " (" + string.Join(", ", keys) + ") · pages: " + pc + " · rebuilds: " + runs, report.Count == 0 ? "LAYOUT OK" : "PROBLEMS: " + report.Count }.Concat(report.Distinct().Take(400)).ToArray()); } catch { }
                 st.Theme = keep; ExitApp();
             };
             t.Start();
@@ -249,7 +320,9 @@ namespace NetProbe
         {
             SuspendLayout();
             BackColor = Theme.Bg; ForeColor = Theme.Text; Font = Theme.Body;
-            navs.Clear(); pages.Clear();
+            navs.Clear(); pages.Clear(); modules.Clear(); moduleKeys.Clear(); moduleHome.Clear(); moduleTab.Clear();
+            docks.Clear(); dockSplits.Clear(); pageOuter.Clear(); srvModBody = null;
+            CardPanel.Locked = st.UiLocked;
             BuildShell();
             BuildConnectPage();
             BuildServersPage();
@@ -260,6 +333,9 @@ namespace NetProbe
             BuildSitesPage();
             BuildLogPage();
             BuildSettingsPage();
+            BuildCustomPages();
+            PlaceAllModules();
+            if (curPage >= pages.Count && curPage != PgTasks) curPage = 0;
             // кнопки «Маршрут · DPI · VPN» сверху на всех вкладках, кроме Настроек (Routing и Subscriptions ставят их сами)
             foreach (int pi in new[] { PgMonitor, PgConfigs, PgDpi, PgTests, PgSites, PgLog })
             {
@@ -282,6 +358,35 @@ namespace NetProbe
             finally { Native.SendMessage(Handle, 0x000B, (IntPtr)1, IntPtr.Zero); RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100); }
         }
 
+        // проверка раскладки страницы: видимые карточки и элементы внутри карточек не налезают друг на друга и не вылезают за край
+        List<string> CheckLayout(Control page)
+        {
+            var bad = new List<string>();
+            Action<Control> walk = null;
+            walk = parent =>
+            {
+                var kids = parent.Controls.Cast<Control>().Where(c => c.Visible && c.Width > 0 && c.Height > 0).ToList();
+                bool cardLevel = parent is CardPanel || kids.Any(c => c is CardPanel);
+                if (cardLevel)
+                {
+                    var check = parent is CardPanel ? kids : kids.Where(c => c is CardPanel).ToList();
+                    for (int i = 0; i < check.Count; i++)
+                    {
+                        var a2 = check[i].Bounds;
+                        if (parent is CardPanel && (a2.Right > parent.ClientSize.Width + 1 || a2.Left < -1)) bad.Add("outside " + Name2(check[i]) + " in " + Name2(parent) + " " + a2 + " / w=" + parent.ClientSize.Width);
+                        for (int j = i + 1; j < check.Count; j++)
+                        {
+                            var r = Rectangle.Intersect(a2, check[j].Bounds);
+                            if (r.Width > 2 && r.Height > 2) bad.Add("overlap " + Name2(check[i]) + " × " + Name2(check[j]) + " in " + Name2(parent));
+                        }
+                    }
+                }
+                foreach (var c in kids) walk(c);
+            };
+            walk(page);
+            return bad;
+        }
+        static string Name2(Control c) { var cp = c as CardPanel; return c.GetType().Name + (cp != null && cp.Title != null ? "«" + cp.Title + "»" : !string.IsNullOrEmpty(c.Text) && c.Text.Length < 30 ? "«" + c.Text + "»" : ""); }
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr h, IntPtr rc, IntPtr rgn, int flags);
 
@@ -341,11 +446,15 @@ namespace NetProbe
             Ui.Tip().SetToolTip(btnRestart, Tx("NetProbe обновлён → изменилась логика маршрутизации → перезапусти приложение вручную"));
             side.Controls.Add(btnRestart);
             int y = Theme.S(80);
-            for (int i = 0; i < items.Length; i++)
+            // свои вкладки пользователя — после «Настроек»; названия пунктов можно менять (ПКМ по пункту)
+            var all = items.Select((it, i) => new[] { it[0], NavName(i, it[1]) }).Concat(CustomPages().Select(cp => new[] { "\uE8A1", cp.Value })).ToArray();
+            for (int i = 0; i < all.Length; i++)
             {
                 int idx = i;
-                var nb = new NavButton(items[i][0], items[i][1]) { Location = new Point(0, y), Width = side.Width - Theme.S(6) };
+                var nb = new NavButton(all[i][0], all[i][1]) { Location = new Point(0, y), Width = side.Width - Theme.S(6) };
                 nb.Click += (s, e) => SelectPage(idx);
+                nb.MouseUp += (s, e) => { if (e.Button == MouseButtons.Right) NavMenu(idx); };
+                HookModuleDrop(nb, idx); // на любой пункт меню можно бросить карточку
                 side.Controls.Add(nb); navs.Add(nb);
                 y += nb.Height + Theme.S(1);
             }
@@ -383,9 +492,9 @@ namespace NetProbe
                     if (w != side.Width) SetSideWidth(w);
                     return;
                 }
-                side.Cursor = e.X >= side.Width - grip ? Cursors.SizeWE : Cursors.Default;
+                side.Cursor = !st.UiLocked && e.X >= side.Width - grip ? Cursors.SizeWE : Cursors.Default;
             };
-            side.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left && e.X >= side.Width - grip) { sideDrag = true; side.Capture = true; } };
+            side.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left && !st.UiLocked && e.X >= side.Width - grip) { sideDrag = true; side.Capture = true; } };
             side.MouseUp += (s, e) =>
             {
                 if (!sideDrag) return;
@@ -431,24 +540,32 @@ namespace NetProbe
         protected override void OnResizeEnd(EventArgs e) { base.OnResizeEnd(e); SaveWindowBounds(); }
         FormWindowState lastWinState = FormWindowState.Normal;
 
+        // 3.2: страница = внешняя панель (фон, правая колонка модулей) + внутренняя (содержимое; её размер и видят раскладки)
         Panel NewPage(string title, string subtitle)
         {
-            var p = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Bg, Visible = false };
             var bg = PageBackground();
             Theme.Translucent = bg != null; Theme.CardAlpha = (int)(255 * Math.Max(20, Math.Min(100, st.CardOpacity)) / 100.0);
-            if (bg != null) { p.BackgroundImage = bg; p.BackgroundImageLayout = ImageLayout.Stretch; p.ControlAdded += (s2, e2) => MakeSeeThrough(e2.Control); }
+            var p = new Panel { Dock = DockStyle.Fill, BackColor = bg != null ? Color.Transparent : Theme.Bg };
+            int idx = pages.Count;
+            var outer = WrapPage(p, idx);
+            if (bg != null)
+            {
+                outer.BackgroundImage = bg; outer.BackgroundImageLayout = ImageLayout.Stretch;
+                p.ControlAdded += (s2, e2) => MakeSeeThrough(e2.Control);
+                MakeSeeThrough(docks[idx]); MakeSeeThrough(dockSplits[idx]);
+            }
             var h = Ui.Label(title, Theme.H1); h.Location = new Point(Theme.S(26), Theme.S(18));
             var sub = Ui.Label(subtitle, Theme.Body, Theme.Muted); sub.Location = new Point(Theme.S(28), Theme.S(50));
             p.Controls.Add(h); p.Controls.Add(sub);
-            content.Controls.Add(p); pages.Add(p);
+            content.Controls.Add(outer); pages.Add(p);
             return p;
         }
 
         void SelectPage(int i)
         {
             curPage = i;
-            if (ShotsDir == null && i >= 0 && i <= PgSettings && st.LastPage != i) { st.LastPage = i; st.Save(); }
-            for (int k = 0; k < pages.Count; k++) { pages[k].Visible = k == i; navs[k].Selected = k == i; }
+            if (ShotsDir == null && i >= 0 && i < pages.Count && st.LastPage != i) { st.LastPage = i; st.Save(); }
+            for (int k = 0; k < pages.Count; k++) { Panel o; (pageOuter.TryGetValue(k, out o) ? o : pages[k]).Visible = k == i; if (k < navs.Count) navs[k].Selected = k == i; }
             if (i == PgSettings) LoadSettingsUi();
             if (i == PgTasks) RefreshTasks();
             if (i == PgConnect) LoadConnectUi();

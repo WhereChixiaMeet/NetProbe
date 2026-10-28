@@ -47,7 +47,16 @@ namespace NetProbe
         public int DecimalPlaces;
         public event EventHandler ValueChanged;
         int hover; string typed;
-        public Spin() { Size = new Size(Theme.S(90), Theme.S(26)); SetStyle(ControlStyles.Selectable, true); TabStop = true; Cursor = Cursors.Hand; Font = Theme.Body; }
+        // 3.1.6: шрифт и размер поля — от «мелкого» шрифта настроек (Settings → Шрифты → Мелкие); размер снаружи не задаётся
+        static float K { get { return Math.Max(0.75f, Math.Min(1.75f, Theme.SizeSmall / 8f)); } }
+        public static Size Std { get { return new Size(Theme.S(76 * K), Theme.S(22 * K)); } }
+        static Font iconFont; static float iconK;
+        static Font IconFont { get { if (iconFont == null || iconK != K) { iconK = K; iconFont = new Font("Segoe MDL2 Assets", 8.5f * K); } return iconFont; } }
+        public Spin() { Size = Std; SetStyle(ControlStyles.Selectable, true); TabStop = true; Cursor = Cursors.Hand; Font = Theme.Small; }
+        protected override void SetBoundsCore(int x, int y, int width, int height, BoundsSpecified specified)
+        {
+            var sz = Std; base.SetBoundsCore(x, y, sz.Width, sz.Height, specified);
+        }
         public decimal Minimum { get { return min; } set { min = value; Value = val; } }
         public decimal Maximum { get { return max; } set { max = value; Value = val; } }
         public decimal Value
@@ -55,7 +64,7 @@ namespace NetProbe
             get { return val; }
             set { var v = Math.Max(min, Math.Min(max, value)); if (v == val) { Invalidate(); return; } val = v; Invalidate(); var h = ValueChanged; if (h != null) h(this, EventArgs.Empty); }
         }
-        int Btn { get { return Math.Min(Height, Theme.S(20)); } }
+        int Btn { get { return Math.Min(Height, Theme.S(18 * K)); } }
         protected override void OnMouseMove(MouseEventArgs e) { int h = e.X < Btn ? -1 : e.X > Width - Btn ? 1 : 0; if (h != hover) { hover = h; Invalidate(); } base.OnMouseMove(e); }
         protected override void OnMouseLeave(EventArgs e) { hover = 0; Invalidate(); base.OnMouseLeave(e); }
         protected override void OnMouseDown(MouseEventArgs e) { Focus(); typed = null; if (e.X < Btn) Value -= 1; else if (e.X > Width - Btn) Value += 1; base.OnMouseDown(e); }
@@ -85,8 +94,8 @@ namespace NetProbe
             else { Gfx.FillRound(g, Theme.Input, r, Theme.R(6)); Gfx.DrawRound(g, Focused ? Theme.Accent : Theme.Border, r, Theme.R(6)); }
             int b2 = Btn;
             Color cl = hover == -1 && Enabled ? Theme.Accent : Theme.Muted, cr = hover == 1 && Enabled ? Theme.Accent : Theme.Muted;
-            TextRenderer.DrawText(g, "", Theme.Icons, new Rectangle(0, 0, b2, Height), cl, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-            TextRenderer.DrawText(g, "", Theme.Icons, new Rectangle(Width - b2, 0, b2, Height), cr, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, "", IconFont, new Rectangle(0, 0, b2, Height), cl, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(g, "", IconFont, new Rectangle(Width - b2, 0, b2, Height), cr, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             string t = typed != null ? typed + "_" : val.ToString("F" + DecimalPlaces, CultureInfo.InvariantCulture);
             TextRenderer.DrawText(g, t, Font, new Rectangle(b2, 0, Width - b2 * 2, Height), Enabled ? Theme.Text : Theme.Dim, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }

@@ -301,6 +301,7 @@ namespace NetProbe
     public class NavButton : DoubleBufferedControl
     {
         public string Glyph; bool selected, hover, badge;
+        public bool Hot { set { hover = value; Invalidate(); } } // сюда можно бросить перетаскиваемую карточку
         public bool Selected { get { return selected; } set { selected = value; Invalidate(); } }
         public bool Badge { get { return badge; } set { badge = value; Invalidate(); } } // точка «есть обновление»
 
@@ -407,10 +408,48 @@ namespace NetProbe
     public class CardPanel : Panel
     {
         public string Title, Sub;
+        // 3.2: модуль интерфейса — карточку можно перетащить за заголовок (на «Настройки» / обратно на свою вкладку) или ПКМ → меню
+        public string ModuleKey;
+        public event Action<CardPanel> ModuleMenu;
+        public const string DragFormat = "NetProbe.Module";
+        Point downAt; bool canDrag;
+        public static bool Locked; // Lock interface — карточки не перетаскиваются
+        bool TitleZone(Point p) { return ModuleKey != null && p.Y < Theme.S(40); }
+        bool InTitle(Point p) { return !Locked && TitleZone(p); }
         public CardPanel()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             BackColor = Theme.Card; ForeColor = Theme.Text;
+        }
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            canDrag = e.Button == MouseButtons.Left && InTitle(e.Location); downAt = e.Location;
+            if (e.Button == MouseButtons.Right && TitleZone(e.Location)) { var h = ModuleMenu; if (h != null) h(this); }
+        }
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            Cursor = InTitle(e.Location) ? Cursors.SizeAll : Cursors.Default;
+            if (canDrag && e.Button == MouseButtons.Left && (Math.Abs(e.X - downAt.X) > SystemInformation.DragSize.Width || Math.Abs(e.Y - downAt.Y) > SystemInformation.DragSize.Height))
+            {
+                canDrag = false;
+                var d = new DataObject(); d.SetData(DragFormat, ModuleKey);
+                DoDragDrop(d, DragDropEffects.Move);
+            }
+        }
+        protected override void OnMouseUp(MouseEventArgs e) { canDrag = false; base.OnMouseUp(e); }
+        // карточка шире, чем её строили: элементы у правого края едут вправо, широкие (списки, поля, подсказки) растягиваются
+        int builtW;
+        public void AutoAnchor()
+        {
+            builtW = Width;
+            foreach (Control c in Controls)
+            {
+                if (c.Right < Width - Theme.S(24)) continue;
+                bool wide = c.Left < Theme.S(160) && c.Width > Width / 3;
+                c.Anchor = wide ? AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right : AnchorStyles.Top | AnchorStyles.Right;
+            }
         }
         protected override void OnPaintBackground(PaintEventArgs e)
         {

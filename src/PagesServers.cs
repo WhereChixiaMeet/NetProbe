@@ -107,7 +107,7 @@ namespace NetProbe
             srvTabs.Selected += k => { st.SrvTab = k; st.Save(); srvGrid.ClearSelection(); FillServers(); };
             srvTabs.RightClicked += (k, pt) => SrvTabMenu(k).Show(srvTabs, pt);
             // порядок подписок — перетаскиванием вкладок (или ПКМ → влево / вправо)
-            srvTabs.CanDrag = k => ServerStore.Subs.Any(x => x.Id == k);
+            srvTabs.CanDrag = k => !st.UiLocked && ServerStore.Subs.Any(x => x.Id == k);
             srvTabs.Dropped += (what, before) => MoveSub(what, before);
             // одна сортировка для всех вкладок: берётся сортировка открытой вкладки
             bSortAll = new FlatButton("") { Glyph = "\uE8CB", IconOnly = true, Width = Theme.S(32), Height = Theme.S(28) };
@@ -192,8 +192,20 @@ namespace NetProbe
             var asBody = asHost.Content;
             int ry = BuildSrvLists(asBody);
             BuildAutoSwitch(asBody, ry);
+            // 3.2: карточки справа — модули: их можно унести в Настройки / на свою вкладку; здесь остаются только «домашние»
+            var built = asBody.Controls.OfType<CardPanel>().ToList();
+            string[] srvKeys = { "srv.tun", "srv.as" };
+            for (int k = 0; k < built.Count && k < srvKeys.Length; k++) { RegisterModule(built[k], srvKeys[k], PgServers, "subs"); built[k].AutoAnchor(); }
+            srvModBody = asBody; // какие карточки здесь окажутся (свои и чужие) — решает PlaceAllModules
+            // разделитель между таблицей и правой колонкой: тянуть мышкой — ширина колонки (запоминается)
+            var srvSplit = new Panel { BackColor = Color.Transparent, Cursor = Cursors.SizeWE };
+            bool splitDrag = false; int splitX0 = 0, splitW0 = 0;
+            if (st.UiLocked) srvSplit.Cursor = Cursors.Default;
+            srvSplit.MouseDown += (s, e) => { if (e.Button == MouseButtons.Left && !st.UiLocked) { splitDrag = true; splitX0 = Cursor.Position.X; splitW0 = st.SrvRightW; srvSplit.Capture = true; } };
+            srvSplit.MouseMove += (s, e) => { if (!splitDrag) return; st.SrvRightW = Math.Max(300, Math.Min(900, splitW0 - (int)Math.Round((Cursor.Position.X - splitX0) / Theme.Scale))); if (relayServers != null) relayServers(); };
+            srvSplit.MouseUp += (s, e) => { if (!splitDrag) return; splitDrag = false; srvSplit.Capture = false; st.Save(); };
 
-                        p.Controls.AddRange(new Control[] { xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, btnCoresUpd, srvTabs, bSortAll, lSrvInfo, gridCard, asHost });
+                        p.Controls.AddRange(new Control[] { xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, btnCoresUpd, srvTabs, bSortAll, lSrvInfo, gridCard, asHost, srvSplit });
             tt.SetToolTip(bImp, Tx("Из буфера")); tt.SetToolTip(bSubs, Tx("Подписки"));
             var rowBtns = new FlatButton[] { bImp, bSubs, btnUpdSub, bTest, bSpeed };
             Action lay = () =>
@@ -227,13 +239,26 @@ namespace NetProbe
                 lSrvInfo.SetBounds(x + Theme.S(4), y + (bImp.Height - Theme.S(18)) / 2, Math.Max(0, infoW), Theme.S(18));
                 y += bImp.Height + Theme.S(6);
                 // вторая строка: вкладки подписок слева, поиск справа (над правой колонкой)
-                int rw = Theme.S(360), lw = W - rw - gap; // правая колонка (автосвитч) — фиксированной ширины, чтобы поля не обрезались
-                srvTabs.SetBounds(L, y, lw - bSortAll.Width - Theme.S(6), Theme.S(32));
-                bSortAll.Location = new Point(L + lw - bSortAll.Width, y + (Theme.S(32) - bSortAll.Height) / 2);
-                tbSrvSearch.SetBounds(L + W - rw, y + (Theme.S(32) - tbSrvSearch.Height) / 2, rw, tbSrvSearch.Height); y += Theme.S(36);
+                // правая колонка (модули): ширина тянется разделителем; модулей нет — таблица на всю ширину, поиск — справа от вкладок
+                bool rightOn = asBody.Controls.OfType<CardPanel>().Any();
+                int widest = asBody.Controls.OfType<CardPanel>().Select(c => c.Width).DefaultIfEmpty(0).Max() + Theme.S(16);
+                int rw = rightOn ? Math.Max(Math.Max(Theme.S(360), widest), Math.Min(W - Theme.S(420), Theme.S(st.SrvRightW))) : 0, lw = rightOn ? W - rw - gap : W;
+                int sw = rightOn ? rw : Theme.S(240);
+                int tabsW = (rightOn ? lw : W - sw - gap) - bSortAll.Width - Theme.S(6);
+                srvTabs.SetBounds(L, y, tabsW, Theme.S(32));
+                bSortAll.Location = new Point(L + tabsW + Theme.S(6), y + (Theme.S(32) - bSortAll.Height) / 2);
+                tbSrvSearch.SetBounds(L + W - sw, y + (Theme.S(32) - tbSrvSearch.Height) / 2, sw, tbSrvSearch.Height); y += Theme.S(36);
                 int h = p.ClientSize.Height - Theme.S(18) - y;
                 gridCard.SetBounds(L, y, lw, h);
-                asHost.SetBounds(L + W - rw, srvTabs.Top + Theme.S(36), rw, p.ClientSize.Height - Theme.S(18) - srvTabs.Top - Theme.S(36)); asHost.Relayout();
+                asHost.Visible = rightOn; srvSplit.Visible = rightOn;
+                if (rightOn)
+                {
+                    asHost.SetBounds(L + W - rw, y, rw, h); asHost.Relayout();
+                    srvSplit.SetBounds(L + lw, y, gap, h);
+                    int cy2 = 0, cw2 = Math.Max(Theme.S(344), asBody.Width - Theme.S(2));
+                    foreach (var c in asBody.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey))) { c.SetBounds(0, cy2, cw2, c.Height); cy2 = c.Bottom + Theme.S(12); }
+                    asBody.Height = cy2; asHost.Relayout();
+                }
             };
             relayServers = lay;
             p.Resize += (s, e) => lay(); lay();

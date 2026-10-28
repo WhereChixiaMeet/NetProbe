@@ -126,6 +126,7 @@ namespace NetProbe
         void SetCharEdit(bool on)
         {
             if (charEdit == on) return;
+            if (on && st.UiLocked) { Notice.Show(this, Tx("Интерфейс заблокирован"), Tx("Сними «Lock interface» в Настройках → Оформление, чтобы двигать персонажей.")); return; }
             charEdit = on;
             if (on && st.CharWidget && widget != null && !widget.IsDisposed && !widget.Visible) { widget.EnsureOnScreen(st.WidgetX, st.WidgetY); widget.Show(); }
             if (!on) ApplyWidgetVisibility();
