@@ -8,7 +8,7 @@ namespace NetProbe
     // Прокручиваемая область с тонким скроллбаром в стиле ThemedList (вместо системного AutoScroll)
     public class ScrollHost : Panel, IMessageFilter
     {
-        public readonly Panel Content = new Panel();
+        public readonly Panel Content = new BackdropPanel();
         readonly VBar bar = new VBar();
         int offset;
 
@@ -22,6 +22,8 @@ namespace NetProbe
         }
         protected override void Dispose(bool disposing) { if (disposing) Application.RemoveMessageFilter(this); base.Dispose(disposing); }
         protected override void OnBackColorChanged(EventArgs e) { Content.BackColor = BackColor; base.OnBackColorChanged(e); }
+        // свой фон страницы: рисуем кусок картинки сами (вложенная WinForms-прозрачность давала чёрные/пустые места)
+        protected override void OnPaintBackground(PaintEventArgs e) { if (BackdropPanel.HasPage(this)) Gfx.Backdrop(this, e.Graphics); else base.OnPaintBackground(e); }
 
         public void ScrollToTop() { offset = 0; bar.Value = 0; Content.Top = 0; }
         public void Relayout()
@@ -72,6 +74,20 @@ namespace NetProbe
                 Gfx.FillRound(g, drag || hover ? Theme.Muted : Theme.Dim, t, Width / 2f);
             }
         }
+    }
+
+    // Панель, которая на своём фоне сама рисует кусок картинки страницы. Прозрачные подписи внутри берут фон у неё —
+    // одна ступень прозрачности вместо цепочки прозрачных панелей.
+    public class BackdropPanel : Panel
+    {
+        public BackdropPanel() { DoubleBuffered = true; }
+        public static bool HasPage(Control c)
+        {
+            if (!Theme.Translucent) return false;
+            for (var x = c.Parent; x != null; x = x.Parent) if (x.BackgroundImage != null) return true;
+            return false;
+        }
+        protected override void OnPaintBackground(PaintEventArgs e) { if (HasPage(this)) Gfx.Backdrop(this, e.Graphics); else base.OnPaintBackground(e); }
     }
 
     public static class DarkScroll

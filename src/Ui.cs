@@ -497,6 +497,16 @@ namespace NetProbe
             var l = a ? A : B; l.Add(v); if (l.Count > Capacity) l.RemoveAt(0); Invalidate();
         }
         public void Clear() { A.Clear(); B.Clear(); Invalidate(); }
+        // NaN — обрыв, -∞ — неподтверждённый сбой опроса
+        public const double Blip = double.NegativeInfinity;
+        static bool Bad(double v) { return double.IsNaN(v) || double.IsInfinity(v); }
+        // сбой подтвердился (обрыв) — последние n жёлтых меток становятся красными
+        public void ConfirmLast(bool a, int n)
+        {
+            var l = a ? A : B;
+            for (int i = l.Count - 1; i >= 0 && n > 0; i--, n--) if (double.IsNegativeInfinity(l[i])) l[i] = double.NaN;
+            Invalidate();
+        }
 
         static double Nice(double v)
         {
@@ -529,8 +539,8 @@ namespace NetProbe
             if (plot.Width < 20 || plot.Height < 20) return;
             var sA = HA ?? (Hist ? new List<double>() : A); var sB = HB ?? (Hist ? new List<double>() : B);
             double mx = 0;
-            foreach (var v in sA) if (!double.IsNaN(v)) mx = Math.Max(mx, v);
-            foreach (var v in sB) if (!double.IsNaN(v)) mx = Math.Max(mx, v);
+            foreach (var v in sA) if (!Bad(v)) mx = Math.Max(mx, v);
+            foreach (var v in sB) if (!Bad(v)) mx = Math.Max(mx, v);
             double ymax = Nice(Math.Max(mx * 1.15, Math.Min(Good * 1.2, 150)));
 
             using (var gp = new Pen(Theme.Grid, 1))
@@ -583,10 +593,11 @@ namespace NetProbe
             for (int i = 0; i < s.Count; i++)
             {
                 float x = plot.Left + (off + i) * step;
-                if (double.IsNaN(s[i]))
+                if (Bad(s[i]))
                 {
                     flush();
-                    if (!hist) using (var b = new SolidBrush(Color.FromArgb(200, Theme.Red))) g.FillRectangle(b, x - 1.5f, plot.Bottom + Theme.S(4) + idx * Theme.S(6), 3, Theme.S(5));
+                    // красная метка — подтверждённый обрыв, жёлтая — одиночный сбой (ещё не обрыв)
+                    if (!hist) using (var b = new SolidBrush(Color.FromArgb(200, double.IsNegativeInfinity(s[i]) ? Theme.Yellow : Theme.Red))) g.FillRectangle(b, x - 1.5f, plot.Bottom + Theme.S(4) + idx * Theme.S(6), 3, Theme.S(5));
                     continue;
                 }
                 float y = (float)(plot.Bottom - plot.Height * Math.Min(s[i], ymax) / ymax);
@@ -594,7 +605,7 @@ namespace NetProbe
             }
             flush();
             int last = s.Count - 1;
-            if (!double.IsNaN(s[last]))
+            if (!Bad(s[last]))
             {
                 float x = plot.Left + (off + last) * step, y = (float)(plot.Bottom - plot.Height * Math.Min(s[last], ymax) / ymax);
                 Gfx.Dot(g, c, x, y, Theme.S(3.5), true);

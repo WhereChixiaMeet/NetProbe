@@ -54,7 +54,7 @@ namespace NetProbe
         Panel setBody; ScrollHost setHost; bool loadingSettings; readonly System.Windows.Forms.Timer autoSave = new System.Windows.Forms.Timer { Interval = 700 };
         Label lZapretWarn; ThemedCheck cHybrid;
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
-        Spin nTimeout, nPingCount, nDown, nUp, nStreams, nGood, nWarn, nExclRefresh;
+        Spin nDownAfter, nTimeout, nPingCount, nDown, nUp, nStreams, nGood, nWarn, nExclRefresh;
         DarkCombo cbLang, cbMode, cbAdapter, cbTheme, cbWsLog, cbRetSet;
         ThemedCheck cLogProbes, cSpeedOn, cWPing, cWSpeed, cWSplit, cSidePing, cSideSpeed, cSpeedChart;
         ThemedCheck cMinTray, cCloseTray, cWidget, cWidgetTop, cNotify, cAutoMon, cAutorun, cStartMin, cLogFile, cWsAdapter;
@@ -528,6 +528,7 @@ namespace NetProbe
             bRef.Location = new Point(lw, y); setBody.Controls.Add(bRef); y += bRef.Height + Theme.S(12);
             tbProbe = Ui.TextBox(); row(Tx("URL опроса"), tbProbe, null);
             nTimeout = Ui.Num(2, 30, 5); row(Tx("Таймаут, с"), nTimeout, null);
+            nDownAfter = Ui.Num(1, 10, 3); row(Tx("«Связь потеряна» — после сбоев подряд"), nDownAfter, Tx("Одиночный неудачный опрос — это потеря пакета, а не обрыв: отметка на графике и строка в логе."));
 
             section(Tx("Тесты"));
             tbPingHost = Ui.TextBox(); row(Tx("Хост теста MTU (ICMP)"), tbPingHost, null);
@@ -693,7 +694,7 @@ namespace NetProbe
             cHybrid.Checked = st.HybridMode; tbGameTcp.Text = st.GameTcp; tbGameUdp.Text = st.GameUdp; nExclRefresh.Value = st.ExclRefreshSec;
             tbCurl.Text = st.CurlPath; tbProxy.Text = st.VpnProxy; cbMode.SelectedIndex = st.DirectMode;
             FillAdapters(st.DirectInterface);
-            tbProbe.Text = st.ProbeUrl; nTimeout.Value = st.TimeoutSec;
+            tbProbe.Text = st.ProbeUrl; nTimeout.Value = st.TimeoutSec; nDownAfter.Value = st.DownAfterFails;
             tbPingHost.Text = st.PingHost; nPingCount.Value = st.PingCount; nDown.Value = st.DownloadMB; nUp.Value = st.UploadMB; nStreams.Value = st.Streams;
             nGood.Value = st.GoodMs; nWarn.Value = st.WarnMs; tbDns.Text = st.DnsDomains; tbSites.Text = st.Sites.Replace("\n", "\r\n");
             tbLogDirSet.Text = st.LogDir; cbRetSet.SelectedIndex = st.LogRetention; cLogFile.Checked = st.LogToFile;
@@ -712,7 +713,7 @@ namespace NetProbe
             n.ZapretDir = tbZapret.Text.Trim(); n.GameTcp = tbGameTcp.Text.Trim(); n.GameUdp = tbGameUdp.Text.Trim(); n.ExclRefreshSec = (int)nExclRefresh.Value;
             n.CurlPath = tbCurl.Text.Trim(); n.VpnProxy = tbProxy.Text.Trim(); n.DirectMode = Math.Max(0, cbMode.SelectedIndex);
             n.DirectInterface = cbAdapter.SelectedItem is AdItem ? ((AdItem)cbAdapter.SelectedItem).Id : "auto";
-            n.ProbeUrl = tbProbe.Text.Trim(); n.TimeoutSec = (int)nTimeout.Value;
+            n.ProbeUrl = tbProbe.Text.Trim(); n.TimeoutSec = (int)nTimeout.Value; n.DownAfterFails = (int)nDownAfter.Value;
             n.PingHost = tbPingHost.Text.Trim(); n.PingCount = (int)nPingCount.Value; n.DownloadMB = (int)nDown.Value; n.UploadMB = (int)nUp.Value; n.Streams = (int)nStreams.Value;
             n.GoodMs = (int)nGood.Value; n.WarnMs = (int)nWarn.Value; n.DnsDomains = tbDns.Text.Trim(); n.Sites = tbSites.Text.Replace("\r", "").Trim();
             n.LogDir = tbLogDirSet.Text.Trim(); n.LogRetention = Math.Max(0, cbRetSet.SelectedIndex); n.LogToFile = cLogFile.Checked;

@@ -101,7 +101,9 @@ namespace NetProbe
                 if (Paused) continue; // результат во время теста скорости не учитываем
                 Stats.Add(r);
                 ConsecutiveFails = r.Ok ? 0 : ConsecutiveFails + 1;
-                if (ConsecutiveFails > 0) interval = Math.Min(Settings.MaxBackoffMs, interval * Math.Pow(2, Math.Min(ConsecutiveFails, 5)));
+                // одиночный сбой — сразу перепроверяем с обычным интервалом; реже опрашиваем только когда связи нет на самом деле
+                int downAfter = Math.Max(1, st.DownAfterFails);
+                if (ConsecutiveFails >= downAfter) interval = Math.Min(Settings.MaxBackoffMs, interval * Math.Pow(2, Math.Min(ConsecutiveFails - downAfter + 1, 5)));
                 EffectiveIntervalMs = interval;
                 var h = Sample; if (h != null) try { h(this, r); } catch { }
                 double elapsed = (DateTime.Now - t0).TotalMilliseconds;

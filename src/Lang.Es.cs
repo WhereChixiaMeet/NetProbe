@@ -7,6 +7,9 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "«Связь потеряна» — после сбоев подряд", "\"Conexión perdida\" tras fallos seguidos" },
+            { "Одиночный неудачный опрос — это потеря пакета, а не обрыв: отметка на графике и строка в логе.", "Un sondeo fallido aislado es pérdida de paquetes, no un corte: una marca en el gráfico y una línea en el registro." },
+            { ": опрос не прошёл (", ": sondeo fallido (" },
             { "IP опроса VPN:", "IP del sondeo VPN:" },
             { "IP опроса VPN: ", "IP del sondeo VPN: " },
             { "В лог — только новый IP", "Registrar solo una IP nueva" },

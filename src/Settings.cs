@@ -167,10 +167,11 @@ namespace NetProbe
         public bool SidePing = true;         // мини-монитор в боковой панели: пинг
         public bool SideSpeed = true;       // мини-монитор в боковой панели: скорость
         public bool SpeedChart = true;       // график скорости на вкладке Monitor
-        public bool SpeedOn = true;
-        public bool LogProbes = true;
+        public bool SpeedOn = true;  // монитор скорости целиком (выкл — не считается и нигде не показывается)
+        public bool LogProbes = true;  // опросы пишутся в лог и в статистику Day/Week, даже когда мониторинг выключен
         public int ProbeIpFamily = 0;        // опрос VPN-канала: 0 — IPv4, 1 — IPv6, 2 — авто (раньше авто: IP «прыгал» v4 ⇄ v6)
-        public bool IpNewOnly = true;        // «публичный IP сменился» — только для действительно нового адреса, не для чередования        // опросы пишутся в лог и в статистику Day/Week, даже когда мониторинг выключен          // монитор скорости целиком (выкл — не считается и нигде не показывается)
+        public bool IpNewOnly = true;  // «публичный IP сменился» — только для действительно нового адреса, не для чередования
+        public int DownAfterFails = 3;       // «связь потеряна» — только после стольких сбоев подряд (одиночный сбой — потеря опроса)
         public bool WidgetSpeedOn { get { return SpeedOn && WidgetSpeed; } }
         public bool SideSpeedOn { get { return SpeedOn && SideSpeed; } }
         public bool SpeedChartOn { get { return SpeedOn && SpeedChart; } }
@@ -269,6 +270,7 @@ namespace NetProbe
             if (!SpeedDefaults) { SpeedDefaults = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             PollRate = Math.Max(MinPollRate, Math.Min(MaxPollRate, PollRate));
             TimeoutSec = Math.Max(2, Math.Min(30, TimeoutSec));
+            DownAfterFails = Math.Max(1, Math.Min(10, DownAfterFails));
             PingCount = Math.Max(5, Math.Min(200, PingCount));
             DownloadMB = Math.Max(1, Math.Min(500, DownloadMB));
             UploadMB = Math.Max(1, Math.Min(200, UploadMB));

@@ -7,6 +7,9 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "«Связь потеряна» — после сбоев подряд", "\"Connection lost\" after failures in a row" },
+            { "Одиночный неудачный опрос — это потеря пакета, а не обрыв: отметка на графике и строка в логе.", "A single failed poll is packet loss, not an outage: a mark on the chart and a line in the log." },
+            { ": опрос не прошёл (", ": poll failed (" },
             { "IP опроса VPN:", "VPN poll IP:" },
             { "IP опроса VPN: ", "VPN poll IP: " },
             { "В лог — только новый IP", "Log only a new IP" },

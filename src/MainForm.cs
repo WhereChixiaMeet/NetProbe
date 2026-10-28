@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.1.4";
+        public const string Version = "3.1.5";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -35,7 +35,7 @@ namespace NetProbe
         readonly System.Windows.Forms.Timer appUpdTimer = new System.Windows.Forms.Timer { Interval = 20000 }; // проверка релизов NetProbe: через 20 с после старта, дальше раз в час
         readonly System.Windows.Forms.Timer reapplyTimer = new System.Windows.Forms.Timer { Interval = 700 };
 
-        class ChState { public bool? Ok; public string Ip = ""; public DateTime DownSince; public DateTime LastNotify; public Level Lv = Level.Off; public string Val = "—"; }
+        class ChState { public int FailRun; public DateTime FirstFail; public bool? Ok; public string Ip = ""; public DateTime DownSince; public DateTime LastNotify; public Level Lv = Level.Off; public string Val = "—"; }
         bool sameRoute;
         readonly Dictionary<string, ChState> chs = new Dictionary<string, ChState> { { "vpn", new ChState() }, { "direct", new ChState() } };
 
@@ -176,7 +176,8 @@ namespace NetProbe
                     if (!setTabH.ContainsKey(tk)) continue;
                     setTabs.Select(tk);
                     for (int w = 0; w < 6; w++) { Application.DoEvents(); System.Threading.Thread.Sleep(80); }
-                    try { using (var bmp = new Bitmap(Width, Height)) { using (var g = Graphics.FromImage(bmp)) g.CopyFromScreen(Left, Top, 0, 0, Size); bmp.Save(Path.Combine(ShotsDir, Tr.Code + "-bgset-" + tk + ".png")); } } catch { }
+                    // PrintWindow(PW_RENDERFULLCONTENT): настоящая отрисовка окна, даже если его закрывает консоль
+                    try { using (var bmp = new Bitmap(Width, Height)) { using (var g = Graphics.FromImage(bmp)) { var hdc = g.GetHdc(); try { PrintWindow(Handle, hdc, 2); } finally { g.ReleaseHdc(hdc); } } bmp.Save(Path.Combine(ShotsDir, Tr.Code + "-bgset-" + tk + ".png")); } } catch { }
                 }
                 TopMost = false;
                 st.BgImage = keepBg; ResetPageBackground();
@@ -281,6 +282,7 @@ namespace NetProbe
             finally { Native.SendMessage(Handle, 0x000B, (IntPtr)1, IntPtr.Zero); RedrawWindow(Handle, IntPtr.Zero, IntPtr.Zero, 0x0001 | 0x0004 | 0x0080 | 0x0100); }
         }
 
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
         [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr h, IntPtr rc, IntPtr rgn, int flags);
 
         void RebuildCore()
@@ -658,14 +660,30 @@ namespace NetProbe
             string name = isVpn ? "VPN" : Tx("Напрямую");
             var cs = chs[m.Key];
             var card = isVpn ? cardVpn : cardDir;
-            Level lv = r.Ok ? LatLevel(r.Latency) : Level.Down;
+            // одиночный неудачный опрос — это ещё не обрыв: «связь потеряна» только после DownAfterFails сбоев подряд
+            int downAfter = Math.Max(1, st.DownAfterFails);
+            cs.FailRun = r.Ok ? 0 : cs.FailRun + 1;
+            if (cs.FailRun == 1) cs.FirstFail = r.Time;
+            bool isDown = !r.Ok && cs.FailRun >= downAfter, blip = !r.Ok && !isDown;
+            Level lv = r.Ok ? LatLevel(r.Latency) : isDown ? Level.Down : Level.Slow;
             if (r.Ok && s.Count >= 10 && s.LossPct >= 5 && lv < Level.Slow) lv = Level.Slow;
+            if (blip)
+            {
+                Logger.Write(LogLevel.Warn, name + Tx(": опрос не прошёл (") + cs.FailRun + "/" + downAfter + ") — " + r.Error);
+                card.Level = lv; card.Line1 = "✗  " + r.Error; card.Pulse();
+                chart.Add(isVpn, LatencyChart.Blip);
+                if (st.LogPolls) Logger.Write(LogLevel.Poll, name + ": " + Tx("СБОЙ · ") + r.Error);
+                cs.Lv = lv;
+                widget.SetLevel(isVpn ? 0 : 1, lv, cs.Val); if (miniMon != null && !miniMon.IsDisposed) miniMon.SetLevel(isVpn ? 0 : 1, lv, cs.Val);
+                UpdateTray();
+                return;
+            }
 
             if (cs.Ok == null)
                 Logger.Write(r.Ok ? LogLevel.Ok : LogLevel.Error, name + ": " + (r.Ok ? Tx("есть связь · ") + F0(r.Latency) + Tx(" мс") + (r.Ip != "" ? " · IP " + r.Ip + " " + r.Loc : "") : Tx("нет связи — ") + r.Error));
             else if (cs.Ok == true && !r.Ok)
             {
-                cs.DownSince = DateTime.Now;
+                cs.DownSince = cs.FirstFail; // обрыв считается с первого неудачного опроса
                 Logger.Write(LogLevel.Error, name + Tx(": связь потеряна — ") + r.Error);
                 Notify(cs, name + Tx(": связь потеряна"), r.Error, ToolTipIcon.Error);
             }
@@ -695,7 +713,7 @@ namespace NetProbe
                 if (!seen.Contains(r.Ip)) { seen.Add(r.Ip); if (seen.Count > 8) seen.RemoveAt(0); multiIpLogged.Remove(m.Key); }
             }
             if (cs.Ok == null) cs.DownSince = DateTime.Now;
-            if (!r.Ok && cs.Ok != false) cs.DownSince = DateTime.Now;
+            if (!r.Ok && cs.Ok != false) cs.DownSince = cs.FirstFail;
             cs.Ok = r.Ok;
             if (r.Ok && r.Ip != "") { bool chg = cs.Ip != r.Ip; cs.Ip = r.Ip; if (chg) UpdateInfo(); }
             var other = chs[isVpn ? "direct" : "vpn"];
@@ -717,6 +735,7 @@ namespace NetProbe
                               : Tx("Повтор через ") + F1(m.EffectiveIntervalMs / 1000) + Tx(" с (после ") + m.ConsecutiveFails + Tx(" ошибок)");
             card.Line3 = Tx("ср ") + F0(s.Avg) + Tx("  ·  мин ") + F0(s.Min) + Tx("  ·  макс ") + F0(s.Max) + Tx("  ·  джиттер ") + F1(s.Jitter) + Tx("  ·  потери ") + F1(s.LossPct) + Tx("%  ·  аптайм ") + F1(s.Uptime) + Tx("%  ·  обрывы ") + s.Drops;
             card.Pulse();
+            if (isDown && cs.FailRun == downAfter) chart.ConfirmLast(isVpn, downAfter - 1);
             chart.Add(isVpn, r.Ok ? r.Latency : double.NaN);
 
             cs.Lv = lv; cs.Val = r.Ok ? F0(r.Latency) + Tx(" мс") : Tx("нет связи");
