@@ -174,19 +174,50 @@ namespace NetProbe
             return outer;
         }
         int MinDockW(ScrollHost dock) { int w = Theme.S(300); foreach (var c in dock.Content.Controls.OfType<CardPanel>()) w = Math.Max(w, c.Width + Theme.S(18)); return w; }
+        // Содержимое страницы никогда не сжимается уже ContentMin (иначе её собственные карточки ломаются):
+        // колонка справа — только если влезает; иначе модули встают полосой снизу (карточки в ряд с переносом, прокрутка)
+        static int ContentMin { get { return Theme.S(800); } }
+        bool layingDock;
         void LayDock(ScrollHost dock)
         {
+            if (layingDock) return;
             var cards = dock.Content.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
             bool on = cards.Count > 0;
             var outer = dock.Parent; if (outer == null) return;
             Panel split = dockSplits.Values.FirstOrDefault(sp => sp.Parent == outer);
-            dock.Visible = on; if (split != null) split.Visible = on;
-            if (!on) return;
-            int want = Math.Max(MinDockW(dock), Theme.S(st.DockW));
-            dock.Width = Math.Max(Theme.S(200), Math.Min(Math.Max(MinDockW(dock), outer.ClientSize.Width / 2), want));
-            int y = Theme.S(80);
-            foreach (var c in cards) { c.SetBounds(0, y, Math.Max(c.Width, dock.Content.Width - Theme.S(2)), c.Height); y = c.Bottom + Theme.S(12); }
-            dock.Content.Height = y + Theme.S(10); dock.Relayout();
+            layingDock = true;
+            try
+            {
+                dock.Visible = on; if (split != null) split.Visible = false;
+                if (!on) return;
+                int minW = MinDockW(dock), want = Math.Max(minW, Theme.S(st.DockW)), W = outer.ClientSize.Width, gapW = split != null ? split.Width : 0;
+                bool right = W - minW - gapW >= ContentMin;
+                if (right)
+                {
+                    if (dock.Dock != DockStyle.Right) dock.Dock = DockStyle.Right;
+                    if (split != null) { split.Dock = DockStyle.Right; split.Visible = true; }
+                    dock.Width = Math.Max(minW, Math.Min(W - ContentMin - gapW, want));
+                    int y = Theme.S(80);
+                    foreach (var c in cards) { c.SetBounds(0, y, Math.Max(c.Width, dock.Content.Width - Theme.S(2)), c.Height); y = c.Bottom + Theme.S(12); }
+                    dock.Content.Height = y + Theme.S(10);
+                }
+                else
+                {
+                    if (dock.Dock != DockStyle.Bottom) dock.Dock = DockStyle.Bottom;
+                    // ряды карточек слева направо; высота полосы — по содержимому, но не больше половины страницы
+                    int L = Theme.S(26), gap = Theme.S(12), cw = Math.Max(10, W - L * 2 - Theme.S(14)), x = 0, y = Theme.S(8), rowH = 0;
+                    foreach (var c in cards)
+                    {
+                        if (x > 0 && x + c.Width > cw) { x = 0; y += rowH + gap; rowH = 0; }
+                        c.Location = new Point(L + x, y); x += c.Width + gap; rowH = Math.Max(rowH, c.Height);
+                    }
+                    int total = y + rowH + Theme.S(12);
+                    dock.Height = Math.Max(Theme.S(120), Math.Min(total, outer.ClientSize.Height / 2));
+                    dock.Content.Height = total;
+                }
+                dock.Relayout();
+            }
+            finally { layingDock = false; }
         }
 
         // все модули — по своим местам (вызывается в конце сборки интерфейса)
@@ -197,7 +228,9 @@ namespace NetProbe
                 CardPanel c; if (!modules.TryGetValue(key, out c) || c.IsDisposed) { moduleKeys.Remove(key); continue; }
                 int page = PageOf(key);
                 Control target;
-                if (page == PgServers && srvModBody != null) target = srvModBody;
+                // в правую колонку Subscriptions — только её узкие карточки; широкие (разделы Настроек) — в общую полосу модулей страницы
+                if (page == PgServers && srvModBody != null && key.StartsWith("srv.")) target = srvModBody;
+                else if (page == PgServers) { ScrollHost d0; target = docks.TryGetValue(page, out d0) ? d0.Content : srvModBody; }
                 else if (page == PgSettings && setBody != null) target = setBody;
                 else if (page > PgSettings) { ScrollHost h; target = customHosts.TryGetValue(LocOfPage(page), out h) ? h.Content : null; }
                 else { ScrollHost d; target = docks.TryGetValue(page, out d) ? d.Content : null; }
