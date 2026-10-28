@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -250,7 +250,7 @@ namespace NetProbe
         {
             PageFrame f;
             foreach (var b in ModuleBoxes(curPage)) { var sh = b.Parent as ScrollHost; if (sh != null) yield return sh; }
-            if (frames.TryGetValue(curPage, out f) && f.Strip.Visible) yield return f.Scroll;
+            if (frames.TryGetValue(curPage, out f) && f.StripOn) yield return f.Scroll;
         }
 
         // куда на текущей странице кладутся модули (видимые контейнеры)
@@ -261,7 +261,7 @@ namespace NetProbe
             if (page == PgServers && srvModBody != null && srvModBody.Parent != null && srvModBody.Parent.Visible) l.Add(srvModBody);
             else if (page == PgSettings && setBody != null) l.Add(setBody);
             else if (page > PgSettings) { ScrollHost h; if (customHosts.TryGetValue(LocOfPage(page), out h)) l.Add(h.Content); }
-            else if (frames.TryGetValue(page, out f)) { if (f.Dock.Visible) l.Add(f.Dock.Content); if (f.Strip.Visible) l.Add(f.Strip); }
+            else if (frames.TryGetValue(page, out f)) { if (f.DockOn) l.Add(f.Dock.Content); if (f.StripOn) l.Add(f.Strip); }
             return l;
         }
         static Rectangle ViewOf(Control box)
@@ -362,7 +362,7 @@ namespace NetProbe
         // ---- страница = внешняя панель: [прокрутка: содержимое страницы + полоса модулей под ним] + [колонка модулей справа] ----
         // Содержимое страницы НИКОГДА не сжимается: по ширине не уже ContentMin, по высоте — во весь экран.
         // Модули: справа, если колонка влезает; иначе — полосой ПОД страницей (страница прокручивается вниз к ним).
-        sealed class PageFrame { public Panel Outer, Inner, Split, Strip; public ScrollHost Scroll, Dock; public FlatButton More; public int Reserve; }
+        sealed class PageFrame { public Panel Outer, Inner, Split, Strip; public ScrollHost Scroll, Dock; public FlatButton More; public int Reserve; public bool StripOn, DockOn; } // On — своё состояние (Visible = false, пока страница скрыта)
         // шапка страницы (заголовок, кнопки Route / DPI / VPN) — всегда во всю ширину окна; колонка модулей начинается под ней
         static int HeadH { get { return Theme.S(84); } }
         readonly Dictionary<Control, PageFrame> innerFrame = new Dictionary<Control, PageFrame>();
@@ -398,7 +398,7 @@ namespace NetProbe
         static int ContentMin { get { return Theme.S(800); } }
         void PlaceMore(PageFrame f)
         {
-            bool show = f.Strip.Visible && f.Scroll.Offset < Theme.S(40);
+            bool show = f.StripOn && f.Scroll.Offset < Theme.S(40);
             f.More.Visible = show;
             if (show) { f.More.Location = new Point((f.Scroll.Width - f.More.Width) / 2, f.Outer.ClientSize.Height - f.More.Height - Theme.S(10)); f.More.BringToFront(); }
         }
@@ -415,7 +415,7 @@ namespace NetProbe
                 int W = f.Outer.ClientSize.Width, H = f.Outer.ClientSize.Height;
                 int minW = Theme.S(300); foreach (var c in cards) minW = Math.Max(minW, c.BaseW + Theme.S(18));
                 bool any = cards.Count > 0, right = any && W - minW - f.Split.Width >= ContentMin;
-                f.Dock.Visible = right; f.Split.Visible = right;
+                f.Dock.Visible = right; f.Split.Visible = right; f.DockOn = right;
                 Control box = right ? (Control)f.Dock.Content : f.Strip;
                 foreach (var c in cards) if (c.Parent != box) { c.Parent.Controls.Remove(c); box.Controls.Add(c); }
                 if (right)
@@ -436,8 +436,8 @@ namespace NetProbe
                 int viewW = right ? W - f.Dock.Width - f.Split.Width : W;
                 // содержимое страницы — во весь видимый экран; полоса модулей (если есть) — ниже, к ней прокручивают
                 int stripH = 0;
-                f.Strip.Visible = any && !right;
-                if (f.Strip.Visible)
+                f.Strip.Visible = f.StripOn = any && !right;
+                if (f.StripOn)
                 {
                     int L = Theme.S(26), gap = Theme.S(12), cw = Math.Max(10, viewW - L * 2 - Theme.S(14)), x = 0, y = Theme.S(4), rowH = 0;
                     foreach (var c in cards)
@@ -455,7 +455,7 @@ namespace NetProbe
                 int pageMin = Theme.S(600);
                 if (cwid < pageMin) { cwid = pageMin; f.Scroll.MinContentWidth = pageMin; f.Scroll.Relayout(); }
                 // карточка шире окна (узкое окно / широкая левая панель) — полоса шире, снизу горизонтальная прокрутка, ничего не обрезается
-                if (f.Strip.Visible)
+                if (f.StripOn)
                 {
                     int need = Theme.S(26) * 2 + cards.Max(c => c.Width) + Theme.S(4);
                     if (need > Math.Max(cwid, f.Scroll.MinContentWidth)) { f.Scroll.MinContentWidth = need; f.Scroll.Relayout(); }
@@ -467,7 +467,7 @@ namespace NetProbe
                 bool sameSize = f.Inner.Width == cwid && f.Inner.Height == H;
                 f.Inner.SetBounds(0, 0, cwid, H);
                 if (resChanged && sameSize) { f.Inner.Width = cwid + 1; f.Inner.Width = cwid; } // размер тот же — всё равно переложить страницу под новую ширину содержимого
-                if (f.Strip.Visible) f.Strip.SetBounds(0, H, Math.Max(cwid, f.Scroll.MinContentWidth), stripH);
+                if (f.StripOn) f.Strip.SetBounds(0, H, Math.Max(cwid, f.Scroll.MinContentWidth), stripH);
                 else f.Scroll.ScrollToTop();
                 f.More.Text = Tx("Модули ниже") + " (" + cards.Count + ")"; f.More.AutoW();
                 PlaceMore(f);

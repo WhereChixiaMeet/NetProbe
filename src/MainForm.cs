@@ -246,6 +246,7 @@ namespace NetProbe
                     {
                         if (Math.Abs(fr.Inner.Height - outer.ClientSize.Height) > 2) report.Add(tag + ": page content height " + fr.Inner.Height + " ≠ window " + outer.ClientSize.Height);
                         int effW = fr.Inner.Width - fr.Reserve;
+                        if (fr.StripOn && fr.Scroll.Offset < Theme.S(40) && !fr.More.Visible) report.Add(tag + ": 'Modules below' button not shown");
                         if (effW < (fr.Dock.Visible ? ContentMin : Math.Min(ContentMin, outer.ClientSize.Width - Theme.S(14))) - Theme.S(16)) report.Add(tag + ": page content squeezed to w=" + effW);
                         // содержимое страницы не уходит под колонку модулей (шапка — может, она над колонкой)
                         if (fr.Reserve > 0)
@@ -654,6 +655,7 @@ namespace NetProbe
             if (i == PgConnect) LoadConnectUi();
             if (i == PgLog) FillLogDays();
             if (i == PgServers) { FillServers(); UpdateCoreLabel(); }
+            PageFrame pf; if (frames.TryGetValue(i, out pf)) PlaceMore(pf); // «Модули ниже» — когда страница уже видна
         }
 
         // ================= Adapters / probers =================
