@@ -15,6 +15,23 @@ namespace NetProbe
 
     public class Settings
     {
+        public int[] GetCharLayout(string key)
+        {
+            foreach (var part in (CharLayout ?? "").Split(';'))
+            {
+                int e = part.IndexOf('='); if (e <= 0 || part.Substring(0, e) != key) continue;
+                var v = part.Substring(e + 1).Split(','); if (v.Length < 3) return null;
+                int a, b, c; if (int.TryParse(v[0], out a) && int.TryParse(v[1], out b) && int.TryParse(v[2], out c)) return new[] { a, b, c };
+            }
+            return null;
+        }
+        public void SetCharLayout(string key, int[] v)
+        {
+            var parts = (CharLayout ?? "").Split(';').Where(x => x.Length > 0 && !x.StartsWith(key + "=")).ToList();
+            if (v != null) parts.Add(key + "=" + v[0] + "," + v[1] + "," + v[2]);
+            CharLayout = string.Join(";", parts);
+        }
+
         // готовые URL для замеров (как список в v2rayN); в поле можно вписать свой
         public static readonly string[] TestUrls = {
             "https://www.google.com/generate_204", "https://www.youtube.com/generate_204", "https://www.googlevideo.com/generate_204",
@@ -164,6 +181,9 @@ namespace NetProbe
         public bool CharWindow = true;       // Personal-темы: персонаж у окна
         public bool CharFrame = true;        // Personal-темы: персонаж за рамкой окна (окно-компаньон)
         public int CharOpacity = 85;         // Personal-темы: непрозрачность персонажа, %
+        public string CharLayout = "";       // 3.0.6: своё положение персонажей: "chisa.frame=dx,dy,h;kurumi.widget=…" (пусто — по умолчанию)
+        public int CharInsideSize = 0;       // персонаж внутри окна: высота в % от окна (0 = по умолчанию)
+        public int CharInsideAnchor = -1;    // 0 лево-низ, 1 право-низ, 2 право-верх, 3 лево-верх, 4 центр (-1 = по умолчанию темы)
 
         public double MaxPollRate { get { return DirectMode == 1 ? MaxPollRatePs : MaxPollRateCurl; } }
         public RouteMode RMode { get { return (RouteMode)Mode; } }

@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.0.5";
+        public const string Version = "3.0.6";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -704,7 +704,8 @@ namespace NetProbe
             if (pageBg != null) return pageBg;
             bool hasImg = !string.IsNullOrWhiteSpace(st.BgImage) && File.Exists(st.BgImage);
             // Personal: персонаж внутри окна (запасной режим) — в слое фона страниц, за полупрозрачными карточками
-            bool charInside = Theme.Personal && st.CharWindow && !st.CharFrame && CharOverlay.HasArt(Theme.Kind, "window.png");
+            string insideFile = CharOverlay.HasArt(Theme.Kind, "window.png") ? "window.png" : "frame.png"; // своей картинки «внутри» нет — берём картинку «у окна»
+            bool charInside = Theme.Personal && st.CharWindow && !st.CharFrame && CharOverlay.HasArt(Theme.Kind, insideFile);
             if (!hasImg && !charInside) return null;
             try
             {
@@ -726,13 +727,17 @@ namespace NetProbe
                     using (var g = Graphics.FromImage(b)) g.Clear(Theme.Bg);
                 }
                 if (charInside)
-                    using (var art = new Bitmap(Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png")))
+                    using (var art = new Bitmap(Path.Combine(CharOverlay.Folder(Theme.Kind), insideFile)))
                     using (var g = Graphics.FromImage(b))
                     {
                         g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
-                        // Kurumi — у левого края (у кромки сайдбара), Chisa — сверху справа
-                        int h = Theme.Kurumi ? (int)(b.Height * 0.78) : (int)(b.Height * 0.55), w = h * art.Width / art.Height;
-                        var dst = Theme.Kurumi ? new Rectangle(0, b.Height - h, w, h) : new Rectangle(b.Width - w, 0, w, h);
+                        // по умолчанию: Kurumi — у левого края снизу, Chisa — сверху справа; размер и угол — в Настройках
+                        int pct = st.CharInsideSize > 0 ? st.CharInsideSize : (Theme.Kurumi ? 78 : 55);
+                        int anchor = st.CharInsideAnchor >= 0 ? st.CharInsideAnchor : (Theme.Kurumi ? 0 : 2);
+                        int h = (int)(b.Height * Math.Max(10, Math.Min(100, pct)) / 100.0), w = h * art.Width / art.Height;
+                        int x = anchor == 1 || anchor == 2 ? b.Width - w : anchor == 4 ? (b.Width - w) / 2 : 0;
+                        int y = anchor == 0 || anchor == 1 ? b.Height - h : anchor == 4 ? (b.Height - h) / 2 : 0;
+                        var dst = new Rectangle(x, y, w, h);
                         var cm = new System.Drawing.Imaging.ColorMatrix { Matrix33 = (float)(Math.Max(20, Math.Min(100, st.CharOpacity)) / 100.0 * 0.55) };
                         using (var ia = new System.Drawing.Imaging.ImageAttributes()) { ia.SetColorMatrix(cm); g.DrawImage(art, dst, 0, 0, art.Width, art.Height, GraphicsUnit.Pixel, ia); }
                     }

@@ -12,7 +12,7 @@ namespace NetProbe
 {
     public partial class MainForm
     {
-        Action loadProxyUi;
+        Action loadProxyUi; System.Windows.Forms.Timer charRebuild;
         Panel setBody; ScrollHost setHost; bool loadingSettings; readonly System.Windows.Forms.Timer autoSave = new System.Windows.Forms.Timer { Interval = 700 };
         Label lZapretWarn; ThemedCheck cHybrid;
         TextBox tbProbe, tbCurl, tbProxy, tbPingHost, tbDns, tbSites, tbWiresock, tbZapret, tbLogDirSet, tbGameTcp, tbGameUdp;
@@ -122,18 +122,72 @@ namespace NetProbe
             pick(Tx("Иконка приложения"), Tx("Иконки и картинки") + " (*.ico;*.png;*.jpg;*.exe)|*.ico;*.png;*.jpg;*.jpeg;*.exe", f => { st.AppIconPath = f; st.Save(); ApplyAppIcon(); });
             if (Theme.Personal)
             {
-                // Personal-темы: персонаж — картинки только локально, config\themes\<chisa|kurumi>\ (в git и в exe их нет)
-                bool art = CharOverlay.HasArt(Theme.Kind, "frame.png") || CharOverlay.HasArt(Theme.Kind, "widget.png") || CharOverlay.HasArt(Theme.Kind, "window.png");
-                var bFolder = new FlatButton(Tx("Папка темы…")) { Glyph = "\uE8B7" }.AutoW();
-                bFolder.Click += (s, e) => { try { System.Diagnostics.Process.Start("explorer.exe", "\"" + CharOverlay.Folder(Theme.Kind) + "\""); } catch { } };
-                row(Tx("Персонаж"), bFolder, art ? null : Tx("Картинок нет — тема работает без персонажа. Положи PNG (widget.png, frame.png, window.png) в config\\themes\\") + (Theme.Chisa ? "chisa" : "kurumi"));
-                var cCW = Ui.Check(Tx("Персонаж у виджета"), st.CharWidget); check(cCW); cCW.CheckedChanged += (s, e) => { st.CharWidget = cCW.Checked; st.Save(); UpdateChars(); };
-                var cCF = Ui.Check(Tx("Персонаж за рамкой окна"), st.CharFrame); check(cCF);
+                // Personal-темы: персонаж — картинки только локально (config\themes\<chisa|kurumi>\), в git и в exe их нет.
+                // 3.0.6: картинку выбираешь сам (любой PNG копируется в папку темы), положение — мышкой («Разместить»).
+                // пересборка страниц (картинка внутри окна живёт в фоне страниц) — отложенно, вне обработчика нажатия
+                if (charRebuild == null) { charRebuild = new System.Windows.Forms.Timer { Interval = 300 }; charRebuild.Tick += (s2, e2) => { charRebuild.Stop(); if (IsDisposed) return; ResetPageBackground(); RebuildUi(); SelectPage(PgSettings); }; }
+                Action rebuild = () => { charRebuild.Stop(); charRebuild.Start(); };
+                Func<string, Panel> artRow = file =>
+                {
+                    var pn = new Panel { BackColor = Color.Transparent, Height = Theme.S(30) };
+                    var bPick = new FlatButton(Tx("Выбрать PNG…")) { Glyph = "\uE8B9" }.AutoW();
+                    var bDel = new FlatButton(Tx("Убрать")) { Glyph = "\uE74D" }.AutoW();
+                    var lInfo = new Label { AutoSize = true, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Color.Transparent, UseMnemonic = false };
+                    Action info = () => { lInfo.Text = CharOverlay.HasArt(Theme.Kind, file) ? Tx("есть") : Tx("нет картинки"); };
+                    bPick.Click += (s2, e2) =>
+                    {
+                        using (var d = new OpenFileDialog { Filter = "PNG (*.png)|*.png", Title = Tx("Картинка персонажа (PNG с прозрачностью)") })
+                        {
+                            if (d.ShowDialog(this) != DialogResult.OK) return;
+                            try
+                            {
+                                using (var test = new Bitmap(d.FileName)) { } // битый файл — сразу понятная ошибка, а не падение потом
+                                File.Copy(d.FileName, Path.Combine(CharOverlay.Folder(Theme.Kind), file), true);
+                                Logger.Write(LogLevel.Info, Tx("Персонаж: ") + Path.GetFileName(d.FileName) + " → " + file);
+                            }
+                            catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); return; }
+                        }
+                        info(); UpdateChars(); if (file == "window.png" || !st.CharFrame) rebuild();
+                    };
+                    bDel.Click += (s2, e2) =>
+                    {
+                        try { File.Delete(Path.Combine(CharOverlay.Folder(Theme.Kind), file)); } catch { }
+                        info(); UpdateChars(); if (file == "window.png" || !st.CharFrame) rebuild();
+                    };
+                    bDel.Location = new Point(bPick.Right + Theme.S(8), 0); lInfo.Location = new Point(bDel.Right + Theme.S(10), Theme.S(6));
+                    pn.Controls.AddRange(new Control[] { bPick, bDel, lInfo }); pn.Width = cw; info();
+                    return pn;
+                };
                 var cCI = Ui.Check(Tx("Персонаж у окна"), st.CharWindow); check(cCI);
-                cCF.CheckedChanged += (s, e) => { st.CharFrame = cCF.Checked; st.Save(); UpdateChars(); ResetPageBackground(); BeginInvoke((Action)(() => { RebuildUi(); SelectPage(PgSettings); })); };
-                cCI.CheckedChanged += (s, e) => { st.CharWindow = cCI.Checked; st.Save(); UpdateChars(); ResetPageBackground(); BeginInvoke((Action)(() => { RebuildUi(); SelectPage(PgSettings); })); };
-                Ui.Tip().SetToolTip(cCF, Tx("Вкл — персонаж снаружи, держится за рамку окна (Chisa — сверху, Kurumi — слева). Выкл — внутри окна, за карточками"));
-                var nCO = Ui.Num(20, 100, st.CharOpacity); nCO.ValueChanged += (s, e) => { st.CharOpacity = (int)nCO.Value; st.Save(); UpdateChars(); };
+                cCI.CheckedChanged += (s, e) => { if (loadingSettings) return; st.CharWindow = cCI.Checked; st.Save(); UpdateChars(); if (!st.CharFrame) rebuild(); };
+                var cbWhere = new DarkCombo(); cbWhere.Items.AddRange(new object[] { Tx("За рамкой окна (можно двигать мышкой)"), Tx("Внутри окна, за карточками") });
+                cbWhere.SelectedIndex = st.CharFrame ? 0 : 1;
+                cbWhere.SelectedIndexChanged += (s, e) => { if (!cbWhere.UserPick) return; st.CharFrame = cbWhere.SelectedIndex == 0; st.Save(); UpdateChars(); rebuild(); };
+                row(Tx("Где"), cbWhere, null);
+                row(Tx("Картинка за рамкой"), artRow("frame.png"), null);
+                row(Tx("Картинка внутри окна"), artRow("window.png"), Tx("Нет своей — берётся картинка «за рамкой»"));
+                var nIn = Ui.Num(10, 100, st.CharInsideSize > 0 ? st.CharInsideSize : (Theme.Kurumi ? 78 : 55));
+                nIn.ValueChanged += (s, e) => { if (loadingSettings) return; st.CharInsideSize = (int)nIn.Value; st.Save(); if (!st.CharFrame) rebuild(); };
+                row(Tx("Внутри: высота, % окна"), nIn, null);
+                var cbAnchor = new DarkCombo(); cbAnchor.Items.AddRange(new object[] { Tx("Слева снизу"), Tx("Справа снизу"), Tx("Справа сверху"), Tx("Слева сверху"), Tx("По центру") });
+                cbAnchor.SelectedIndex = st.CharInsideAnchor >= 0 ? st.CharInsideAnchor : (Theme.Kurumi ? 0 : 2);
+                cbAnchor.SelectedIndexChanged += (s, e) => { if (!cbAnchor.UserPick) return; st.CharInsideAnchor = cbAnchor.SelectedIndex; st.Save(); if (!st.CharFrame) rebuild(); };
+                row(Tx("Внутри: угол"), cbAnchor, null);
+                var cCW = Ui.Check(Tx("Персонаж у виджета"), st.CharWidget); check(cCW); cCW.CheckedChanged += (s, e) => { if (loadingSettings) return; st.CharWidget = cCW.Checked; st.Save(); UpdateChars(); };
+                row(Tx("Картинка у виджета"), artRow("widget.png"), null);
+                // положение мышкой (за рамкой окна и у виджета)
+                var pPos = new Panel { BackColor = Color.Transparent, Height = Theme.S(30), Width = cw };
+                var bPlace = new FlatButton(Tx("Разместить мышкой")) { Glyph = "\uE7C2" }.AutoW();
+                var bResetPos = new FlatButton(Tx("Сбросить положение")) { Glyph = "\uE777" }.AutoW();
+                bPlace.Click += (s, e) => SetCharEdit(!charEdit);
+                Action placeText = () => { bPlace.Text = charEdit ? Tx("Готово") : Tx("Разместить мышкой"); bPlace.Primary = charEdit; bPlace.AutoW(); bResetPos.Left = bPlace.Right + Theme.S(8); bPlace.Invalidate(); };
+                charEditChanged = () => { if (!bPlace.IsDisposed) placeText(); };
+                bResetPos.Click += (s, e) => { st.SetCharLayout((Theme.Kurumi ? "kurumi." : "chisa.") + "frame", null); st.SetCharLayout((Theme.Kurumi ? "kurumi." : "chisa.") + "widget", null); st.Save(); UpdateChars(); };
+                bResetPos.Location = new Point(bPlace.Right + Theme.S(8), 0);
+                pPos.Controls.AddRange(new Control[] { bPlace, bResetPos });
+                row(Tx("Положение"), pPos, Tx("Тяни персонажа мышкой, колёсико — размер, правая кнопка или «Готово» — закончить"));
+                placeText();
+                var nCO = Ui.Num(20, 100, st.CharOpacity); nCO.ValueChanged += (s, e) => { if (loadingSettings) return; st.CharOpacity = (int)nCO.Value; st.Save(); UpdateChars(); };
                 row(Tx("Непрозрачность персонажа, %"), nCO, null);
             }
             var cIcons = Ui.Check(Tx("Иконки приложений в списках"), st.ShowAppIcons); check(cIcons);

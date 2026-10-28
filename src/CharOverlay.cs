@@ -16,6 +16,13 @@ namespace NetProbe
         readonly Form host; readonly bool widget;
         Bitmap art; string artKey;
         public int Opacity255 = 220;
+        // 3.0.6: своё положение и размер (перетаскивание мышкой, колёсико — размер). Хранится в Settings.CharLayout.
+        public static Func<string, int[]> GetLayout;          // ключ "chisa.frame" → { dx, dy, h } (смещение от левого верхнего угла окна-хозяина, высота) или null
+        public static Action<string, int[]> SetLayout;
+        public event Action EditEnded;
+        bool edit; int curH;
+        public string Slot { get { return widget ? "widget" : "frame"; } }
+        string Key { get { return (Theme.Kurumi ? "kurumi." : "chisa.") + Slot; } }
 
         public CharOverlay(Form host, bool widget)
         {
@@ -36,19 +43,64 @@ namespace NetProbe
         }
         protected override void WndProc(ref Message m)
         {
-            if (m.Msg == 0x84) { m.Result = (IntPtr)(-1); return; } // WM_NCHITTEST → HTTRANSPARENT: клики проходят насквозь
+            if (m.Msg == 0x84) { m.Result = (IntPtr)(edit ? 2 : -1); return; } // WM_NCHITTEST: в режиме размещения — HTCAPTION (тянуть мышкой), иначе клики насквозь
+            if (edit && m.Msg == 0x232) { SaveLayout(); return; }            // WM_EXITSIZEMOVE — отпустили после перетаскивания
+            if (edit && (m.Msg == 0x020A))                                    // WM_MOUSEWHEEL — размер
+            {
+                int delta = (short)((long)m.WParam >> 16);
+                Rescale(delta > 0 ? 1.08 : 1 / 1.08); return;
+            }
+            if (edit && (m.Msg == 0xA4 || m.Msg == 0x205)) { SetEdit(false); var h = EditEnded; if (h != null) h(); return; } // ПКМ — готово
             base.WndProc(ref m);
         }
 
-        public static string Folder(ThemeKind k) { return Path.Combine(Settings.Sub("themes"), k == ThemeKind.Chisa ? "chisa" : "kurumi"); }
+        // режим размещения: окно ловит мышь (тянуть, колёсико — размер, ПКМ — готово)
+        public void SetEdit(bool on)
+        {
+            if (edit == on) return;
+            edit = on;
+            if (!IsHandleCreated) CreateHandle();
+            int ex = GetWindowLong(Handle, -20);
+            ex = on ? ex & ~0x20 & ~0x08000000 : ex | 0x20 | 0x08000000; // WS_EX_TRANSPARENT / WS_EX_NOACTIVATE
+            SetWindowLong(Handle, -20, ex);
+            Cursor = on ? Cursors.SizeAll : Cursors.Default;
+            if (host != null && !host.IsDisposed && host.Visible) Place(lastOpacity);
+        }
+        public bool Editing { get { return edit; } }
+
+        void SaveLayout()
+        {
+            if (host == null || host.IsDisposed) return;
+            var hb = host.Bounds;
+            var h = SetLayout; if (h != null) h(Key, new[] { Left - hb.Left, Top - hb.Top, curH > 0 ? curH : Height });
+        }
+
+        void Rescale(double k)
+        {
+            var img = Art(widget ? "widget.png" : "frame.png"); if (img == null) return;
+            int oldH = curH > 0 ? curH : Height, oldW = Width;
+            int nh = (int)Math.Max(Theme.S(60), Math.Min(Theme.S(2400), oldH * k));
+            int nw = nh * img.Width / img.Height;
+            var hb = host.Bounds;
+            int cx = Left + oldW / 2, cy = Top + oldH / 2;
+            var hs = SetLayout; if (hs != null) hs(Key, new[] { cx - nw / 2 - hb.Left, cy - nh / 2 - hb.Top, nh });
+            Place(lastOpacity);
+        }
+        int lastOpacity = 85;
+
+        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr h, int i);
+        [DllImport("user32.dll")] static extern int SetWindowLong(IntPtr h, int i, int v);
+
+        public static string Folder(ThemeKind k) { var d = Path.Combine(Settings.Sub("themes"), k == ThemeKind.Chisa ? "chisa" : "kurumi"); try { Directory.CreateDirectory(d); } catch { } return d; }
         public static bool HasArt(ThemeKind k, string file) { try { return File.Exists(Path.Combine(Folder(k), file)); } catch { return false; } }
 
         Bitmap Art(string file)
         {
             string p = Path.Combine(Folder(Theme.Kind), file);
-            if (artKey == p && art != null) return art;
+            string key = p; try { key = p + "|" + File.GetLastWriteTimeUtc(p).Ticks; } catch { }
+            if (artKey == key && art != null) return art;
             if (art != null) { art.Dispose(); art = null; }
-            artKey = p;
+            artKey = key;
             try { if (File.Exists(p)) using (var b = new Bitmap(p)) art = new Bitmap(b); } catch { art = null; }
             return art;
         }
@@ -79,15 +131,33 @@ namespace NetProbe
                 // правее середины, но левее кнопок заголовка (свернуть/развернуть/закрыть)
                 x = widget ? hb.Right - w - Theme.S(8) : Math.Min(hb.Left + (int)(hb.Width * 0.55), hb.Right - Theme.S(150) - w);
             }
+            var lay = GetLayout != null ? GetLayout(Key) : null;
+            bool custom = lay != null && lay.Length >= 3 && lay[2] > 8;
+            if (custom) { h = lay[2]; w = h * img.Width / img.Height; x = hb.Left + lay[0]; y = hb.Top + lay[1]; }
             if (w < 8 || h < 8) return false;
             var r = new Rectangle(x, y, w, h);
-            // места нет (край экрана) — не показываем, а не обрезаем
+            // места нет (край экрана) — не показываем, а не обрезаем; своё положение — показываем, пока хоть часть видна
             var wa = Screen.FromRectangle(hb).WorkingArea;
-            if (!wa.Contains(new Point(r.Left, r.Top)) || r.Right > wa.Right + 2 || r.Bottom > wa.Bottom + 2 || r.Left < wa.Left - 2) return false;
-            Opacity255 = (int)(255 * Math.Max(20, Math.Min(100, opacityPercent)) / 100.0);
+            if (custom || edit) { if (!SystemInformation.VirtualScreen.IntersectsWith(r)) return false; }
+            else if (!wa.Contains(new Point(r.Left, r.Top)) || r.Right > wa.Right + 2 || r.Bottom > wa.Bottom + 2 || r.Left < wa.Left - 2) return false;
+            curH = h; lastOpacity = opacityPercent;
+            Opacity255 = edit ? 255 : (int)(255 * Math.Max(20, Math.Min(100, opacityPercent)) / 100.0);
             using (var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb))
             {
-                using (var g = Graphics.FromImage(bmp)) { g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality; g.DrawImage(img, new Rectangle(0, 0, w, h)); }
+                using (var g = Graphics.FromImage(bmp))
+                {
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic; g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality; g.DrawImage(img, new Rectangle(0, 0, w, h));
+                    if (edit)
+                    {
+                        // рамка + подсказка; почти прозрачная заливка, чтобы мышь ловилась по всему прямоугольнику
+                        using (var f = new SolidBrush(Color.FromArgb(18, Theme.Accent))) g.FillRectangle(f, 0, 0, w, h);
+                        using (var pn = new Pen(Theme.Accent, 2) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(pn, 1, 1, w - 3, h - 3);
+                        string tipText = Tr.Tx("Тяни мышкой · колёсико — размер · ПКМ — готово");
+                        using (var bg = new SolidBrush(Color.FromArgb(200, 0, 0, 0))) g.FillRectangle(bg, 4, 4, Math.Min(w - 8, Theme.S(300)), Theme.S(22));
+                        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                        using (var tb = new SolidBrush(Color.White)) g.DrawString(tipText, Theme.Small, tb, new RectangleF(8, 7, Math.Min(w - 12, Theme.S(296)), Theme.S(18)), new StringFormat { Trimming = StringTrimming.EllipsisCharacter, FormatFlags = StringFormatFlags.NoWrap });
+                    }
+                }
                 SetBits(bmp, r);
             }
             return true;
