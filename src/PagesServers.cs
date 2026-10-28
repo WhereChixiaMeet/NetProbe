@@ -195,7 +195,8 @@ namespace NetProbe
                 // по шагам: 0 — всё с подписями; 1 — ядра значками; 2 — + «Из буфера», «Подписки»; 3 — все значками
                 Func<int, int> need = stage =>
                 {
-                    foreach (var b in cores) b.IconOnly = stage >= 1;
+                    // кнопки ядер значками не становятся: в тесном окне — короткая подпись «xray» / «sing-box»
+                    btnCore.Text = stage >= 1 ? "xray" : Tx("Установить xray"); btnSb.Text = stage >= 1 ? "sing-box" : Tx("Установить sing-box");
                     bImp.IconOnly = bSubs.IconOnly = stage >= 2;
                     btnUpdSub.IconOnly = bTest.IconOnly = bSpeed.IconOnly = stage >= 3;
                     foreach (var b in rowBtns.Concat(cores)) b.AutoW();
@@ -700,7 +701,7 @@ namespace NetProbe
                     btnCore.Visible = v == ""; btnSb.Visible = sv == "";
                     btnCoresUpd.Visible = upd || supd;
                     srvTip.SetToolTip(btnCoresUpd, (upd ? "xray " + v + " → " + xrayLatest : "") + (upd && supd ? "\r\n" : "") + (supd ? "sing-box " + sv + " → " + sbLatest : ""));
-                    srvTip.SetToolTip(btnCore, Tx("Скачать ядро xray с GitHub")); srvTip.SetToolTip(btnSb, Tx("Ядро TUN-режима (sing-box)"));
+                    srvTip.SetToolTip(btnCore, Tx("Установить xray") + " — " + Tx("Скачать ядро xray с GitHub")); srvTip.SetToolTip(btnSb, Tx("Установить sing-box") + " — " + Tx("Ядро TUN-режима (sing-box)"));
                     if (relayServers != null) relayServers();
                 })); } catch { }
             });
