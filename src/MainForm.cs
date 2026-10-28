@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.2.0";
+        public const string Version = "3.2.1";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -245,7 +245,12 @@ namespace NetProbe
                     if (frames.TryGetValue(pg, out fr))
                     {
                         if (Math.Abs(fr.Inner.Height - outer.ClientSize.Height) > 2) report.Add(tag + ": page content height " + fr.Inner.Height + " ≠ window " + outer.ClientSize.Height);
-                        if (fr.Inner.Width < (fr.Dock.Visible ? ContentMin : Math.Min(ContentMin, outer.ClientSize.Width - Theme.S(14))) - Theme.S(16)) report.Add(tag + ": page content squeezed to w=" + fr.Inner.Width);
+                        int effW = fr.Inner.Width - fr.Reserve;
+                        if (effW < (fr.Dock.Visible ? ContentMin : Math.Min(ContentMin, outer.ClientSize.Width - Theme.S(14))) - Theme.S(16)) report.Add(tag + ": page content squeezed to w=" + effW);
+                        // содержимое страницы не уходит под колонку модулей (шапка — может, она над колонкой)
+                        if (fr.Reserve > 0)
+                            foreach (Control x in fr.Inner.Controls)
+                                if (x.Visible && x.Top >= HeadH - Theme.S(4) && x.Right > effW + 2) report.Add(tag + ": " + Name2(x) + " under modules column " + x.Bounds + " / content w=" + effW);
                     }
                     // модуль на чужой странице должен работать: списки заполнены текущими значениями
                     Action<Control> combos = null;
@@ -291,6 +296,25 @@ namespace NetProbe
                 ResetLayoutState(); RebuildUi(); runs++; // ResetLayout перестраивает через BeginInvoke — в тесте синхронно, иначе перестройка посреди проверки
                 if (st.ModuleLoc != "" || st.UiLocked || CardPanel.Locked) report.Add("reset: layout not reset");
                 foreach (var key in keys) verify("reset", key, moduleHome[key]);
+                // перетаскивание внутри страницы: порядок и вкладка Настроек сохраняются и восстанавливаются
+                ShotStep("drop order");
+                DropModuleState("set.subs", PgServers, "srv.as", null); RebuildUi(); runs++;
+                {
+                    CardPanel a, b2; modules.TryGetValue("set.subs", out a); modules.TryGetValue("srv.as", out b2);
+                    if (a == null || b2 == null || a.Parent != srvModBody || b2.Parent != srvModBody) report.Add("drop: set.subs not in Subscriptions column");
+                    else if (a.Top >= b2.Top) report.Add("drop: set.subs not above srv.as (" + a.Top + " / " + b2.Top + ")");
+                    persist("drop order");
+                    SelectPage(PgServers); shot(Tr.Code + "-drop-srv");
+                    st.ModuleLoc = "set.subs=p0;set.look=p0"; RebuildUi(); SelectPage(0); shot(Tr.Code + "-dock-p0");
+                }
+                DropModuleState("srv.tun", PgSettings, null, "log"); RebuildUi(); runs++;
+                if (ModTab("srv.tun") != "log") report.Add("drop: srv.tun tab " + ModTab("srv.tun") + ", expected log");
+                verify("drop tab", "srv.tun", PgSettings);
+                // заголовок страницы = переименованный пункт меню
+                st.NavNames = "1:Xyz"; RebuildUi(); runs++;
+                if (!pages[1].Controls.OfType<Label>().Any(l => l.Text == "Xyz")) report.Add("rename: page title not renamed");
+                st.NavNames = "";
+                ResetLayoutState(); RebuildUi(); runs++;
                 // 3) экспорт / импорт настроек переносит раскладку (места модулей, свои вкладки, названия меню, ширины, Lock)
                 try
                 {
@@ -301,7 +325,7 @@ namespace NetProbe
                     var re = Settings.Load();
                     if (re.ModuleLoc != "srv.tun=p7;set.look=c1" || re.NavNames != "7:Logs X" || !re.UiLocked || re.DockW != 455 || re.CustomPages != "c1:Test tab")
                         report.Add("export/import lost layout: ModuleLoc='" + re.ModuleLoc + "' NavNames='" + re.NavNames + "' Lock=" + re.UiLocked + " DockW=" + re.DockW + " Pages='" + re.CustomPages + "'");
-                    st = re; RebuildUi();
+                    st.CopyFrom(re); RebuildUi();
                     if (PageOf("srv.tun") != 7 || PageOf("set.look") != PgSettings + 1) report.Add("after import: modules not where exported (srv.tun p" + PageOf("srv.tun") + ", set.look p" + PageOf("set.look") + ")");
                     if (navs.Count > 7 && navs[7].Text != "Logs X") report.Add("after import: menu name not applied: " + navs[7].Text);
                     st.UiLocked = false; CardPanel.Locked = false;
@@ -611,6 +635,7 @@ namespace NetProbe
                 p.ControlAdded += (s2, e2) => MakeSeeThrough(e2.Control);
                 MakeSeeThrough(docks[idx]); MakeSeeThrough(dockSplits[idx]); MakeSeeThrough(frames[idx].Scroll);
             }
+            if (idx <= PgSettings) title = NavName(idx, title); // переименованный пункт меню — и заголовок страницы
             var h = Ui.Label(title, Theme.H1); h.Location = new Point(Theme.S(26), Theme.S(18));
             var sub = Ui.Label(subtitle, Theme.Body, Theme.Muted); sub.Location = new Point(Theme.S(28), Theme.S(50));
             p.Controls.Add(h); p.Controls.Add(sub);

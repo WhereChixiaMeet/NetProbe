@@ -228,7 +228,7 @@ namespace NetProbe
             board.Controls.Add(cbRunMode);
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
+                int L = Theme.S(26), W = PW(p) - L * 2, gap = Theme.S(12); // кнопки сверху — по всей ширине окна, содержимое — левее колонки модулей
                 PlaceTopButtons(topRouting, p.ClientSize.Width - L, Theme.S(22));
                 int y = Theme.S(80);
                 board.SetBounds(L, y, W, Theme.S(84));

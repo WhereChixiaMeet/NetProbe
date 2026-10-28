@@ -120,7 +120,7 @@ namespace NetProbe
             p.Controls.AddRange(new Control[] { pc, lcfg, lDay, cbLogDay, chkLogPolls, chkErrOnly, chkRouteOnly, bClear, bSave, bFolder, lc });
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, y = Theme.S(86), gap = Theme.S(14);
+                int L = Theme.S(26), W = PW(p) - L * 2, y = Theme.S(86), gap = Theme.S(14);
                 int hw = (W - gap) / 2;
                 int ph = hw < Theme.S(470) ? Theme.S(190) : Theme.S(160);
                 pc.SetBounds(L, y, hw, ph);

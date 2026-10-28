@@ -728,7 +728,7 @@ namespace NetProbe
         void ReloadAll()
         {
             router.Disconnect(); xm.Disconnect();
-            st = Settings.Load();
+            st.CopyFrom(Settings.Load());
             Theme.AccentColor = Theme.ParseColor(st.Accent); Tr.Set(st.Lang); PushFonts(); Theme.Apply((ThemeKind)st.Theme);
             AppLists.ZapretLists = Path.Combine(st.ZapretPath, "lists");
             Logger.Dir = st.LogPath; Logger.Retention = st.Retention; Logger.ToFile = st.LogToFile;
@@ -742,7 +742,7 @@ namespace NetProbe
             n.Clamp();
             bool dpiChanged = n.ZapretDir != st.ZapretDir || n.GameTcp != st.GameTcp || n.GameUdp != st.GameUdp;
             bool themeChanged = n.Theme != st.Theme;
-            st = n; st.Save();
+            st.CopyFrom(n); st.Save();
             Logger.ToFile = st.LogToFile; Logger.Dir = st.LogPath; Logger.Retention = st.Retention;
             AppLists.ZapretLists = Path.Combine(st.ZapretPath, "lists");
             chart.Good = st.GoodMs; chart.Warn = st.WarnMs; chart.Invalidate();

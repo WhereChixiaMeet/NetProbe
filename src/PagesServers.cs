@@ -210,7 +210,7 @@ namespace NetProbe
             var rowBtns = new FlatButton[] { bImp, bSubs, btnUpdSub, bTest, bSpeed };
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12), sp = Theme.S(6);
+                int L = Theme.S(26), W = PW(p) - L * 2, gap = Theme.S(12), sp = Theme.S(6);
                 PlaceTopButtons(topSrv, p.ClientSize.Width - L, Theme.S(22));
                 int y = Theme.S(80);
                 xBoard.SetBounds(L, y, W, Theme.S(84));
@@ -241,8 +241,11 @@ namespace NetProbe
                 // вторая строка: вкладки подписок слева, поиск справа (над правой колонкой)
                 // правая колонка (модули): ширина тянется разделителем; модулей нет — таблица на всю ширину, поиск — справа от вкладок
                 bool rightOn = asBody.Controls.OfType<CardPanel>().Any();
-                int widest = asBody.Controls.OfType<CardPanel>().Select(c => c.Width).DefaultIfEmpty(0).Max() + Theme.S(16);
-                int rw = rightOn ? Math.Max(Math.Max(Theme.S(360), widest), Math.Min(W - Theme.S(420), Theme.S(st.SrvRightW))) : 0, lw = rightOn ? W - rw - gap : W;
+                // ширина колонки — по ИСХОДНОЙ ширине карточек (BaseW): растянутая ширина давала «разгон» колонки при каждой перекладке
+                int widest = asBody.Controls.OfType<CardPanel>().Select(c => c.BaseW).DefaultIfEmpty(0).Max() + Theme.S(16);
+                int rw = rightOn ? Math.Max(Math.Max(Theme.S(360), widest), Math.Min(W - Theme.S(420), Theme.S(st.SrvRightW))) : 0;
+                if (rightOn) rw = Math.Max(Theme.S(300), Math.Min(rw, W - Theme.S(420) - gap)); // таблица серверов не уже 420
+                int lw = rightOn ? W - rw - gap : W;
                 int sw = rightOn ? rw : Theme.S(240);
                 int tabsW = (rightOn ? lw : W - sw - gap) - bSortAll.Width - Theme.S(6);
                 srvTabs.SetBounds(L, y, tabsW, Theme.S(32));
@@ -253,11 +256,17 @@ namespace NetProbe
                 asHost.Visible = rightOn; srvSplit.Visible = rightOn;
                 if (rightOn)
                 {
-                    asHost.SetBounds(L + W - rw, y, rw, h); asHost.Relayout();
+                    asHost.SetBounds(L + W - rw, y, rw, h);
                     srvSplit.SetBounds(L + lw, y, gap, h);
-                    int cy2 = 0, cw2 = Math.Max(Theme.S(344), asBody.Width - Theme.S(2));
-                    foreach (var c in asBody.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey))) { c.SetBounds(0, cy2, cw2, c.Height); cy2 = c.Bottom + Theme.S(12); }
-                    asBody.Height = cy2; asHost.Relayout();
+                    var mods = asBody.Controls.OfType<CardPanel>().OrderBy(c => moduleKeys.IndexOf(c.ModuleKey)).ToList();
+                    // сначала высота (появится ли полоса прокрутки), потом ширина карточек по реальной ширине колонки
+                    asBody.Height = mods.Sum(c => c.Height + Theme.S(12)); asHost.MinContentWidth = 0; asHost.Relayout();
+                    int cy2 = 0;
+                    foreach (var c in mods) { c.SetBounds(0, cy2, Math.Max(c.BaseW, asBody.Width - Theme.S(2)), c.Height); cy2 = c.Bottom + Theme.S(12); }
+                    asBody.Height = cy2;
+                    int needW = mods.Select(c => c.Width + Theme.S(2)).DefaultIfEmpty(0).Max();
+                    if (needW > asBody.Width) asHost.MinContentWidth = needW; // карточка шире колонки — горизонтальная прокрутка, не обрезка
+                    asHost.Relayout();
                 }
             };
             relayServers = lay;

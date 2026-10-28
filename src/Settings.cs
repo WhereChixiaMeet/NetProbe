@@ -183,6 +183,8 @@ namespace NetProbe
         public int LastPage = 0;             // вкладка, открытая при выходе
         public int SideWidth = 214;
         public string SetTab = "look";       // открытая вкладка настроек
+        public string ModuleOrder = "";      // 3.2.1: порядок карточек (ключи через запятую) — перетаскивание внутри страницы
+        public string ModuleTabs = "";       // 3.2.1: вкладка Настроек, куда положили карточку: ключ=вкладка;…
         public string ModuleLoc = "";        // 3.2: где лежат карточки-модули: ключ=home|settings|c<N>;…
         public string CustomPages = "";      // свои вкладки: c1:Название;…
         public string NavNames = "";         // свои названия пунктов меню: индекс:Название;…
@@ -318,6 +320,9 @@ namespace NetProbe
         }
 
         public Settings Clone() { return (Settings)MemberwiseClone(); }
+        // перенести все значения в ЭТОТ объект: объект настроек один на всё приложение — фоновые потоки, взявшие его раньше,
+        // не сохранят потом устаревшую копию поверх новых значений (так «откатывались» шрифты и др. после перезапуска)
+        public void CopyFrom(Settings n) { foreach (var f in typeof(Settings).GetFields(BindingFlags.Public | BindingFlags.Instance)) f.SetValue(this, f.GetValue(n)); }
 
         static string Esc(string s) { return s.Replace("\\", "\\\\").Replace("\r", "").Replace("\n", "\\n"); }
         static string Unesc(string s)

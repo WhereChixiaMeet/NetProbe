@@ -106,7 +106,7 @@ namespace NetProbe
             p.Controls.AddRange(new Control[] { lSearch, tbTaskSearch, chkTasksAuto, chkTasksGroup, chkTasksNet, bRef, cbAddTarget, bAdd, bAddPath, bKill, lTasks, card });
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, y = Theme.S(86);
+                int L = Theme.S(26), W = PW(p) - L * 2, y = Theme.S(86);
                 lSearch.Location = new Point(L, y + Theme.S(4)); tbTaskSearch.Location = new Point(lSearch.Right + Theme.S(6), y + Theme.S(2));
                 chkTasksAuto.Location = new Point(tbTaskSearch.Right + Theme.S(18), y + Theme.S(4));
                 chkTasksGroup.Location = new Point(chkTasksAuto.Right + Theme.S(14), y + Theme.S(4));

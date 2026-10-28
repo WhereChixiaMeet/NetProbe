@@ -71,8 +71,8 @@ namespace NetProbe
             Action lay = () =>
             {
                 // сверху справа — общие кнопки «Маршрут · DPI · VPN»; управление монитором — строкой ниже
-                int L = Theme.S(26), T = Theme.S(126), W = p.ClientSize.Width - L * 2, gap = Theme.S(16), ry = Theme.S(80);
-                btnMon.Location = new Point(p.ClientSize.Width - L - btnMon.Width, ry);
+                int L = Theme.S(26), T = Theme.S(126), W = PW(p) - L * 2, gap = Theme.S(16), ry = Theme.S(80);
+                btnMon.Location = new Point(PW(p) - L - btnMon.Width, ry);
                 btnReset.Location = new Point(btnMon.Left - Theme.S(10) - btnReset.Width, ry);
                 monPeriod.Location = new Point(L, ry + (btnMon.Height - monPeriod.Height) / 2);
                 int cw = (W - gap) / 2, ch = Theme.S(200);
@@ -156,7 +156,7 @@ namespace NetProbe
             p.Controls.AddRange(new Control[] { flow, chkTVpn, chkTDir, prog, progLabel, gridCard, bCopy, bCsv, bHist, bClear });
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2;
+                int L = Theme.S(26), W = PW(p) - L * 2;
                 flow.SetBounds(L, Theme.S(86), W, Theme.S(90));
                 int fh = flow.Controls.Count > 0 ? flow.Controls[flow.Controls.Count - 1].Bottom + Theme.S(4) : Theme.S(42);
                 flow.Height = fh;
@@ -318,7 +318,7 @@ namespace NetProbe
             p.Controls.AddRange(new Control[] { btnSites, btnSitesStop, btnEdit, siteProg, siteLabel, card, bCsv });
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, y = Theme.S(86);
+                int L = Theme.S(26), W = PW(p) - L * 2, y = Theme.S(86);
                 btnSites.Location = new Point(L, y); btnSitesStop.Location = new Point(btnSites.Right + Theme.S(8), y); btnEdit.Location = new Point(btnSitesStop.Right + Theme.S(8), y);
                 y += Theme.S(46);
                 siteProg.SetBounds(L, y, W, Theme.S(4)); siteLabel.SetBounds(L, y + Theme.S(8), W, Theme.S(20));

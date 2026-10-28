@@ -159,7 +159,7 @@ namespace NetProbe
             p.Controls.AddRange(new Control[] { left, right });
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, H = p.ClientSize.Height - Theme.S(20), gap = Theme.S(14), ip = Theme.S(12);
+                int L = Theme.S(26), W = PW(p) - L * 2, H = p.ClientSize.Height - Theme.S(20), gap = Theme.S(14), ip = Theme.S(12);
                 int lw = Theme.S(260);
                 left.SetBounds(L, 0, lw, H);
                 int bx = lw - ip;

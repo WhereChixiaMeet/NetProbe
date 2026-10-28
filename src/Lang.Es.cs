@@ -7,6 +7,7 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "Тащи за заголовок: на пункт меню слева — на ту страницу, в колонке — поменять порядок. ПКМ по заголовку — меню.", "Arrastra por el título: sobre un elemento del menú lateral para moverla a esa página, dentro de la columna para cambiar el orden. Clic derecho en el título: menú." },
             { "Сбросить раскладку интерфейса", "Restablecer diseño de la interfaz" },
             { "Раскладка интерфейса сброшена: все карточки на своих местах", "Diseño restablecido: todas las tarjetas en su sitio" },
             { "Модули ниже", "Módulos abajo" },

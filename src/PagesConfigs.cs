@@ -20,7 +20,7 @@ namespace NetProbe
             var host = new Panel { BackColor = Theme.Bg };
             p.Controls.Add(host);
             BuildVpnPanel(host);
-            Action lay = () => host.SetBounds(0, Theme.S(84), p.ClientSize.Width, p.ClientSize.Height - Theme.S(84));
+            Action lay = () => host.SetBounds(0, Theme.S(84), PW(p), p.ClientSize.Height - Theme.S(84));
             p.Resize += (s, e) => lay(); lay();
         }
 
@@ -30,7 +30,7 @@ namespace NetProbe
             var host = new Panel { BackColor = Theme.Bg };
             p.Controls.Add(host);
             BuildDpiPanel(host);
-            Action lay = () => host.SetBounds(0, Theme.S(84), p.ClientSize.Width, p.ClientSize.Height - Theme.S(84));
+            Action lay = () => host.SetBounds(0, Theme.S(84), PW(p), p.ClientSize.Height - Theme.S(84));
             p.Resize += (s, e) => lay(); lay();
         }
 
@@ -73,7 +73,7 @@ namespace NetProbe
 
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, H = p.ClientSize.Height - Theme.S(20), gap = Theme.S(14), lw = Math.Max(Theme.S(200), Math.Min(Theme.S(260), W / 3)), ip = Theme.S(12);
+                int L = Theme.S(26), W = PW(p) - L * 2, H = p.ClientSize.Height - Theme.S(20), gap = Theme.S(14), lw = Math.Max(Theme.S(200), Math.Min(Theme.S(260), W / 3)), ip = Theme.S(12);
                 left.SetBounds(L, 0, lw, H);
                 int bx = lw - ip;
                 for (int i = leftBtns.Length - 1; i >= 0; i--) { bx -= leftBtns[i].Width; leftBtns[i].Location = new Point(bx, Theme.S(8)); bx -= Theme.S(3); }

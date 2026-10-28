@@ -7,6 +7,7 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "Тащи за заголовок: на пункт меню слева — на ту страницу, в колонке — поменять порядок. ПКМ по заголовку — меню.", "Drag by the title: onto a sidebar item to move it to that page, within the column to change the order. Right-click the title for the menu." },
             { "Сбросить раскладку интерфейса", "Reset interface layout" },
             { "Раскладка интерфейса сброшена: все карточки на своих местах", "Interface layout reset: all cards back in place" },
             { "Модули ниже", "Modules below" },

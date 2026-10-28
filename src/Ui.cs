@@ -412,7 +412,12 @@ namespace NetProbe
         public string ModuleKey;
         public event Action<CardPanel> ModuleMenu;
         public const string DragFormat = "NetProbe.Module";
-        Point downAt; bool canDrag;
+        // 3.2.1: своё перетаскивание (без OLE): карточка подсвечивается, за курсором едет её полупрозрачная копия,
+        // куда упадёт — показывает MainForm (линия вставки / подсвеченный пункт меню). Esc — отмена.
+        public static event Action<CardPanel, Point> DragStarted, DragMoved;
+        public static event Action<CardPanel, Point, bool> DragEnded; // точка на экране, cancelled
+        public bool DragSource { get { return dragging; } }
+        Point downAt; bool canDrag, dragging;
         public static bool Locked; // Lock interface — карточки не перетаскиваются
         bool TitleZone(Point p) { return ModuleKey != null && p.Y < Theme.S(40); }
         bool InTitle(Point p) { return !Locked && TitleZone(p); }
@@ -430,15 +435,28 @@ namespace NetProbe
         protected override void OnMouseMove(MouseEventArgs e)
         {
             base.OnMouseMove(e);
-            Cursor = InTitle(e.Location) ? Cursors.SizeAll : Cursors.Default;
+            if (!dragging) Cursor = InTitle(e.Location) ? Cursors.SizeAll : Cursors.Default;
+            if (dragging)
+            {
+                if ((GetAsyncKeyState(0x1B) & 0x8000) != 0) { EndDrag(true); return; } // Esc
+                var h = DragMoved; if (h != null) h(this, Cursor.Position);
+                return;
+            }
             if (canDrag && e.Button == MouseButtons.Left && (Math.Abs(e.X - downAt.X) > SystemInformation.DragSize.Width || Math.Abs(e.Y - downAt.Y) > SystemInformation.DragSize.Height))
             {
-                canDrag = false;
-                var d = new DataObject(); d.SetData(DragFormat, ModuleKey);
-                DoDragDrop(d, DragDropEffects.Move);
+                canDrag = false; dragging = true; Capture = true; Cursor = Cursors.SizeAll; Invalidate();
+                var h = DragStarted; if (h != null) h(this, downAt);
             }
         }
-        protected override void OnMouseUp(MouseEventArgs e) { canDrag = false; base.OnMouseUp(e); }
+        protected override void OnMouseUp(MouseEventArgs e) { canDrag = false; if (dragging) EndDrag(e.Button != MouseButtons.Left); base.OnMouseUp(e); }
+        protected override void OnMouseCaptureChanged(EventArgs e) { if (dragging && !Capture) EndDrag(true); base.OnMouseCaptureChanged(e); }
+        void EndDrag(bool cancel)
+        {
+            if (!dragging) return;
+            dragging = false; Capture = false; Invalidate(true);
+            var h = DragEnded; if (h != null) h(this, Cursor.Position, cancel);
+        }
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern short GetAsyncKeyState(int vk);
         // карточка шире, чем её строили: элементы у правого края едут вправо, широкие (списки, поля, подсказки) растягиваются
         int builtW;
         // исходная ширина карточки (до растягивания по колонке)
@@ -461,6 +479,8 @@ namespace NetProbe
             if (Theme.Classic) r = new RectangleF(0, 0, Width, Height);
             Gfx.Panel(g, r, Theme.R(10), Theme.Card);
             Skin.CardDecor(g, r);
+            // карточку тащат: акцентная рамка — видно, что именно переносится
+            if (dragging) using (var pen = new Pen(Theme.Accent, Theme.S(2)) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash }) g.DrawRectangle(pen, Theme.S(1), Theme.S(1), Width - Theme.S(3), Height - Theme.S(3));
             if (!string.IsNullOrEmpty(Title)) Gfx.Text(g, Title, Theme.H2, Theme.Text, new Rectangle(Theme.S(16), Theme.S(10), Width - Theme.S(32), Theme.S(24)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
             if (!string.IsNullOrEmpty(Sub)) Gfx.Text(g, Sub, Theme.Small, Theme.Muted, new Rectangle(Theme.S(16), Theme.S(34), Width - Theme.S(32), Theme.S(18)), TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         }
