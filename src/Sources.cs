@@ -42,6 +42,29 @@ namespace NetProbe
 
         bool AnyActive { get { return router.Active || xm.Active; } }
 
+        // движок VPN-канала для Монитора: подписка — тип сервера из xray (vless+reality …), туннель — протокол Primary VPN
+        string EngineText()
+        {
+            bool subs = xm.Active && !router.Active || !router.Active && ActiveSource() == Source.Subs;
+            if (subs)
+            {
+                var cur = ServerStore.Find(st.ActiveServer);
+                return cur != null ? cur.Transport.ToUpperInvariant().Replace("+", " · ") + " · xray" : "xray";
+            }
+            if (ActiveSource() == Source.None) return Tx("нет источника");
+            string t = router.Active && router.OnBackup ? st.BackupTunnel : st.PrimaryTunnel;
+            if (string.IsNullOrEmpty(t)) return Tx("туннель не выбран");
+            if (TunnelProto.IsXray(t)) { var e = TunnelProto.Load(t); return (e != null ? e.Transport.ToUpperInvariant().Replace("+", " · ") : TunnelProto.Names[TunnelProto.IndexOf(t)].ToUpperInvariant()) + " · xray TUN"; }
+            return "WIREGUARD · WireSock";
+        }
+
+        void UpdateEngineLabel()
+        {
+            if (cardVpn == null || cardVpn.IsDisposed || pVpn == null) return;
+            string s = EngineText() + "  ·  " + pVpn.Describe;
+            if (cardVpn.Sub != s) { cardVpn.Sub = s; cardVpn.Invalidate(); }
+        }
+
         // домены в списках приложений не работают только у WireGuard (WireSock); подписки и VLESS/VMess/Trojan идут через TUN (sing-box)
         bool DomainsGray() { return ActiveSource() == Source.Vpn && !TunnelProto.IsXray(st.PrimaryTunnel); }
 
@@ -239,6 +262,7 @@ namespace NetProbe
             }
             if (cbRunMode != null && !cbRunMode.IsDisposed && cbRunMode.SelectedIndex != st.Mode) cbRunMode.SelectedIndex = st.Mode;
             UpdateTopButtons();
+            UpdateEngineLabel();
             if (listCards != null) foreach (var lc in listCards) if (lc != null && !lc.IsDisposed) lc.Box.Invalidate(); // серые домены зависят от источника
             if (miModes != null) for (int i = 0; i < 3; i++) miModes[i].Checked = i == st.Mode;
             UpdateSide();

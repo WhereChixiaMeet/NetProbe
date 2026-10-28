@@ -7,6 +7,10 @@ namespace NetProbe
         // ключ — русская строка из кода, значение — английский текст
         static readonly Dictionary<string, string> En = new Dictionary<string, string>
         {
+            { "нет источника", "no source" },
+            { "туннель не выбран", "no tunnel selected" },
+            { "Обновить ядра", "Update cores" },
+            { "Вышли новые версии xray / sing-box — скачать и поставить", "New xray / sing-box versions are out — download and install" },
             { "Тяни мышкой · колёсико — размер · ПКМ — готово", "Drag · wheel — size · right-click — done" },
             { "Выбрать PNG…", "Choose PNG…" },
             { "Убрать", "Remove" },

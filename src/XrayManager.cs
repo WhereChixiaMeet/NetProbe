@@ -328,6 +328,12 @@ namespace NetProbe
                 lastAllDownTry = now;
                 failedAt.Clear();
                 if (cur != null && x.Running && Check(st) > 0) { Recovered(st, cur); return; }
+                // автосвитч выключен: на другой сервер не уходим — только перезапуск текущего, если xray упал
+                if (!st.AsEnabled)
+                {
+                    if (cur != null && !x.Running && StartOn(cur)) { Thread.Sleep(1500); if (Check(st) > 0) Recovered(st, cur); }
+                    return;
+                }
                 var next = Choose(st, null);
                 if (next != null && StartOn(next)) { Thread.Sleep(1500); if (Check(st) > 0) Recovered(st, next); }
                 return;

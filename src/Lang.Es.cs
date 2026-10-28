@@ -7,6 +7,10 @@ namespace NetProbe
         // Spanish translation of the NetProbe UI. Keys are the original Russian strings.
         static readonly Dictionary<string, string> Es = new Dictionary<string, string>
         {
+            { "нет источника", "sin fuente" },
+            { "туннель не выбран", "ningún túnel seleccionado" },
+            { "Обновить ядра", "Actualizar núcleos" },
+            { "Вышли новые версии xray / sing-box — скачать и поставить", "Hay nuevas versiones de xray / sing-box: descargar e instalar" },
             { "Тяни мышкой · колёсико — размер · ПКМ — готово", "Arrastra · rueda — tamaño · clic derecho — listo" },
             { "Выбрать PNG…", "Elegir PNG…" },
             { "Убрать", "Quitar" },

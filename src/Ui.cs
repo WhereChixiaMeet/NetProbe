@@ -160,6 +160,7 @@ namespace NetProbe
     {
         public bool Primary, Danger;
         public string Glyph;
+        public bool IconOnly; // узкое окно: только значок (текст остаётся в подсказке)
         bool hover, down;
 
         public FlatButton(string text, bool primary = false)
@@ -168,7 +169,7 @@ namespace NetProbe
             Size = new Size(Theme.S(120), Theme.S(32)); ForeColor = Theme.Text;
         }
 
-        public int PreferredW { get { return TextRenderer.MeasureText(Text, Font).Width + Theme.S(Glyph != null ? 50 : 30); } }
+        public int PreferredW { get { return IconOnly && Glyph != null ? Math.Max(Height, Theme.S(32)) : TextRenderer.MeasureText(Text, Font).Width + Theme.S(Glyph != null ? 50 : 30); } }
         public FlatButton AutoW() { Width = PreferredW; return this; }
 
         protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -207,7 +208,9 @@ namespace NetProbe
             }
             int off = Theme.Classic && down ? 1 : 0;
             var tr = new Rectangle(off, off, Width, Height);
-            if (Glyph != null)
+            if (Glyph != null && IconOnly)
+                Gfx.Text(g, Glyph, Theme.Icons, fg, tr, TextFormatFlags.VerticalCenter | TextFormatFlags.HorizontalCenter);
+            else if (Glyph != null)
             {
                 int tw = TextRenderer.MeasureText(Text, Font).Width + Theme.S(22);
                 int x0 = (Width - tw) / 2 + off;

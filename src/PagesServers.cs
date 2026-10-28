@@ -73,7 +73,7 @@ namespace NetProbe
             };
             var bSubs = new FlatButton(Tx("Подписки")) { Glyph = "" }.AutoW();
             bSubs.Click += (s, e) => { using (var d = new SubsDialog(CurSub() != null ? CurSub().Id : null)) d.ShowDialog(this); FillServers(); };
-            btnUpdSub = IconBtn("", Tx("Обновить подписки"), tt);
+            btnUpdSub = new FlatButton(Tx("Обновить")) { Glyph = "\uE72C" }.AutoW(); tt.SetToolTip(btnUpdSub, Tx("Обновить подписки"));
             btnUpdSub.Click += (s, e) => { var sub = CurSub(); UpdateSubs(sub != null ? new List<Subscription> { sub } : null); };
             var bTest = btnTest = new FlatButton(Tx("Замер")) { Glyph = "" };
             bTest.Width = Math.Max(bTest.PreferredW, StopW(bTest));
@@ -89,11 +89,15 @@ namespace NetProbe
             bDel.Click += (s, e) => { var sel = SelServers(); if (sel.Count > 0 && MessageBox.Show(this, Tx("Удалить серверов: ") + sel.Count + "?", "NetProbe", MessageBoxButtons.YesNo) == DialogResult.Yes) ServerStore.Remove(sel.Select(x => x.Id)); };
             tbSrvSearch = Ui.TextBox(); tbSrvSearch.Width = Theme.S(180); ((ThemedTextBox)tbSrvSearch).Cue = Tx("Поиск");
             tbSrvSearch.TextChanged += (s, e) => FillServers();
-            btnCore = new FlatButton(Tx("Ядро xray")) { Glyph = "" }.AutoW();
+            // ядра: кнопка «Установить …» видна, только пока ядро не установлено; «Обновить ядра» — только когда есть обновление
+            btnCore = new FlatButton(Tx("Установить xray")) { Glyph = "\uE896", Visible = false }.AutoW();
             btnCore.Click += (s, e) => CoreButton(true);
-            btnSb = new FlatButton("sing-box") { Glyph = "" }.AutoW();
+            btnSb = new FlatButton(Tx("Установить sing-box")) { Glyph = "\uE896", Visible = false }.AutoW();
+            btnCoresUpd = new FlatButton(Tx("Обновить ядра"), true) { Glyph = "\uE896", Visible = false }.AutoW();
+            btnCoresUpd.Click += (s, e) => UpdateCoresBoth();
             btnSb.Click += (s, e) => CoreButton(false);
             tt.SetToolTip(btnSb, Tx("Ядро TUN-режима (sing-box)"));
+            tt.SetToolTip(btnCoresUpd, Tx("Вышли новые версии xray / sing-box — скачать и поставить"));
             tt.SetToolTip(btnCore, Tx("Ядро xray"));
             lSrvInfo = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Bg, UseMnemonic = false, AutoEllipsis = true };
 
@@ -114,8 +118,8 @@ namespace NetProbe
             for (int i = 0; i < cols.Length; i++) srvGrid.Columns.Add(cols[i][0], cols[i][1]);
             srvGrid.AllowUserToOrderColumns = true;
             ApplySrvColumns();
-            srvGrid.ColumnWidthChanged += (s, e) => SaveSrvColumns();
-            srvGrid.ColumnDisplayIndexChanged += (s, e) => SaveSrvColumns();
+            srvGrid.ColumnWidthChanged += (s, e) => { ClampSrvColumn(e.Column); SaveSrvColumns(); };
+            srvGrid.ColumnDisplayIndexChanged += (s, e) => { if (!applyingCols && srvGrid.Columns["td"].DisplayIndex != srvGrid.Columns.Count - 1) BeginInvoke((Action)(() => { applyingCols = true; try { PinTotal(); } finally { applyingCols = false; } SaveSrvColumns(); })); else SaveSrvColumns(); };
             // GEO: флаг вместо кода страны (картинка с flagcdn, кэш в config\runtime\flags)
             srvGrid.CellPainting += (s, e) =>
             {
@@ -137,7 +141,8 @@ namespace NetProbe
                 hm.Show(srvGrid, srvGrid.PointToClient(Cursor.Position));
             };
             srvGrid.Columns["f"].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter; srvGrid.Columns["f"].DefaultCellStyle.ForeColor = Theme.Yellow;
-            foreach (var c in new[] { "p", "d", "sp", "td" }) srvGrid.Columns[c].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleRight;
+            // ГЕО, ПОРТ, ЗАДЕРЖКА, СКОРОСТЬ, ВСЕГО — по центру (и заголовки тоже)
+            foreach (var c in new[] { "cc", "p", "d", "sp", "td" }) { srvGrid.Columns[c].DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter; srvGrid.Columns[c].HeaderCell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter; }
             foreach (var c in new[] { "t", "a", "p", "g", "td" }) srvGrid.Columns[c].DefaultCellStyle.ForeColor = Theme.Muted;
             srvGrid.Columns["cc"].DefaultCellStyle.ForeColor = Theme.Text;
             srvGrid.CellDoubleClick += (s, e) => { if (e.RowIndex < 0) return; var x = srvGrid.Rows[e.RowIndex].Tag as ServerEntry; if (x != null) XConnect(x.Id); };
@@ -174,23 +179,41 @@ namespace NetProbe
             int ry = BuildSrvLists(asBody);
             BuildAutoSwitch(asBody, ry);
 
-                        p.Controls.AddRange(new Control[] { xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, srvTabs, lSrvInfo, gridCard, asHost });
+                        p.Controls.AddRange(new Control[] { xBoard, bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel, tbSrvSearch, btnCore, btnSb, btnCoresUpd, srvTabs, lSrvInfo, gridCard, asHost });
+            tt.SetToolTip(bImp, Tx("Из буфера")); tt.SetToolTip(bSubs, Tx("Подписки"));
+            var rowBtns = new FlatButton[] { bImp, bSubs, btnUpdSub, bTest, bSpeed };
             Action lay = () =>
             {
-                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12);
+                int L = Theme.S(26), W = p.ClientSize.Width - L * 2, gap = Theme.S(12), sp = Theme.S(6);
                 PlaceTopButtons(topSrv, p.ClientSize.Width - L, Theme.S(22));
                 int y = Theme.S(80);
                 xBoard.SetBounds(L, y, W, Theme.S(84));
                 y = xBoard.Bottom + gap;
+                // узкое окно: сначала прячется строка состояния, затем кнопки и ядра становятся значками (подписи — в подсказках)
+                // справа в строке кнопок — только нужные кнопки ядер (установить / обновить)
+                var cores = new[] { btnCoresUpd, btnCore, btnSb }.Where(b => b.Visible).ToList();
+                // по шагам: 0 — всё с подписями; 1 — ядра значками; 2 — + «Из буфера», «Подписки»; 3 — все значками
+                Func<int, int> need = stage =>
+                {
+                    foreach (var b in cores) b.IconOnly = stage >= 1;
+                    bImp.IconOnly = bSubs.IconOnly = stage >= 2;
+                    btnUpdSub.IconOnly = bTest.IconOnly = bSpeed.IconOnly = stage >= 3;
+                    foreach (var b in rowBtns.Concat(cores)) b.AutoW();
+                    int sum = rowBtns.Sum(b => b.Width + sp) + srcSwitch.Width + sp + bFav.Width + sp + bDel.Width;
+                    return sum + Theme.S(16) + cores.Sum(b => b.Width + sp);
+                };
+                for (int stg = 0; stg <= 3; stg++) if (need(stg) <= W || stg == 3) break;
                 int x = L;
-                foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel }) { b.Location = new Point(x, y + (b == srcSwitch ? (bImp.Height - srcSwitch.Height) / 2 : 0)); x = b.Right + Theme.S(6); }
-                // строка состояния — в свободном месте панели кнопок; ядра xray / sing-box — в строке вкладок (не мешают тумблеру источника)
-                lSrvInfo.SetBounds(x + Theme.S(8), y + (bImp.Height - Theme.S(18)) / 2, Math.Max(0, L + W - x - Theme.S(8)), Theme.S(18));
+                foreach (var b in new Control[] { bImp, bSubs, btnUpdSub, bTest, bSpeed, srcSwitch, bFav, bDel }) { b.Location = new Point(x, y + (bImp.Height - b.Height) / 2); x = b.Right + sp; }
+                int rx = L + W;
+                foreach (var b in cores) { b.Location = new Point(rx - b.Width, y); rx = b.Left - sp; }
+                int infoW = rx - Theme.S(4) - (x + Theme.S(4));
+                lSrvInfo.Visible = infoW > Theme.S(60);
+                lSrvInfo.SetBounds(x + Theme.S(4), y + (bImp.Height - Theme.S(18)) / 2, Math.Max(0, infoW), Theme.S(18));
                 y += bImp.Height + Theme.S(6);
-                int rw = Theme.S(360), lw = W - rw - gap;
-                btnCore.Location = new Point(L + lw - btnCore.Width, y);
-                btnSb.Location = new Point(btnCore.Left - Theme.S(6) - btnSb.Width, y);
-                srvTabs.SetBounds(L, y, Math.Max(Theme.S(120), btnSb.Left - L - Theme.S(8)), Theme.S(32));
+                // вторая строка: вкладки подписок слева, поиск справа (над правой колонкой)
+                int rw = Theme.S(360), lw = W - rw - gap; // правая колонка (автосвитч) — фиксированной ширины, чтобы поля не обрезались
+                srvTabs.SetBounds(L, y, lw, Theme.S(32));
                 tbSrvSearch.SetBounds(L + W - rw, y + (Theme.S(32) - tbSrvSearch.Height) / 2, rw, tbSrvSearch.Height); y += Theme.S(36);
                 int h = p.ClientSize.Height - Theme.S(18) - y;
                 gridCard.SetBounds(L, y, lw, h);
@@ -624,7 +647,28 @@ namespace NetProbe
         }
 
         Action relayServers;
-        string xrayLatest, sbLatest;
+        string xrayLatest, sbLatest; FlatButton btnCoresUpd;
+
+        // «Обновить ядра»: один раз отключиться, обновить то, что устарело (xray, sing-box), переподключиться
+        void UpdateCoresBoth()
+        {
+            string xc = Updater.XrayVersion(st), sc = Updater.SingBoxVersion(st);
+            bool ux = xc != "" && xrayLatest != null && xrayLatest.TrimStart('v') != xc.TrimStart('v');
+            bool us = sc != "" && sbLatest != null && sbLatest.TrimStart('v') != sc.TrimStart('v');
+            if (!ux && !us) { CheckUpdates(true); return; }
+            btnCoresUpd.Enabled = false;
+            bool was = xm.Active; string id = st.ActiveServer;
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                var res = new List<string>();
+                Action<string> status = m => { try { BeginInvoke((Action)(() => lSrvInfo.Text = m)); } catch { } };
+                try { if (was) xm.ShutdownSync(); } catch { }
+                if (ux) try { res.Add(Updater.UpdateXray(st, status)); } catch (Exception ex) { res.Add("xray: " + ex.Message); }
+                if (us) try { res.Add(Updater.UpdateSingBox(st, status)); } catch (Exception ex) { res.Add("sing-box: " + ex.Message); }
+                foreach (var r in res) Logger.Write(LogLevel.Info, r);
+                try { BeginInvoke((Action)(() => { btnCoresUpd.Enabled = true; lSrvInfo.Text = string.Join(" · ", res); CheckUpdates(true); if (was && File.Exists(XrayProcess.Exe(st))) { StartMonitoringIfProxy(); xm.Connect(id); } })); } catch { }
+            });
+        }
 
         void UpdateSingBoxUi(bool ask)
         {
@@ -651,17 +695,12 @@ namespace NetProbe
                 try { BeginInvoke((Action)(() =>
                 {
                     if (btnCore.IsDisposed) return;
-                    // не установлено — «Установить» со значком загрузки; установлено — версия и «проверить обновления»
                     bool supd = sv != "" && sbLatest != null && sbLatest.TrimStart('v') != sv.TrimStart('v');
-                    btnSb.Text = sv == "" ? Tx("Установить sing-box") : "sing-box " + sv + (supd ? " → " + sbLatest : "");
-                    btnSb.Glyph = sv == "" || supd ? "\uE896" : "\uE72C"; btnSb.Primary = supd;
-                    srvTip.SetToolTip(btnSb, sv == "" ? Tx("Ядро TUN-режима (sing-box)") : Tx("Проверить обновления sing-box"));
-                    btnSb.AutoW(); btnSb.Invalidate();
                     bool upd = v != "" && xrayLatest != null && xrayLatest.TrimStart('v') != v.TrimStart('v');
-                    btnCore.Text = v == "" ? Tx("Установить xray") : "xray " + v + (upd ? " → " + xrayLatest : "");
-                    btnCore.Glyph = v == "" || upd ? "\uE896" : "\uE72C"; btnCore.Primary = upd;
-                    srvTip.SetToolTip(btnCore, v == "" ? Tx("Скачать ядро xray с GitHub") : Tx("Проверить обновления xray"));
-                    btnCore.AutoW(); btnCore.Invalidate();
+                    btnCore.Visible = v == ""; btnSb.Visible = sv == "";
+                    btnCoresUpd.Visible = upd || supd;
+                    srvTip.SetToolTip(btnCoresUpd, (upd ? "xray " + v + " → " + xrayLatest : "") + (upd && supd ? "\r\n" : "") + (supd ? "sing-box " + sv + " → " + sbLatest : ""));
+                    srvTip.SetToolTip(btnCore, Tx("Скачать ядро xray с GitHub")); srvTip.SetToolTip(btnSb, Tx("Ядро TUN-режима (sing-box)"));
                     if (relayServers != null) relayServers();
                 })); } catch { }
             });
@@ -671,7 +710,7 @@ namespace NetProbe
         void CoreButton(bool xray)
         {
             string cur = xray ? Updater.XrayVersion(st) : Updater.SingBoxVersion(st);
-            if (cur == "") { if (xray) UpdateCore(true); else UpdateSingBoxUi(true); return; }
+            if (xray) UpdateCore(false); else UpdateSingBoxUi(false); return; // кнопка видна только пока ядро не установлено
             string name = xray ? "xray" : "sing-box";
             var b = xray ? btnCore : btnSb;
             b.Enabled = false;
@@ -742,8 +781,28 @@ namespace NetProbe
                 // порядок колонок
                 var order = SrvColNames.Select((n, i) => { string[] sv; int d; return Tuple.Create(n, saved.TryGetValue(n, out sv) && int.TryParse(sv[2], out d) ? d : i); }).OrderBy(t => t.Item2).ToList();
                 for (int k = 0; k < order.Count; k++) srvGrid.Columns[order[k].Item1].DisplayIndex = k;
+                PinTotal();
             }
             finally { applyingCols = false; }
+        }
+
+        // ВСЕГО ↓ всегда последняя и тянется до правого края: справа не бывает пустоты, и её нельзя увести за край таблицы
+        void PinTotal()
+        {
+            var td = srvGrid.Columns["td"];
+            if (td.DisplayIndex != srvGrid.Columns.Count - 1) td.DisplayIndex = srvGrid.Columns.Count - 1;
+            td.MinimumWidth = Theme.S(90);
+            td.AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+        }
+
+        // ширина остальных колонок не может вытолкнуть ВСЕГО ↓ за правый край
+        void ClampSrvColumn(DataGridViewColumn c)
+        {
+            if (applyingCols || c == null || c.Name == "td") return;
+            int room = srvGrid.ClientSize.Width - (srvGrid.Controls.OfType<VScrollBar>().Any(v => v.Visible) ? SystemInformation.VerticalScrollBarWidth : 0) - 2;
+            int others = srvGrid.Columns.Cast<DataGridViewColumn>().Where(x => x.Visible && x.Name != "td").Sum(x => x.Width);
+            int over = others + srvGrid.Columns["td"].MinimumWidth - room;
+            if (over > 0 && room > 0) { applyingCols = true; try { c.Width = Math.Max(c.MinimumWidth, c.Width - over); } finally { applyingCols = false; } }
         }
 
         void SaveSrvColumns()

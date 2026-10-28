@@ -62,7 +62,7 @@ namespace NetProbe
             };
             p.Controls.AddRange(new Control[] { bReset, bData, bExp, bImpAll, setHost });
 
-            int y = 0; int lw = Theme.S(300), cw = Theme.S(460);
+            int y = 0; int lw = Theme.S(270), cw = Theme.S(420); // влезает и в минимальное окно (1040 px)
             Action<string> section = t =>
             {
                 y += y == 0 ? 0 : Theme.S(18);

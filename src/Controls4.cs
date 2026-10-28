@@ -108,7 +108,7 @@ namespace NetProbe
         int val; public string Reason; // null = доступен
         public event Action<int> Picked;
         readonly ToolTip tip = Ui.Tip();
-        public SourceSwitch() { Size = new Size(Theme.S(230), Theme.S(30)); Cursor = Cursors.Hand; Font = Theme.Small; }
+        public SourceSwitch() { Size = new Size(Theme.S(150), Theme.S(32)); Cursor = Cursors.Hand; Font = Theme.Small; }
         public int Value { get { return val; } set { if (val != value) { val = value; Invalidate(); } } }
         public void SetReason(string r) { Reason = r; tip.SetToolTip(this, r ?? Tx("Активный источник: Primary VPN (туннели) или Subscriptions (xray). Приоритет всегда у Primary VPN")); Invalidate(); }
         protected override void OnMouseUp(MouseEventArgs e)
@@ -124,17 +124,18 @@ namespace NetProbe
         {
             var g = e.Graphics; Gfx.Backdrop(this, g); Gfx.Hq(g);
             bool en = Reason == null;
-            float rad = Theme.Classic ? 0 : (Height - 1) / 2f;
+            // в стиле остальных кнопок панели: та же высота и скругление, короткие подписи
+            float rad = Theme.Classic ? 0 : Theme.R(6);
             var r = new RectangleF(0.5f, 0.5f, Width - 1.5f, Height - 1.5f);
             Gfx.FillRound(g, Theme.CardHi, r, rad); Gfx.DrawRound(g, Theme.Border, r, rad);
-            float half = (Width - Theme.S(4)) / 2f;
-            var hi = new RectangleF(Theme.S(2) + val * half, Theme.S(2), half, Height - Theme.S(4) - 1);
-            Gfx.FillRound(g, en ? Theme.Accent : Theme.Mix(Theme.Border, Theme.CardHi, 0.3), hi, Theme.Classic ? 0 : hi.Height / 2f);
-            string[] t = { "Primary VPN", "Subscriptions" };
+            float half = (Width - Theme.S(6)) / 2f;
+            var hi = new RectangleF(Theme.S(3) + val * half, Theme.S(3), half, Height - Theme.S(6) - 1);
+            Gfx.FillRound(g, en ? Theme.Accent : Theme.Mix(Theme.Border, Theme.CardHi, 0.3), hi, Theme.Classic ? 0 : Math.Max(0, rad - Theme.S(2)));
+            string[] t = { "Primary", "Subs" };
             for (int i = 0; i < 2; i++)
             {
                 Color fg = !en ? Theme.Dim : i == val ? Theme.AccentFg : Theme.Muted;
-                Gfx.Text(g, t[i], Theme.Bold, fg, new Rectangle((int)(Theme.S(2) + i * half), 0, (int)half, Height), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                Gfx.Text(g, t[i], Theme.Bold, fg, new Rectangle((int)(Theme.S(3) + i * half), 0, (int)half, Height), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             }
         }
     }

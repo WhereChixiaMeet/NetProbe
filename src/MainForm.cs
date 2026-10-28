@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.0.6";
+        public const string Version = "3.0.7";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -149,6 +149,17 @@ namespace NetProbe
                     SelectPage(PgDpi); ShowDpiTab(2); shot(pre + "dpi-sites"); ShowDpiTab(0);
                     using (var bmp = new Bitmap(widget.Width, widget.Height)) { widget.DrawToBitmap(bmp, new Rectangle(0, 0, widget.Width, widget.Height)); bmp.Save(Path.Combine(ShotsDir, pre + "widget.png")); }
                 }
+                // минимальный размер окна: всё должно помещаться
+                var keepSize = Size; Theme.Apply(ThemeKind.Dark); st.Theme = 0; RebuildUi();
+                Size = MinimumSize;
+                foreach (int pg in new[] { PgConnect, PgServers, PgMonitor, PgSettings }) { SelectPage(pg); shot(Tr.Code + "-min-" + pg); }
+                Size = keepSize;
+                // своя картинка фона: нигде не должно быть чёрных прямоугольников
+                string bgTest = Path.Combine(ShotsDir, "_bg.png"), keepBg = st.BgImage;
+                using (var bb = new Bitmap(800, 500)) using (var gg = Graphics.FromImage(bb)) using (var lg = new System.Drawing.Drawing2D.LinearGradientBrush(new Rectangle(0, 0, 800, 500), Color.FromArgb(200, 60, 120), Color.FromArgb(40, 140, 220), 35f)) { gg.FillRectangle(lg, 0, 0, 800, 500); bb.Save(bgTest); }
+                st.BgImage = bgTest; ResetPageBackground(); RebuildUi();
+                for (int i = 0; i < pages.Count; i++) { SelectPage(i); shot(Tr.Code + "-bg-" + i); }
+                st.BgImage = keepBg; ResetPageBackground();
                 st.Theme = keep; ExitApp();
             };
             t.Start();
@@ -406,7 +417,7 @@ namespace NetProbe
             string bind = direct != null ? direct.Ip : null;
             if (st.DirectMode == 1) pDir = new PsProber { PingSource = bind };
             else pDir = new CurlProber { CurlPath = dirExe, ViaShell = false, BindIp = bind, NoProxy = true, PingSource = bind };
-            if (cardVpn != null) { cardVpn.Sub = pVpn.Describe; cardDir.Sub = pDir.Describe; cardVpn.Invalidate(); cardDir.Invalidate(); }
+            if (cardVpn != null) { cardVpn.Sub = pVpn.Describe; cardDir.Sub = pDir.Describe; cardVpn.Invalidate(); cardDir.Invalidate(); UpdateEngineLabel(); }
         }
 
         string MakeCurlCopy(string src, string name)
@@ -597,7 +608,7 @@ namespace NetProbe
             UpdateDpiState();
             UpdateTray();
             if (widget != null) { widget.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : ""; widget.Invalidate(); }
-            if (miniMon != null && !miniMon.IsDisposed) { miniMon.Header = router.Active ? Router.StateName(s).ToUpperInvariant() : xm.Active ? (XrayManager.StateName(xm.State) + " · XRAY").ToUpperInvariant() : ""; miniMon.Invalidate(); }
+            if (miniMon != null && !miniMon.IsDisposed) { miniMon.Header = ""; /* без статуса — только MONITOR */ miniMon.Invalidate(); }
         }
 
         void OnUiTick()
@@ -750,7 +761,10 @@ namespace NetProbe
         void MakeSeeThrough(Control c)
         {
             if (c is Label && (c.BackColor == Theme.Card || c.BackColor == Theme.Bg)) c.BackColor = Color.Transparent;
-            if (c is CardPanel || c is Panel && !(c is ScrollHost)) c.ControlAdded += (s, e) => MakeSeeThrough(e.Control);
+            // 3.0.7: панели-контейнеры (прокрутка Настроек, правая колонка Subscriptions, VPN/DPI-конфиги) — тоже прозрачные,
+            // иначе на своём фоне вместо картинки был чёрный прямоугольник
+            if (c is Panel && !(c is CardPanel) && c.BackColor == Theme.Bg) c.BackColor = Color.Transparent;
+            if (c is CardPanel || c is Panel) c.ControlAdded += (s, e) => MakeSeeThrough(e.Control);
             foreach (Control ch in c.Controls) MakeSeeThrough(ch);
         }
 

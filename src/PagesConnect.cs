@@ -233,15 +233,23 @@ namespace NetProbe
                 tgBackup.Location = new Point(cBack.Width - ip - tgBackup.Width, Theme.S(12));
                 cbBackup.SetBounds(ip, Theme.S(48), cBack.Width - ip * 2, cbBackup.Height);
                 y += ch + gap;
-                cFail.SetBounds(L, y, W, Theme.S(48));
-                int x = ip, cy = Theme.S(12);
+                // строка аварийного переключения; в узком окне переносится на вторую строку
+                int x = ip, cy = Theme.S(12), rowH = Theme.S(32), maxX = W - ip;
                 foreach (var pair in new[] { Tuple.Create((Control)lF, (Control)nFailover), Tuple.Create((Control)lR, (Control)nRecover), Tuple.Create((Control)lT, (Control)nRetry) })
                 {
+                    int need = pair.Item1.Width + Theme.S(6) + pair.Item2.Width;
+                    if (x > ip && x + need > maxX) { x = ip; cy += rowH; }
                     pair.Item1.Location = new Point(x, cy + Theme.S(3)); x = pair.Item1.Right + Theme.S(6);
                     pair.Item2.Location = new Point(x, cy); x = pair.Item2.Right + Theme.S(14);
                 }
-                foreach (var c in new Control[] { cKill, cDnsTun, cAutoConnect }) { c.Location = new Point(x, cy + Theme.S(2)); x = c.Right + Theme.S(10); }
-                y += Theme.S(48) + Theme.S(6);
+                foreach (var c in new Control[] { cKill, cDnsTun, cAutoConnect })
+                {
+                    if (x > ip && x + c.Width > maxX) { x = ip; cy += rowH; }
+                    c.Location = new Point(x, cy + Theme.S(2)); x = c.Right + Theme.S(10);
+                }
+                int failH = cy + Theme.S(36);
+                cFail.SetBounds(L, y, W, failH);
+                y += failH + Theme.S(6);
                 lRouteHint.SetBounds(L + Theme.S(2), y, W, Theme.S(18)); y += Theme.S(18) + Theme.S(6);
                 var vis = listCards.Where(c => c.Key != null || listCards.All(k => k.Key == null)).ToList();
                 int n = Math.Max(1, vis.Count), lw = (W - gap * (n - 1)) / n, lh = Math.Max(Theme.S(90), p.ClientSize.Height - Theme.S(18) - y);
