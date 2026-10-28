@@ -50,13 +50,13 @@ namespace NetProbe
             return (st.CustomPages ?? "").Split(';').Select(p => { int i = p.IndexOf(':'); return i > 0 ? new KeyValuePair<string, string>(p.Substring(0, i), p.Substring(i + 1)) : new KeyValuePair<string, string>("", ""); })
                 .Where(p => p.Key != "").ToList();
         }
-        int PageCount { get { return PgSettings + 1 + CustomPages().Count; } }
-        string LocOfPage(int idx) { return idx > PgSettings ? CustomPages()[idx - PgSettings - 1].Key : "p" + idx; }
+        int PageCount { get { return PgFirstCustom + CustomPages().Count; } }
+        string LocOfPage(int idx) { return idx >= PgFirstCustom ? CustomPages()[idx - PgFirstCustom].Key : "p" + idx; }
         int PageOfLoc(string loc)
         {
             if (loc == null) return -1;
-            if (loc.StartsWith("c")) { int i = CustomPages().FindIndex(p => p.Key == loc); return i < 0 ? -1 : PgSettings + 1 + i; }
-            int n; if (loc.StartsWith("p") && int.TryParse(loc.Substring(1), out n) && n >= 0 && n <= PgSettings) return n;
+            if (loc.StartsWith("c")) { int i = CustomPages().FindIndex(p => p.Key == loc); return i < 0 ? -1 : PgFirstCustom + i; }
+            int n; if (loc.StartsWith("p") && int.TryParse(loc.Substring(1), out n) && n >= 0 && n < PgFirstCustom) return n;
             if (loc == "settings") return PgSettings; // 3.2.0
             return -1;
         }
@@ -260,7 +260,8 @@ namespace NetProbe
             PageFrame f;
             if (page == PgServers && srvModBody != null && srvModBody.Parent != null && srvModBody.Parent.Visible) l.Add(srvModBody);
             else if (page == PgSettings && setBody != null) l.Add(setBody);
-            else if (page > PgSettings) { ScrollHost h; if (customHosts.TryGetValue(LocOfPage(page), out h)) l.Add(h.Content); }
+            else if (page == PgTg && tgBody != null) l.Add(tgBody);
+            else if (page >= PgFirstCustom) { ScrollHost h; if (customHosts.TryGetValue(LocOfPage(page), out h)) l.Add(h.Content); }
             else if (frames.TryGetValue(page, out f)) { if (f.DockOn) l.Add(f.Dock.Content); if (f.StripOn) l.Add(f.Strip); }
             return l;
         }
@@ -389,6 +390,7 @@ namespace NetProbe
             f.Split.MouseMove += (s, e) => { if (!drag) return; st.DockW = (int)Math.Round(Math.Max(1, w0 - (Cursor.Position.X - x0)) / Theme.Scale); LayFrame(f); };
             f.Split.MouseUp += (s, e) => { if (!drag) return; drag = false; f.Split.Capture = false; st.Save(); };
             f.Outer.Resize += (s, e) => LayFrame(f);
+            f.Outer.VisibleChanged += (s, e) => { if (f.Outer.Visible) LayFrame(f); };
             // модули под страницей — кнопка-подсказка внизу: «▼ Модули ниже» (прокручивает к ним); прокрутили — прячется
             f.More = new FlatButton(Tx("Модули ниже")) { Glyph = "\uE74B", Visible = false, Height = Theme.S(30) };
             f.More.Click += (s, e) => f.Scroll.ScrollTo(f.Strip.Top);
@@ -498,15 +500,17 @@ namespace NetProbe
                 // на Subscriptions все карточки — в её правую колонку (под автосвитч и т. п.), порядок — перетаскиванием
                 if (page == PgServers && srvModBody != null) target = srvModBody;
                 else if (page == PgSettings && setBody != null) target = setBody;
-                else if (page > PgSettings) { ScrollHost h; target = customHosts.TryGetValue(LocOfPage(page), out h) ? h.Content : null; }
+                else if (page == PgTg && tgBody != null) target = tgBody; // вкладка TG Proxy раскладывает свои карточки сама
+                else if (page >= PgFirstCustom) { ScrollHost h; target = customHosts.TryGetValue(LocOfPage(page), out h) ? h.Content : null; }
                 else { ScrollHost d; target = docks.TryGetValue(page, out d) ? d.Content : null; }
-                if (target == null) { page = moduleHome[key]; target = page == PgServers ? (Control)srvModBody : setBody; }
+                if (target == null) { page = moduleHome[key]; target = page == PgServers ? (Control)srvModBody : page == PgTg ? tgBody : setBody; }
                 if (c.Parent != target) { if (c.Parent != null) c.Parent.Controls.Remove(c); target.Controls.Add(c); }
                 c.Visible = true;
             }
             foreach (var fr in frames.Values) LayFrame(fr);
             foreach (var l in customLays.Values) l();
             if (relayServers != null) relayServers();
+            if (relayTg != null) relayTg();
             if (setTabs != null) FillSettingsTabs();
         }
 
@@ -516,12 +520,12 @@ namespace NetProbe
             if (LockedMenu()) return;
             var cm = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body };
             var cp = CustomPages();
-            bool custom = idx > PgSettings && idx - PgSettings - 1 < cp.Count;
+            bool custom = idx >= PgFirstCustom && idx - PgFirstCustom < cp.Count;
             cm.Items.Add(Tx("Переименовать…"), null, (s, e) =>
             {
                 string v = Prompt(Tx("Переименовать"), Tx("Название пункта меню:"), navs[idx].Text);
                 if (string.IsNullOrWhiteSpace(v)) return;
-                if (custom) { var l = CustomPages(); l[idx - PgSettings - 1] = new KeyValuePair<string, string>(l[idx - PgSettings - 1].Key, v); SaveCustomPages(l); }
+                if (custom) { var l = CustomPages(); l[idx - PgFirstCustom] = new KeyValuePair<string, string>(l[idx - PgFirstCustom].Key, v); SaveCustomPages(l); }
                 else { var m = Map(st.NavNames, ':'); m[idx.ToString()] = v; st.NavNames = Unmap(m, ':'); }
                 st.Save(); ApplyModules(curPage);
             });
@@ -532,7 +536,7 @@ namespace NetProbe
             if (custom)
                 cm.Items.Add(Tx("Удалить вкладку (карточки вернутся на место)"), null, (s, e) =>
                 {
-                    var l = CustomPages(); string id = l[idx - PgSettings - 1].Key; l.RemoveAt(idx - PgSettings - 1);
+                    var l = CustomPages(); string id = l[idx - PgFirstCustom].Key; l.RemoveAt(idx - PgFirstCustom);
                     var m = Map(st.ModuleLoc, '='); foreach (var k in m.Where(x => x.Value == id).Select(x => x.Key).ToList()) m.Remove(k); st.ModuleLoc = Unmap(m, '=');
                     SaveCustomPages(l); st.Save(); ApplyModules(PgServers);
                 });

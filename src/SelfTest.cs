@@ -73,6 +73,7 @@ namespace NetProbe
             var b64 = SubParse.Parse(Convert.ToBase64String(Encoding.UTF8.GetBytes(samples[0].Item2)));
             sb.AppendLine("--- sub base64: servers=" + b64.Servers.Count + " skipped=" + b64.SkippedText);
             sb.AppendLine("--- tunnels: " + string.Join(", ", Tunnels.Names().Select(n => n + (TunnelProto.IsXray(n) ? " [" + TunnelProto.Names[TunnelProto.IndexOf(n)] + "]" : " [WireGuard]"))));
+            TgSelfTest.Run(sb); // 3.3: TG Proxy — шифрование, рукопожатие, Fake TLS, кадры; онлайн — req_pq через каждый путь
         }
 
         // --speedtest <файл> [ссылки.txt]: диагностика замера задержки/скорости серверов (ничего не подключает, только тестовый xray на 127.0.0.1)

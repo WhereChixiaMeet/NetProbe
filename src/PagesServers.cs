@@ -319,8 +319,6 @@ namespace NetProbe
             srvTip.SetToolTip(tgTun, Tx("TUN: списки приложений вкладки Routing работают для всех программ (sing-box). Выкл — только системный прокси"));
             var note = Ui.Hint(Tx("Приложения (Include / «Строго VPN» / Exclude) — на вкладке Routing; для подписок они действуют в режиме TUN."), w - Theme.S(32));
             note.BackColor = Theme.Card;
-            var bGo = new FlatButton("Routing") { Glyph = "" }.AutoW();
-            bGo.Click += (s, e) => SelectPage(PgConnect);
             // 3.2: автоподключение к последнему серверу при запуске NetProbe
             // «Startup» — такой же тумблер, как у TUN; кнопка Routing — внизу карточки
             cXAutoTun = new Toggle { On = st.XrayAutoConnect };
@@ -329,7 +327,7 @@ namespace NetProbe
             var lStart = new Label { Text = "Startup", AutoSize = true, Font = Theme.H2, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
             var noteStart = Ui.Hint(Tx("Подключаться к последнему серверу при запуске"), w - Theme.S(32));
             noteStart.BackColor = Theme.Card;
-            card.Controls.AddRange(new Control[] { tgTun, note, cXAutoTun, lStart, noteStart, bGo });
+            card.Controls.AddRange(new Control[] { tgTun, note, cXAutoTun, lStart, noteStart });
             int ip = Theme.S(16);
             tgTun.Location = new Point(w - ip - tgTun.Width, Theme.S(12));
             note.Location = new Point(ip, Theme.S(44));
@@ -337,8 +335,7 @@ namespace NetProbe
             cXAutoTun.Location = new Point(w - ip - cXAutoTun.Width, sy);
             lStart.Location = new Point(ip - Theme.S(2), sy + (cXAutoTun.Height - lStart.PreferredHeight) / 2);
             noteStart.Location = new Point(ip, cXAutoTun.Bottom + Theme.S(6));
-            bGo.Location = new Point(ip, noteStart.Bottom + Theme.S(12));
-            card.SetBounds(0, 0, w, bGo.Bottom + Theme.S(14));
+            card.SetBounds(0, 0, w, noteStart.Bottom + Theme.S(14)); // кнопка перехода на Routing убрана — карточка и так переносится куда угодно
             body.Controls.Add(card);
             return card.Bottom + Theme.S(12);
         }

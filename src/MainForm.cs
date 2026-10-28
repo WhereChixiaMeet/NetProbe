@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.2.1";
+        public const string Version = "3.3.0";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -45,7 +45,9 @@ namespace NetProbe
         int curPage;
         bool monitoringWanted;
 
-        public const int PgConnect = 0, PgServers = 1, PgMonitor = 2, PgConfigs = 3, PgDpi = 4, PgTests = 5, PgSites = 6, PgLog = 7, PgSettings = 8, PgTasks = 99;
+        public const int PgConnect = 0, PgServers = 1, PgMonitor = 2, PgConfigs = 3, PgDpi = 4, PgTests = 5, PgSites = 6, PgLog = 7, PgSettings = 8, PgTg = 9, PgFirstCustom = 10, PgTasks = 99;
+        // порядок пунктов меню слева (индексы страниц не меняются — сохранённые места карточек и названия пунктов остаются верными)
+        IEnumerable<int> NavOrder() { yield return PgConnect; yield return PgServers; yield return PgTg; for (int i = PgMonitor; i <= PgSettings; i++) yield return i; for (int i = PgFirstCustom; i < navs.Count; i++) yield return i; }
 
         public MainForm(bool startMinimized)
         {
@@ -246,6 +248,8 @@ namespace NetProbe
                     {
                         if (Math.Abs(fr.Inner.Height - outer.ClientSize.Height) > 2) report.Add(tag + ": page content height " + fr.Inner.Height + " ≠ window " + outer.ClientSize.Height);
                         int effW = fr.Inner.Width - fr.Reserve;
+                        if (fr.DockOn && Math.Abs(fr.Dock.Height - (outer.ClientSize.Height - HeadH)) > 2) report.Add(tag + ": module column height " + fr.Dock.Height + " ≠ " + (outer.ClientSize.Height - HeadH));
+                        if (fr.DockOn && fr.Reserve != fr.Dock.Width + fr.Split.Width) report.Add(tag + ": content does not reserve the module column (" + fr.Reserve + ")");
                         if (fr.StripOn && fr.Scroll.Offset < Theme.S(40) && !fr.More.Visible) report.Add(tag + ": 'Modules below' button not shown");
                         if (effW < (fr.Dock.Visible ? ContentMin : Math.Min(ContentMin, outer.ClientSize.Width - Theme.S(14))) - Theme.S(16)) report.Add(tag + ": page content squeezed to w=" + effW);
                         // содержимое страницы не уходит под колонку модулей (шапка — может, она над колонкой)
@@ -297,6 +301,16 @@ namespace NetProbe
                 ResetLayoutState(); RebuildUi(); runs++; // ResetLayout перестраивает через BeginInvoke — в тесте синхронно, иначе перестройка посреди проверки
                 if (st.ModuleLoc != "" || st.ModuleOrder != "" || !st.UiLocked || !CardPanel.Locked) report.Add("reset: layout not reset");
                 foreach (var key in keys) verify("reset", key, moduleHome[key]);
+                // окно свернули и развернули (и запуск в трей): колонка модулей Routing по настоящему размеру
+                ShotStep("minimize restore");
+                st.ModuleLoc = "srv.tun=p0"; RebuildUi(); SelectPage(0); runs++;
+                WindowState = FormWindowState.Minimized; Application.DoEvents(); System.Threading.Thread.Sleep(200);
+                WindowState = FormWindowState.Normal; Application.DoEvents(); System.Threading.Thread.Sleep(200); Application.DoEvents();
+                verify("restore", "srv.tun", 0);
+                st.ModuleLoc = "srv.tun=p0"; Hide(); RebuildUi(); Show(); Application.DoEvents(); SelectPage(0); Application.DoEvents();
+                verify("hidden rebuild", "srv.tun", 0);
+                shot(Tr.Code + "-restore-p0");
+                st.ModuleLoc = "";
                 // перетаскивание внутри страницы: порядок и вкладка Настроек сохраняются и восстанавливаются
                 ShotStep("drop order");
                 DropModuleState("set.subs", PgServers, "srv.as", null); RebuildUi(); runs++;
@@ -327,7 +341,7 @@ namespace NetProbe
                     if (re.ModuleLoc != "srv.tun=p7;set.look=c1" || re.NavNames != "7:Logs X" || !re.UiLocked || re.DockW != 455 || re.CustomPages != "c1:Test tab")
                         report.Add("export/import lost layout: ModuleLoc='" + re.ModuleLoc + "' NavNames='" + re.NavNames + "' Lock=" + re.UiLocked + " DockW=" + re.DockW + " Pages='" + re.CustomPages + "'");
                     st.CopyFrom(re); RebuildUi();
-                    if (PageOf("srv.tun") != 7 || PageOf("set.look") != PgSettings + 1) report.Add("after import: modules not where exported (srv.tun p" + PageOf("srv.tun") + ", set.look p" + PageOf("set.look") + ")");
+                    if (PageOf("srv.tun") != 7 || PageOf("set.look") != PgFirstCustom) report.Add("after import: modules not where exported (srv.tun p" + PageOf("srv.tun") + ", set.look p" + PageOf("set.look") + ")");
                     if (navs.Count > 7 && navs[7].Text != "Logs X") report.Add("after import: menu name not applied: " + navs[7].Text);
                     st.UiLocked = false; CardPanel.Locked = false;
                 }
@@ -392,6 +406,7 @@ namespace NetProbe
                 if (st.XrayAutoConnect && last == null) Logger.Write(LogLevel.Info, Tx("Автоподключение к серверу: последний сервер не найден — подключись к нему один раз вручную"));
                 else if (last != null && src0 != Source.Subs) Logger.Write(LogLevel.Warn, Tx("Автоподключение к серверу пропущено: ") + (SubsBlockedReason() ?? ""));
             }
+            TgApply(); // TG Proxy: включён — поднимается вместе с NetProbe
             ScheduledUpdateCheck(true);
             updTimer.Tick += (s, e) => ScheduledUpdateCheck(false); updTimer.Start();
             appUpdTimer.Tick += (s, e) => { appUpdTimer.Stop(); if (st.CheckUpdates) CheckAppUpdate(false); else appUpdTimer.Start(); }; appUpdTimer.Start();
@@ -403,7 +418,7 @@ namespace NetProbe
             SuspendLayout();
             BackColor = Theme.Bg; ForeColor = Theme.Text; Font = Theme.Body;
             navs.Clear(); pages.Clear(); modules.Clear(); moduleKeys.Clear(); moduleHome.Clear(); moduleTab.Clear();
-            docks.Clear(); dockSplits.Clear(); pageOuter.Clear(); frames.Clear(); srvModBody = null;
+            docks.Clear(); dockSplits.Clear(); pageOuter.Clear(); frames.Clear(); srvModBody = null; tgBody = null; relayTg = null; innerFrame.Clear();
             CardPanel.Locked = st.UiLocked;
             BuildShell();
             BuildConnectPage();
@@ -415,11 +430,12 @@ namespace NetProbe
             BuildSitesPage();
             BuildLogPage();
             BuildSettingsPage();
+            BuildTgPage();
             BuildCustomPages();
             PlaceAllModules();
             if (curPage >= pages.Count && curPage != PgTasks) curPage = 0;
             // кнопки «Маршрут · DPI · VPN» сверху на всех вкладках, кроме Настроек (Routing и Subscriptions ставят их сами)
-            foreach (int pi in new[] { PgMonitor, PgConfigs, PgDpi, PgTests, PgSites, PgLog })
+            foreach (int pi in new[] { PgMonitor, PgConfigs, PgDpi, PgTests, PgSites, PgLog, PgTg })
             {
                 var pg = pages[pi]; var tb = NewTopButtons(pg, null);
                 Action place = () => PlaceTopButtons(tb, pg.ClientSize.Width - Theme.S(26), Theme.S(22));
@@ -517,7 +533,7 @@ namespace NetProbe
             };
             string[][] items = {
                 new[] { "", Tx("Маршрутизация") }, new[] { "\uE753", Tx("Подписки") }, new[] { "", Tx("Мониторинг") },
-                new[] { "", Tx("VPN-конфиги") }, new[] { "\uEA18", Tx("DPI-конфиги") }, new[] { "", Tx("Тесты") }, new[] { "", Tx("Сайты") }, new[] { "", Tx("Лог и опрос") }, new[] { "", Tx("Настройки") } };
+                new[] { "", Tx("VPN-конфиги") }, new[] { "\uEA18", Tx("DPI-конфиги") }, new[] { "", Tx("Тесты") }, new[] { "", Tx("Сайты") }, new[] { "", Tx("Лог и опрос") }, new[] { "", Tx("Настройки") }, new[] { "\uE8BD", "TG Proxy" } };
             btnAppUpd = new FlatButton(Tx("Обновить NetProbe"), true) { Glyph = "\uE896", Visible = false, Height = Theme.S(30) };
             btnAppUpd.SetBounds(Theme.S(16), Theme.S(70), side.Width - Theme.S(34), Theme.S(30));
             btnAppUpd.Click += (s, e) => DoAppUpdate();
@@ -554,7 +570,7 @@ namespace NetProbe
             {
                 sideStatus.SetBounds(Theme.S(20), side.Height - Theme.S(96), side.Width - Theme.S(30), Theme.S(82));
                 miniMon.SetBounds(Theme.S(12), sideStatus.Top - Theme.S(4) - miniMon.Height, side.Width - Theme.S(26), miniMon.Height);
-                int navBottom = navs.Count > 0 ? navs[navs.Count - 1].Bottom : 0;
+                int navBottom = navs.Count > 0 ? navs.Max(n => n.Bottom) : 0;
                 miniMon.Visible = miniMon.Any && miniMon.Top > navBottom + Theme.S(8); // мало места по высоте — не налезаем на меню; показывать нечего — нет окошка
             };
             side.Resize += (s, e) => laySide(); laySide();
@@ -636,7 +652,7 @@ namespace NetProbe
                 p.ControlAdded += (s2, e2) => MakeSeeThrough(e2.Control);
                 MakeSeeThrough(docks[idx]); MakeSeeThrough(dockSplits[idx]); MakeSeeThrough(frames[idx].Scroll);
             }
-            if (idx <= PgSettings) title = NavName(idx, title); // переименованный пункт меню — и заголовок страницы
+            if (idx < PgFirstCustom) title = NavName(idx, title); // переименованный пункт меню — и заголовок страницы
             var h = Ui.Label(title, Theme.H1); h.Location = new Point(Theme.S(26), Theme.S(18));
             var sub = Ui.Label(subtitle, Theme.Body, Theme.Muted); sub.Location = new Point(Theme.S(28), Theme.S(50));
             p.Controls.Add(h); p.Controls.Add(sub);
@@ -655,7 +671,9 @@ namespace NetProbe
             if (i == PgConnect) LoadConnectUi();
             if (i == PgLog) FillLogDays();
             if (i == PgServers) { FillServers(); UpdateCoreLabel(); }
-            PageFrame pf; if (frames.TryGetValue(i, out pf)) PlaceMore(pf); // «Модули ниже» — когда страница уже видна
+            // страница стала видна — переложить колонку модулей под её настоящий размер (пока страница скрыта, размер мог быть устаревшим:
+            // окно свёрнуто / в трее при запуске → колонка оставалась низкой и обрезала карточку)
+            PageFrame pf; if (frames.TryGetValue(i, out pf)) { LayFrame(pf); PlaceMore(pf); }
         }
 
         // ================= Adapters / probers =================
@@ -1267,12 +1285,13 @@ namespace NetProbe
             if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
             Activate(); Native.SetForegroundWindow(Handle);
             ApplyWidgetVisibility();
+            PageFrame pf; if (frames.TryGetValue(curPage, out pf)) LayFrame(pf); // из трея — колонка модулей по настоящему размеру окна
         }
 
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
-            if (WindowState != lastWinState) { lastWinState = WindowState; if (WindowState != FormWindowState.Minimized && IsHandleCreated) BeginInvoke((Action)SaveWindowBounds); }
+            if (WindowState != lastWinState) { lastWinState = WindowState; if (WindowState != FormWindowState.Minimized && IsHandleCreated) BeginInvoke((Action)(() => { SaveWindowBounds(); PageFrame pf; if (frames.TryGetValue(curPage, out pf)) LayFrame(pf); })); }
             if (WindowState == FormWindowState.Minimized && st != null && st.MinimizeToTray && !hiddenToTray && Visible && !rebuilding)
                 BeginInvoke((Action)(() => HideToTray(false)));
         }
@@ -1292,6 +1311,7 @@ namespace NetProbe
                 try { router.ShutdownSync(); } catch { }
                 try { xm.ShutdownSync(); } catch { }
             }
+            try { TgProxy.Stop(); } catch { }
             try { tray.Visible = false; tray.Dispose(); } catch { }
             base.OnFormClosing(e);
         }
@@ -1310,7 +1330,7 @@ namespace NetProbe
             if (show && btnAppUpd.Enabled) btnAppUpd.Text = Tx("Обновить до ") + appRelease.Tag; // во время загрузки там статус
             if (btnRestart != null) { btnRestart.Visible = NeedsManualRestart && !show; if (btnRestart.Visible) show = true; }
             int y = Theme.S(show ? 112 : 80);
-            foreach (var nb in navs) { nb.Top = y; y += nb.Height + Theme.S(1); }
+            foreach (int i in NavOrder()) { if (i >= navs.Count) continue; var nb = navs[i]; nb.Top = y; y += nb.Height + Theme.S(1); }
         }
 
         void CheckAppUpdate(bool manual)

@@ -417,8 +417,8 @@ namespace NetProbe
             var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu); cRu.CheckedChanged += (s, e) => { if (loadingSettings) return; st.BypassRu = cRu.Checked; st.Save(); xm.Reapply(); };
             var cAds = Ui.Check(Tx("Блокировать рекламу"), st.BlockAds); cAds.CheckedChanged += (s, e) => { if (loadingSettings) return; st.BlockAds = cAds.Checked; st.Save(); xm.Reapply(); };
             var cLan = Ui.Check(Tx("Разрешить подключения из LAN"), st.AllowLan); cLan.CheckedChanged += (s, e) => { if (loadingSettings) return; st.AllowLan = cLan.Checked; st.Save(); xm.Reapply(); };
-            var cXAuto = Ui.Check(Tx("Подключаться при запуске"), st.XrayAutoConnect); cXAuto.CheckedChanged += (s, e) => { if (loadingSettings) return; st.XrayAutoConnect = cXAuto.Checked; st.Save(); };
-            foreach (var c in new[] { cSys, cRu, cAds, cLan, cXAuto }) check(c);
+            // «подключаться при запуске» — только тумблер Startup на карточке TUN (дубль убран)
+            foreach (var c in new[] { cSys, cRu, cAds, cLan }) check(c);
             y += Theme.S(4);
             var nSocks = Ui.Num(1024, 65000, st.SocksPort); nSocks.ValueChanged += (s, e) => { if (loadingSettings) return; st.SocksPort = (int)nSocks.Value; st.Save(); xm.Reapply(); };
             var nHttp = Ui.Num(1024, 65000, st.HttpPort); nHttp.ValueChanged += (s, e) => { if (loadingSettings) return; st.HttpPort = (int)nHttp.Value; st.Save(); xm.Reapply(); };
@@ -442,7 +442,7 @@ namespace NetProbe
             row(Tx("Замер скорости, с"), nSpdSec, null);
             loadProxyUi = () =>
             {
-                cSys.Checked = st.SysProxy; cRu.Checked = st.BypassRu; cAds.Checked = st.BlockAds; cLan.Checked = st.AllowLan; cXAuto.Checked = st.XrayAutoConnect;
+                cSys.Checked = st.SysProxy; cRu.Checked = st.BypassRu; cAds.Checked = st.BlockAds; cLan.Checked = st.AllowLan;
                 nSocks.Value = Math.Max(1024, Math.Min(65000, st.SocksPort)); nHttp.Value = Math.Max(1024, Math.Min(65000, st.HttpPort));
                 tbTestUrl.Text = st.TestUrl; tbSpeedUrl.Text = st.SpeedUrl; nSpdSec.Value = Math.Max(3, Math.Min(60, st.SpeedSec));
             };

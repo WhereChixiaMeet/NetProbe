@@ -183,6 +183,13 @@ namespace NetProbe
         public int LastPage = 0;             // вкладка, открытая при выходе
         public int SideWidth = 214;
         public string SetTab = "look";       // открытая вкладка настроек
+        // 3.3: TG Proxy — локальный MTProto-прокси для Telegram Desktop (перенос tg-ws-proxy)
+        public bool TgOn = false;                 // включён (запускается вместе с NetProbe)
+        public string TgHost = "127.0.0.1"; public int TgPort = 1443; public string TgSecret = "";
+        public string TgDcIp = "2:149.154.167.220, 4:149.154.167.220";
+        public bool TgVerbose = false; public int TgBufKb = 256, TgPool = 4;
+        public bool TgCf = true, TgH2 = true, TgCfUserOn = false, TgWorkerOn = false, TgTestDc = false, TgNoSecure = false, TgProxyProto = false;
+        public string TgCfUser = "", TgWorker = "", TgFakeTls = "";
         public string ModuleOrder = "";      // 3.2.1: порядок карточек (ключи через запятую) — перетаскивание внутри страницы
         public string ModuleTabs = "";       // 3.2.1: вкладка Настроек, куда положили карточку: ключ=вкладка;…
         public string ModuleLoc = "";        // 3.2: где лежат карточки-модули: ключ=home|settings|c<N>;…
@@ -273,6 +280,9 @@ namespace NetProbe
         public void Clamp()
         {
             SideWidth = Math.Max(150, Math.Min(380, SideWidth));
+            TgPort = Math.Max(1, Math.Min(65535, TgPort)); TgBufKb = Math.Max(4, Math.Min(4096, TgBufKb)); TgPool = Math.Max(0, Math.Min(32, TgPool));
+            if (!TgConst.ValidSecret(TgSecret)) TgSecret = TgConst.NewSecret(); // секрет создаётся один раз и хранится
+            if (string.IsNullOrWhiteSpace(TgHost)) TgHost = "127.0.0.1";
             FontBtnSize = Math.Max(7, Math.Min(14, FontBtnSize)); FontMedSize = Math.Max(7, Math.Min(14, FontMedSize));
             FontSmallSize = Math.Max(6, Math.Min(12, FontSmallSize)); FontLargeSize = Math.Max(8, Math.Min(20, FontLargeSize));
             if (!LockDefault321) { LockDefault321 = true; UiLocked = true; }
