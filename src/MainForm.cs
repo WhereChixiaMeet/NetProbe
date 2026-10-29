@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.3.7";
+        public const string Version = "3.3.8";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
