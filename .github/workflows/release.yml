@@ -1,10 +1,15 @@
-# Build NetProbe.exe on Windows and publish a GitHub release when a vX.Y.Z tag is pushed.
-# Release text: docs/releases/<tag>.md — first line is the release title, the rest is the description.
+# Build NetProbe.exe on Windows and publish a GitHub release.
+# Runs when docs/releases/*.md changes on main (or by hand from the Actions tab).
+# Tag = "v" + MainForm.Version; release text = docs/releases/<tag>.md
+# (first line is the release title, the rest is the description).
+# If the release for that version already exists, nothing is published.
 name: Release
 
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['docs/releases/*.md', '.github/workflows/release.yml']
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,24 +20,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build
-        shell: cmd
-        run: call src\build.cmd
-
-      - name: Check build output and version
-        shell: bash
-        run: |
-          test -f NetProbe.exe || { echo "NetProbe.exe was not built"; exit 1; }
-          v=$(grep -oP 'Version = "\K[0-9.]+' src/MainForm.cs)
-          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "MainForm.Version $v does not match tag $GITHUB_REF_NAME"; exit 1; }
-
-      - name: Publish release
+      - name: Find version
+        id: ver
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          notes="docs/releases/$GITHUB_REF_NAME.md"
-          test -f "$notes" || { echo "Missing $notes"; exit 1; }
+          v=$(grep -oP 'Version = "\K[0-9.]+' src/MainForm.cs)
+          tag="v$v"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists, skipping"; echo "skip=1" >> "$GITHUB_OUTPUT"
+          elif [ ! -f "docs/releases/$tag.md" ]; then
+            echo "No docs/releases/$tag.md, skipping"; echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        if: steps.ver.outputs.skip != '1'
+        shell: cmd
+        run: call src\build.cmd
+
+      - name: Publish release
+        if: steps.ver.outputs.skip != '1'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+        run: |
+          test -f NetProbe.exe || { echo "NetProbe.exe was not built"; exit 1; }
+          notes="docs/releases/$TAG.md"
           title=$(head -n 1 "$notes")
           tail -n +2 "$notes" > body.md
-          gh release create "$GITHUB_REF_NAME" NetProbe.exe --title "$title" --notes-file body.md
+          gh release create "$TAG" NetProbe.exe --target "$GITHUB_SHA" --title "$title" --notes-file body.md
