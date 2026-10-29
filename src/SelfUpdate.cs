@@ -16,7 +16,7 @@ namespace NetProbe
     // обновление NetProbe их не останавливает, а новая версия запускается с --updated и подхватывает их (handoff.ini).
     public static class SelfUpdate
     {
-        public const string Repo = "WhereChixiaMeet/NetProbe";
+        public const string Repo = "WhereChixiaMeet/RouteX"; // бывший NetProbe: GitHub перенаправляет старое имя
         static string HandoffFile { get { return Path.Combine(Settings.Sub("runtime"), "handoff.ini"); } }
 
         public static bool Newer(string tag)
@@ -27,7 +27,7 @@ namespace NetProbe
 
         public static Updater.Release Latest()
         {
-            return Updater.Latest(Repo, n => n.Equals("NetProbe.exe", StringComparison.OrdinalIgnoreCase) || (n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && n.IndexOf("source", StringComparison.OrdinalIgnoreCase) < 0 && n.IndexOf("src", StringComparison.OrdinalIgnoreCase) < 0));
+            return Updater.Latest(Repo, n => n.Equals("RouteX.exe", StringComparison.OrdinalIgnoreCase) || (n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && n.IndexOf("source", StringComparison.OrdinalIgnoreCase) < 0 && n.IndexOf("src", StringComparison.OrdinalIgnoreCase) < 0));
         }
 
         // Скачивает новую версию, возвращает путь к новому NetProbe.exe
@@ -46,8 +46,8 @@ namespace NetProbe
             {
                 string ex = Path.Combine(dir, "x");
                 ZipFile.ExtractToDirectory(file, ex);
-                var exe = Directory.GetFiles(ex, "NetProbe.exe", SearchOption.AllDirectories).FirstOrDefault();
-                if (exe == null) throw new Exception(Tx("В архиве релиза нет NetProbe.exe"));
+                var exe = Directory.GetFiles(ex, "RouteX.exe", SearchOption.AllDirectories).FirstOrDefault();
+                if (exe == null) throw new Exception(Tx("В архиве релиза нет RouteX.exe"));
                 return exe;
             }
             return file;

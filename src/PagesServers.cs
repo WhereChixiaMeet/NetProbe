@@ -87,7 +87,7 @@ namespace NetProbe
             var bFav = IconBtn("", Tx("Избранное"), tt);
             bFav.Click += (s, e) => ToggleFav();
             var bDel = IconBtn("", Tx("Удалить"), tt);
-            bDel.Click += (s, e) => { var sel = SelServers(); if (sel.Count > 0 && MessageBox.Show(this, Tx("Удалить серверов: ") + sel.Count + "?", "NetProbe", MessageBoxButtons.YesNo) == DialogResult.Yes) ServerStore.Remove(sel.Select(x => x.Id)); };
+            bDel.Click += (s, e) => { var sel = SelServers(); if (sel.Count > 0 && MessageBox.Show(this, Tx("Удалить серверов: ") + sel.Count + "?", "RouteX", MessageBoxButtons.YesNo) == DialogResult.Yes) ServerStore.Remove(sel.Select(x => x.Id)); };
             tbSrvSearch = Ui.TextBox(); tbSrvSearch.Width = Theme.S(180); ((ThemedTextBox)tbSrvSearch).Cue = Tx("Поиск");
             tbSrvSearch.TextChanged += (s, e) => FillServers();
             // ядра: кнопка «Установить …» видна, только пока ядро не установлено; «Обновить ядра» — только когда есть обновление
@@ -318,11 +318,11 @@ namespace NetProbe
             srvTip.SetToolTip(tgTun, Tx("TUN: списки приложений вкладки Routing работают для всех программ (sing-box). Выкл — только системный прокси"));
             cXAutoTun = new Toggle { On = st.XrayAutoConnect };
             cXAutoTun.Changed += (s, e) => { st.XrayAutoConnect = cXAutoTun.On; st.Save(); };
-            srvTip.SetToolTip(cXAutoTun, Tx("При запуске NetProbe подключается к серверу, к которому был подключён последним"));
+            srvTip.SetToolTip(cXAutoTun, Tx("При запуске RouteX подключается к серверу, к которому был подключён последним"));
             var lTun = new Label { Text = "TUN", AutoSize = true, Font = Theme.Bold, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
             var lStart = new Label { Text = "Startup", AutoSize = true, Font = Theme.Bold, ForeColor = Theme.Text, BackColor = Theme.Card, UseMnemonic = false };
             srvTip.SetToolTip(lTun, Tx("TUN: списки приложений вкладки Routing работают для всех программ (sing-box). Выкл — только системный прокси"));
-            srvTip.SetToolTip(lStart, Tx("При запуске NetProbe подключается к серверу, к которому был подключён последним"));
+            srvTip.SetToolTip(lStart, Tx("При запуске RouteX подключается к серверу, к которому был подключён последним"));
             lTun.Click += (s, e) => tgTun.On = !tgTun.On; lStart.Click += (s, e) => cXAutoTun.On = !cXAutoTun.On;
             lTun.Cursor = lStart.Cursor = Cursors.Hand;
             xBoard.Controls.AddRange(new Control[] { lTun, tgTun, lStart, cXAutoTun });
@@ -520,7 +520,7 @@ namespace NetProbe
             if (sub != null)
                 cm.Items.Add(Tx("Удалить подписку"), null, (s, e) =>
                 {
-                    if (MessageBox.Show(this, Tx("Удалить подписку «") + sub.Name + Tx("» и её серверы?"), "NetProbe", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
+                    if (MessageBox.Show(this, Tx("Удалить подписку «") + sub.Name + Tx("» и её серверы?"), "RouteX", MessageBoxButtons.YesNo) != DialogResult.Yes) return;
                     ServerStore.Subs.Remove(sub); ServerStore.Remove(ServerStore.OfGroup(sub.Id).Select(x => x.Id));
                 });
             return cm;
@@ -742,7 +742,7 @@ namespace NetProbe
         void UpdateCore(bool ask)
         {
             string cur = Updater.XrayVersion(st);
-            if (ask && MessageBox.Show(this, (cur == "" ? Tx("Ядро xray не установлено.") : "xray " + cur + ".") + "\r\n" + Tx("Скачать последнюю версию с GitHub (XTLS/Xray-core)?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) { pendingXConnect = null; return; }
+            if (ask && MessageBox.Show(this, (cur == "" ? Tx("Ядро xray не установлено.") : "xray " + cur + ".") + "\r\n" + Tx("Скачать последнюю версию с GitHub (XTLS/Xray-core)?"), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) { pendingXConnect = null; return; }
             btnCore.Enabled = false;
             bool was = xm.Active; string id = pendingXConnect ?? st.ActiveServer; bool connect = was || pendingXConnect != null; pendingXConnect = null;
             ThreadPool.QueueUserWorkItem(_ =>
@@ -786,7 +786,7 @@ namespace NetProbe
         void UpdateSingBoxUi(bool ask)
         {
             string cur = Updater.SingBoxVersion(st);
-            if (ask && MessageBox.Show(this, (cur == "" ? Tx("Ядро TUN (sing-box) не установлено.") : "sing-box " + cur + ".") + "\r\n" + Tx("Скачать последнюю версию с GitHub (SagerNet/sing-box)?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (ask && MessageBox.Show(this, (cur == "" ? Tx("Ядро TUN (sing-box) не установлено.") : "sing-box " + cur + ".") + "\r\n" + Tx("Скачать последнюю версию с GitHub (SagerNet/sing-box)?"), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             btnSb.Enabled = false;
             bool was = xm.Active; string id = st.ActiveServer;
             ThreadPool.QueueUserWorkItem(_ =>
@@ -843,7 +843,7 @@ namespace NetProbe
                         UpdateCoreLabel();
                         if (lat.TrimStart('v') == cur.TrimStart('v')) { lSrvInfo.Text = name + " " + cur + " — " + Tx("последняя версия"); return; }
                         lSrvInfo.Text = name + ": " + Tx("доступна ") + lat;
-                        if (MessageBox.Show(this, name + " " + cur + " → " + lat + "\r\n" + Tx("Скачать и установить новую версию?"), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                        if (MessageBox.Show(this, name + " " + cur + " → " + lat + "\r\n" + Tx("Скачать и установить новую версию?"), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
                         { if (xray) UpdateCore(false); else UpdateSingBoxUi(false); }
                     }));
                 }
@@ -961,7 +961,7 @@ namespace NetProbe
                 info.Text = Tx("Загрузка…"); Refresh(); info.Text = ServerStore.UpdateSub(sb); Fill();
             };
             var lC = Ui.Label(Tx("Клиент"), Theme.Small, Theme.Muted);
-            Ui.Tip().SetToolTip(cbClient, Tx("Как NetProbe представляется серверу подписки. Если в Happ серверов больше — выбери Happ: многие панели отдают список по клиенту"));
+            Ui.Tip().SetToolTip(cbClient, Tx("Как RouteX представляется серверу подписки. Если в Happ серверов больше — выбери Happ: многие панели отдают список по клиенту"));
             var lN = Ui.Label(Tx("Имя"), Theme.Small, Theme.Muted); var lU = Ui.Label("URL", Theme.Small, Theme.Muted);
             var bAdd = new FlatButton(Tx("Добавить"), true) { Glyph = "\uE710" }.AutoW();
             bAdd.Click += (s, e) =>

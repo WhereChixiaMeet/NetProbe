@@ -169,7 +169,7 @@ namespace NetProbe
             var src = ActiveSource();
             if (src == Source.None)
             {
-                if (fromUser) Notice.Show(this, Tx("Нет источника"), Tx("Нет ни туннелей, ни подписок — NetProbe работает как чистый DPI-модуль. Добавь туннель в «Конфиги» или подписку на вкладке Subscriptions."));
+                if (fromUser) Notice.Show(this, Tx("Нет источника"), Tx("Нет ни туннелей, ни подписок — RouteX работает как чистый DPI-модуль. Добавь туннель в «Конфиги» или подписку на вкладке Subscriptions."));
                 return;
             }
             if (src == Source.Vpn)

@@ -129,7 +129,7 @@ namespace NetProbe
                     if (ourCore && !XrayProcess.IsOurs(pid))
                     {
                         try { using (var p = Process.GetProcessById(pid)) { p.Kill(); p.WaitForExit(3000); } } catch { }
-                        Logger.Write(LogLevel.Warn, Tx("Зависший xray.exe NetProbe от прошлого запуска держал порт туннеля ") + port + " (PID " + pid + Tx(") — закрыт"));
+                        Logger.Write(LogLevel.Warn, Tx("Зависший xray.exe RouteX от прошлого запуска держал порт туннеля ") + port + " (PID " + pid + Tx(") — закрыт"));
                         continue;
                     }
                     string who = path != "" ? Path.GetFileName(path) : "PID " + pid;

@@ -301,8 +301,8 @@ namespace NetProbe
             if (!File.Exists(st.WiresockPath)) { wgDied = true; TunnelErr(Tx("Не найден wiresock-client.exe: ") + st.WiresockPath + Tx(". Установите WireSock VPN Client (есть в папке TunnlTo\\wiresock_installers) или укажите путь в Настройках.")); return false; }
             if (WiresockRunner.ServiceRunning())
             {
-                bool ok = AskStopService != null && AskStopService(Tx("Служба wiresock-client-service (TunnlTo) уже запущена и займёт драйвер WireSock.\nОстановить её, чтобы NetProbe управлял туннелем?"));
-                if (!ok) { Logger.Write(LogLevel.Error, Tx("Служба WireSock запущена — туннель NetProbe не стартовал")); return false; }
+                bool ok = AskStopService != null && AskStopService(Tx("Служба wiresock-client-service (TunnlTo) уже запущена и займёт драйвер WireSock.\nОстановить её, чтобы RouteX управлял туннелем?"));
+                if (!ok) { Logger.Write(LogLevel.Error, Tx("Служба WireSock запущена — туннель RouteX не стартовал")); return false; }
                 Logger.Write(LogLevel.Info, Tx("Останавливаю службу wiresock-client-service…"));
                 WiresockRunner.StopService();
             }

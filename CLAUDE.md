@@ -1,4 +1,6 @@
-# NetProbe 3.0 — context for Claude
+# RouteX (formerly NetProbe) — context for Claude
+
+The app was renamed from NetProbe to RouteX. User-visible names are RouteX (window, tray, texts, `RouteX.exe`, `RouteX.ico`, GitHub repo `WhereChixiaMeet/RouteX`). Internal names deliberately stay `NetProbe` for compatibility with existing installs: C# namespace, `C:\ProgramData\NetProbe`, `netprobe-vpn.exe` / `netprobe-direct.exe`, firewall rule `NetProbe KillSwitch`, TUN adapter `NetProbe TUN`, mutex / window messages, autostart task name, toast AUMID, backup marker `app=NetProbe`, User-Agent. Releases ship `RouteX.exe` plus a copy named `NetProbe.exe` so pre-rename versions can still self-update.
 
 Windows desktop app (C# WinForms, .NET Framework 4.8, single exe, runs as admin) that combines:
 - a **VPN router** on top of WireSock (WireGuard with per-app split tunneling),
@@ -12,7 +14,7 @@ UI languages: English (default), Español, 中文 (`Lang.En.cs` / `Lang.Es.cs` /
 ```
 src\build.cmd
 ```
-Roslyn `csc.dll` from the installed .NET SDK (`C:\Program Files\dotnet\sdk\<latest>\Roslyn\bincore\csc.dll`), referencing the .NET Framework 4.8 assemblies in `C:\Windows\Microsoft.NET\Framework64\v4.0.30319`. Output: `..\NetProbe.exe`. `app.manifest` sets `requireAdministrator`.
+Roslyn `csc.dll` from the installed .NET SDK (`C:\Program Files\dotnet\sdk\<latest>\Roslyn\bincore\csc.dll`), referencing the .NET Framework 4.8 assemblies in `C:\Windows\Microsoft.NET\Framework64\v4.0.30319`. Output: `..\RouteX.exe`. `app.manifest` sets `requireAdministrator`.
 - If NetProbe is running, Roslyn renames the locked exe to `<guid>_NetProbe.exe` and fails; run build again. Start the new exe with `--replace` to make the running copy quit (WM "NetProbe_QuitMe_7f3a").
 - For UI testing without UAC, build a copy with a manifest using `asInvoker` into a temp folder.
 - Hidden dev flags: `--shots <dir>` (PNG of every page in all 5 themes for the current language + Configs→DPI→Sites + widget, then exit; ignores the single-instance mutex), `--selftest <file>` (config generation, i18n coverage, protocol link/config check), `--xraytest <file>`.
@@ -20,7 +22,7 @@ Roslyn `csc.dll` from the installed .NET SDK (`C:\Program Files\dotnet\sdk\<late
 
 ## Folder layout (runtime)
 ```
-NetProbe.exe, NetProbe.ico
+RouteX.exe, RouteX.ico   (NetProbe.exe in installs updated from a pre-rename version)
 zapret\      winws.exe, WinDivert, lists\ (bundled from Flowseal/zapret-discord-youtube), version.txt
 xray\        xray.exe + geo*.dat (installed/updated from inside the app)
 singbox\     sing-box.exe (TUN core, installed from inside the app)
@@ -83,8 +85,8 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 Auto-connect on start and Windows autostart (Task Scheduler, highest privileges, `--minimized`; task name per copy) are ON by default. Everything autosaves (no Save buttons). Update checks for zapret/xray/sing-box are configurable (interval, per component) with tray notification and a sidebar badge.
 
 ## Self-update (SelfUpdate.cs)
-- Source: GitHub Releases of `WhereChixiaMeet/NetProbe`, `/releases/latest`.
-- **Release format the updater expects:** tag `vX.Y.Z` greater than `MainForm.Version` (bump `Version` in `MainForm.cs` and `AssemblyInfo.cs` before building a release), with an asset named exactly `NetProbe.exe`, or a `.zip` (name without "source"/"src") that contains `NetProbe.exe` somewhere inside.
+- Source: GitHub Releases of `WhereChixiaMeet/RouteX` (renamed from `NetProbe`; GitHub redirects the old name), `/releases/latest`.
+- **Release format the updater expects:** tag `vX.Y.Z` greater than `MainForm.Version` (bump `Version` in `MainForm.cs` and `AssemblyInfo.cs` before building a release), with an asset named exactly `RouteX.exe` (plus `NetProbe.exe`, the same file, for pre-rename versions), or a `.zip` (name without "source"/"src") that contains `RouteX.exe`. The release workflow (`.github/workflows/release.yml`) builds and attaches both; if a draft release for the tag exists it fills and publishes that draft.
 - When a newer release exists, an "Update to vX" button appears at the top of the sidebar; Settings → Updates has "Check NetProbe updates". NetProbe releases are checked on their own timer (`appUpdTimer`): 20 s after start, then every hour, retry in 2 min after a network error (only the "Check automatically" toggle applies, not the zapret/xray interval). A failed check never hides an already shown button. New-version notifications: see the 3.0 model above (`UpdNotify` default on).
 - **VPN does not drop during an update:** wiresock-client / winws / xray / sing-box are started without stdout redirection, so they survive NetProbe exiting. The app writes `config\runtime\handoff.ini` (router state, tunnel, strategy, manual DPI, xray on/off), exits without stopping them, a hidden PowerShell waits for the PID, copies the new exe over the old one and starts it with `--updated`; the new instance calls `Router.Adopt` / `XrayManager.Adopt` to attach to the running processes instead of reconnecting.
 

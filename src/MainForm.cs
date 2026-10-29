@@ -59,7 +59,7 @@ namespace NetProbe
             Theme.Apply((ThemeKind)st.Theme);
             startHidden = startMinimized || st.StartMinimized;
             Logger.ToFile = st.LogToFile; Logger.Dir = st.LogPath; Logger.Retention = st.Retention;
-            Text = "NetProbe";
+            Text = "RouteX";
             AutoScaleMode = AutoScaleMode.None;
             Size = new Size(Theme.S(1220), Theme.S(800));
             MinimumSize = new Size(Theme.S(1040), Theme.S(680));
@@ -75,7 +75,7 @@ namespace NetProbe
 
             router.GetSettings = () => st;
             router.DpiForcedOff = st.DpiButton == 2;
-            router.AskStopService = q => (bool)Invoke((Func<bool>)(() => { RestoreFromTray(); return MessageBox.Show(this, q, "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes; }));
+            router.AskStopService = q => (bool)Invoke((Func<bool>)(() => { RestoreFromTray(); return MessageBox.Show(this, q, "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes; }));
             router.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)OnRouteChanged); } catch { } };
             // несколько правок подряд (добавить + убрать из соседнего списка) = один перезапуск туннеля
             reapplyTimer.Tick += (s, e) => { reapplyTimer.Stop(); if (router.Active) router.Reapply(); };
@@ -363,7 +363,7 @@ namespace NetProbe
         {
             if (started) return;
             started = true;
-            Logger.Write(LogLevel.Info, "NetProbe " + Version + Tx(" запущен. Папка: ") + Settings.Root + Tx(" · лог: ") + st.LogPath);
+            Logger.Write(LogLevel.Info, "RouteX " + Version + Tx(" запущен. Папка: ") + Settings.Root + Tx(" · лог: ") + st.LogPath);
             ThreadPool.QueueUserWorkItem(_ => { CheckCurl(); Logger.Prune(); });
             if (st.AutoStartMonitor) StartMonitoring(false); // мониторинг — как был при выходе (Start/Stop запоминаются)
             else SyncBgProbe(); // выключен — опросы только для лога (если включено)
@@ -532,7 +532,7 @@ namespace NetProbe
                 else if (Theme.Classic) { using (var br = new SolidBrush(Theme.Accent)) g.FillRectangle(br, lr); Gfx.Bevel(g, Rectangle.Round(lr), true); }
                 else Gfx.FillRound(g, Theme.Accent, lr, Theme.S(8));
                 if (appIconBmp == null) Gfx.Text(g, "\uE968", Theme.Icons, Theme.AccentFg, Rectangle.Round(lr), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-                Gfx.Text(g, "NetProbe", Theme.H2, Theme.Text, new Rectangle(Theme.S(60), Theme.S(20), Theme.S(150), Theme.S(22)), TextFormatFlags.Left);
+                Gfx.Text(g, "RouteX", Theme.H2, Theme.Text, new Rectangle(Theme.S(60), Theme.S(20), Theme.S(150), Theme.S(22)), TextFormatFlags.Left);
                 Gfx.Text(g, Tx("VPN · DPI · монитор  v") + Version, Theme.Small, Theme.Muted, new Rectangle(Theme.S(60), Theme.S(40), Theme.S(150), Theme.S(18)), TextFormatFlags.Left);
                 if (Theme.Classic) Gfx.Bevel(g, new Rectangle(side.Width - 2, 0, 2, side.Height), true);
                 else using (var p = new Pen(Theme.Border)) g.DrawLine(p, side.Width - 1, 0, side.Width - 1, side.Height);
@@ -540,14 +540,14 @@ namespace NetProbe
             string[][] items = {
                 new[] { "", Tx("Маршрутизация") }, new[] { "\uE753", Tx("Подписки") }, new[] { "", Tx("Мониторинг") },
                 new[] { "", Tx("VPN-конфиги") }, new[] { "\uEA18", Tx("DPI-конфиги") }, new[] { "", Tx("Тесты") }, new[] { "", Tx("Сайты") }, new[] { "", Tx("Лог и опрос") }, new[] { "", Tx("Настройки") }, new[] { "\uE8BD", "TG Proxy" } };
-            btnAppUpd = new FlatButton(Tx("Обновить NetProbe"), true) { Glyph = "\uE896", Visible = false, Height = Theme.S(30) };
+            btnAppUpd = new FlatButton(Tx("Обновить RouteX"), true) { Glyph = "\uE896", Visible = false, Height = Theme.S(30) };
             btnAppUpd.SetBounds(Theme.S(16), Theme.S(70), side.Width - Theme.S(34), Theme.S(30));
             btnAppUpd.Click += (s, e) => DoAppUpdate();
             side.Controls.Add(btnAppUpd);
             btnRestart = new FlatButton(Tx("Перезапустить сейчас"), true) { Glyph = "\uE72C", Visible = false, Height = Theme.S(30) };
             btnRestart.SetBounds(Theme.S(16), Theme.S(70), side.Width - Theme.S(34), Theme.S(30));
             btnRestart.Click += (s, e) => RestartNow();
-            Ui.Tip().SetToolTip(btnRestart, Tx("NetProbe обновлён → изменилась логика маршрутизации → перезапусти приложение вручную"));
+            Ui.Tip().SetToolTip(btnRestart, Tx("RouteX обновлён → изменилась логика маршрутизации → перезапусти приложение вручную"));
             side.Controls.Add(btnRestart);
             int y = Theme.S(80);
             // свои вкладки пользователя — после «Настроек»; названия пунктов можно менять (ПКМ по пункту)
@@ -701,7 +701,7 @@ namespace NetProbe
         {
             var r = Proc.Run(curlPath, "--version", 8000);
             if (r.StartError != null || r.Exit != 0)
-                Logger.Write(LogLevel.Error, Tx("curl.exe не найден (") + curlPath + Tx("). В Windows 10 1803+ он есть в System32; иначе положите curl.exe рядом с NetProbe.exe или укажите путь в Настройках."));
+                Logger.Write(LogLevel.Error, Tx("curl.exe не найден (") + curlPath + Tx("). В Windows 10 1803+ он есть в System32; иначе положите curl.exe рядом с RouteX.exe или укажите путь в Настройках."));
             else Logger.Write(LogLevel.Info, "curl: " + r.Out.Split('\n')[0].Trim());
             if (TunnelProto.NeedsWiresock(st) && !File.Exists(st.WiresockPath)) Logger.Write(LogLevel.Warn, Tx("WireSock не найден: ") + st.WiresockPath + Tx(" — VPN-режимы недоступны, пока он не установлен."));
             string z = ZapretRunner.Check(st.ZapretPath); if (z != null) Logger.Write(LogLevel.Warn, z);
@@ -991,10 +991,10 @@ namespace NetProbe
             {
                 if (lastState != RouteState.Off && st.Notify && tray != null)
                 {
-                    if (s == RouteState.DpiFailover) try { tray.ShowBalloonTip(4000, Tx("NetProbe: переключение на DPI"), router.Detail, ToolTipIcon.Warning); } catch { }
-                    else if (s == RouteState.Backup) try { tray.ShowBalloonTip(4000, Tx("NetProbe: резервный VPN"), st.BackupTunnel, ToolTipIcon.Warning); } catch { }
-                    else if (s == RouteState.VpnDown) try { tray.ShowBalloonTip(4000, Tx("NetProbe: VPN недоступен"), router.Detail, ToolTipIcon.Error); } catch { }
-                    else if (s == RouteState.Vpn && (lastState == RouteState.DpiFailover || lastState == RouteState.Backup || lastState == RouteState.VpnDown)) try { tray.ShowBalloonTip(3000, Tx("NetProbe: снова на основном VPN"), st.PrimaryTunnel, ToolTipIcon.Info); } catch { }
+                    if (s == RouteState.DpiFailover) try { tray.ShowBalloonTip(4000, Tx("RouteX: переключение на DPI"), router.Detail, ToolTipIcon.Warning); } catch { }
+                    else if (s == RouteState.Backup) try { tray.ShowBalloonTip(4000, Tx("RouteX: резервный VPN"), st.BackupTunnel, ToolTipIcon.Warning); } catch { }
+                    else if (s == RouteState.VpnDown) try { tray.ShowBalloonTip(4000, Tx("RouteX: VPN недоступен"), router.Detail, ToolTipIcon.Error); } catch { }
+                    else if (s == RouteState.Vpn && (lastState == RouteState.DpiFailover || lastState == RouteState.Backup || lastState == RouteState.VpnDown)) try { tray.ShowBalloonTip(3000, Tx("RouteX: снова на основном VPN"), st.PrimaryTunnel, ToolTipIcon.Info); } catch { }
                 }
                 lastState = s;
                 if (bgProbe) SyncBgProbe();
@@ -1051,7 +1051,7 @@ namespace NetProbe
         void BuildTray()
         {
             BuildTrayMenu();
-            tray = new NotifyIcon { Text = "NetProbe", ContextMenuStrip = trayMenu, Visible = true };
+            tray = new NotifyIcon { Text = "RouteX", ContextMenuStrip = trayMenu, Visible = true };
             tray.MouseClick += (s, e) => { if (e.Button == MouseButtons.Left) { if (hiddenToTray) RestoreFromTray(); else HideToTray(false); } };
             widget = NewWidget(false); widget2 = NewWidget(true);
             UpdateTray();
@@ -1060,7 +1060,7 @@ namespace NetProbe
         void BuildTrayMenu()
         {
             trayMenu = new ContextMenuStrip { Renderer = new ThemedMenuRenderer(), Font = Theme.Body, ShowImageMargin = true };
-            trayMenu.Items.Add(Tx("Открыть NetProbe"), null, (s, e) => RestoreFromTray());
+            trayMenu.Items.Add(Tx("Открыть RouteX"), null, (s, e) => RestoreFromTray());
             miConnect = new ToolStripMenuItem(Tx("Подключить"));
             miConnect.Click += (s, e) => { if (AnyActive) Disconnect(); else Connect(); };
             trayMenu.Items.Add(miConnect);
@@ -1127,7 +1127,7 @@ namespace NetProbe
             Icon = ico;
             try { var old = appIconBmp; using (var i64 = new Icon(ico, 64, 64)) appIconBmp = i64.ToBitmap(); if (old != null) old.Dispose(); } catch { appIconBmp = ico.ToBitmap(); }
             // иконка отдельным файлом в папке приложения
-            try { string f = Path.Combine(Settings.Root, "NetProbe.ico"); if (!File.Exists(f)) using (var src = Icon.ExtractAssociatedIcon(Application.ExecutablePath)) using (var fs = File.Create(f)) src.Save(fs); } catch { }
+            try { string f = Path.Combine(Settings.Root, "RouteX.ico"); if (!File.Exists(f)) using (var src = Icon.ExtractAssociatedIcon(Application.ExecutablePath)) using (var fs = File.Create(f)) src.Save(fs); } catch { }
             if (tray != null) UpdateTray();
             if (side != null && !side.IsDisposed) side.Invalidate();
             if (IsHandleCreated) { Native.SendMessage(Handle, 0x0080, (IntPtr)1, ico.Handle); Native.SendMessage(Handle, 0x0080, IntPtr.Zero, ico.Handle); } // WM_SETICON: окно и панель задач
@@ -1199,7 +1199,7 @@ namespace NetProbe
         {
             if (tray == null) return;
             var a = chs["vpn"]; var b = chs["direct"];
-            string tip = "NetProbe · " + (!router.Active && xm.Active ? XrayManager.StateName(xm.State) + " · xray" : Router.StateName(router.State)) + "\nVPN: " + a.Val + Tx("\nНапрямую: ") + b.Val;
+            string tip = "RouteX · " + (!router.Active && xm.Active ? XrayManager.StateName(xm.State) + " · xray" : Router.StateName(router.State)) + "\nVPN: " + a.Val + Tx("\nНапрямую: ") + b.Val;
             if (tip.Length > 63) tip = tip.Substring(0, 63);
             try { tray.Text = tip; } catch { }
             int sz = SystemInformation.SmallIconSize.Width;
@@ -1280,7 +1280,7 @@ namespace NetProbe
             if (!silent && !trayHintShown && !st.ShowWidget)
             {
                 trayHintShown = true;
-                try { tray.ShowBalloonTip(2500, Tx("NetProbe работает"), Tx("Маршрутизация и мониторинг продолжаются в трее."), ToolTipIcon.Info); } catch { }
+                try { tray.ShowBalloonTip(2500, Tx("RouteX работает"), Tx("Маршрутизация и мониторинг продолжаются в трее."), ToolTipIcon.Info); } catch { }
             }
         }
 
@@ -1358,9 +1358,9 @@ namespace NetProbe
                         appRelease = newer ? rel : null;
                         LayoutNav();
                         if (lAppVer != null && !lAppVer.IsDisposed) lAppVer.Text = "v" + Version + (newer ? "  →  " + rel.Tag + " " + Tx("доступна") : err != null ? "  ·  " + err : "  ·  " + Tx("последняя"));
-                        if (found) Logger.Write(LogLevel.Info, Tx("Доступна новая версия NetProbe: ") + rel.Tag);
+                        if (found) Logger.Write(LogLevel.Info, Tx("Доступна новая версия RouteX: ") + rel.Tag);
                         if (newer) ScheduleAppNotify(); // одно уведомление на версию — по частоте и задержке из Настроек
-                        if (manual && !newer) MessageBox.Show(this, err != null ? err : Tx("Установлена последняя версия: ") + "v" + Version, "NetProbe");
+                        if (manual && !newer) MessageBox.Show(this, err != null ? err : Tx("Установлена последняя версия: ") + "v" + Version, "RouteX");
                     }));
                 }
                 catch { }
@@ -1390,8 +1390,8 @@ namespace NetProbe
                 return;
             }
             st.AppNotifiedTag = rel.Tag; st.AppNotifiedAt = now.ToOADate(); st.Save();
-            Logger.Write(LogLevel.Info, Tx("Уведомление о новой версии NetProbe ") + rel.Tag);
-            string title = "NetProbe " + rel.Tag + " " + Tx("доступна");
+            Logger.Write(LogLevel.Info, Tx("Уведомление о новой версии RouteX ") + rel.Tag);
+            string title = "RouteX " + rel.Tag + " " + Tx("доступна");
             string text = Tx("Обновление сохраняет VPN и DPI. После обновления перезапусти приложение вручную — изменилась логика маршрутизации.");
             if (!Toast.Show(title, text, Tuple.Create(Tx("Обновить"), "update"), Tuple.Create(Tx("Позже"), "later")) && tray != null)
                 try { tray.ShowBalloonTip(6000, title, text, ToolTipIcon.Info); } catch { }
@@ -1405,7 +1405,7 @@ namespace NetProbe
         {
             if (!NeedsManualRestart) return;
             bool d;
-            int r = Notice.Show(this, Tx("NetProbe обновлён до ") + "v" + Version, Tx("Изменилась логика маршрутизации — перезапусти приложение вручную. VPN, DPI и xray при перезапуске не отключатся."),
+            int r = Notice.Show(this, Tx("RouteX обновлён до ") + "v" + Version, Tx("Изменилась логика маршрутизации — перезапусти приложение вручную. VPN, DPI и xray при перезапуске не отключатся."),
                 new[] { Tx("Перезапустить сейчас"), Tx("Позже") }, null, out d);
             if (r == 0) RestartNow();
         }
@@ -1416,7 +1416,7 @@ namespace NetProbe
                 var h = router.Handoff(); h["xray"] = xm.Active ? "1" : "0";
                 SelfUpdate.SaveHandoff(h);
                 st.UpdatedFrom = ""; st.Save();
-                Logger.Write(LogLevel.Info, Tx("Перезапуск NetProbe по кнопке (VPN/DPI/xray продолжают работать)"));
+                Logger.Write(LogLevel.Info, Tx("Перезапуск RouteX по кнопке (VPN/DPI/xray продолжают работать)"));
                 SelfUpdate.LaunchRestart();
                 exitForUpdate = true; ExitApp();
             }
@@ -1432,7 +1432,7 @@ namespace NetProbe
         void DoAppUpdate()
         {
             var rel = appRelease; if (rel == null) return;
-            if (MessageBox.Show(this, Tx("Скачать и установить NetProbe ") + rel.Tag + "?\r\n" + Tx("VPN и DPI продолжат работать, приложение перезапустится само."), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (MessageBox.Show(this, Tx("Скачать и установить RouteX ") + rel.Tag + "?\r\n" + Tx("VPN и DPI продолжат работать, приложение перезапустится само."), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             btnAppUpd.Enabled = false;
             ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -1442,14 +1442,14 @@ namespace NetProbe
                     var h = router.Handoff(); h["xray"] = xm.Active ? "1" : "0";
                     SelfUpdate.SaveHandoff(h);
                     st.UpdatedFrom = Version; st.Save(); // новая версия покажет «перезапусти вручную»
-                    Logger.Write(LogLevel.Info, Tx("Установка NetProbe ") + rel.Tag + "…");
+                    Logger.Write(LogLevel.Info, Tx("Установка RouteX ") + rel.Tag + "…");
                     SelfUpdate.LaunchSwap(exe);
                     BeginInvoke((Action)(() => { exitForUpdate = true; ExitApp(); }));
                 }
                 catch (Exception ex)
                 {
                     Logger.Write(LogLevel.Error, Tx("Ошибка обновления: ") + ex.Message);
-                    try { BeginInvoke((Action)(() => { btnAppUpd.Enabled = true; LayoutNav(); MessageBox.Show(this, Tx("Ошибка обновления: ") + ex.Message, "NetProbe"); })); } catch { }
+                    try { BeginInvoke((Action)(() => { btnAppUpd.Enabled = true; LayoutNav(); MessageBox.Show(this, Tx("Ошибка обновления: ") + ex.Message, "RouteX"); })); } catch { }
                 }
             });
         }

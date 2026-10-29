@@ -156,12 +156,12 @@ namespace NetProbe
                     try
                     {
                         string text = File.ReadAllText(f);
-                        if (text.IndexOf("[Interface]", StringComparison.OrdinalIgnoreCase) < 0 || text.IndexOf("[Peer]", StringComparison.OrdinalIgnoreCase) < 0) { MessageBox.Show(this, Path.GetFileName(f) + Tx(": это не конфиг WireGuard."), "NetProbe"); continue; }
+                        if (text.IndexOf("[Interface]", StringComparison.OrdinalIgnoreCase) < 0 || text.IndexOf("[Peer]", StringComparison.OrdinalIgnoreCase) < 0) { MessageBox.Show(this, Path.GetFileName(f) + Tx(": это не конфиг WireGuard."), "RouteX"); continue; }
                         last = Tunnels.Safe(Path.GetFileNameWithoutExtension(f));
                         Tunnels.Write(last, text);
                         Logger.Write(LogLevel.Info, Tx("Импортирован туннель «") + last + "»");
                     }
-                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "RouteX"); }
                 }
                 if (last != null && !Tunnels.Exists(st.PrimaryTunnel)) { st.PrimaryTunnel = last; st.Save(); }
                 FillTunnels(last); LoadConnectUi();
@@ -171,7 +171,7 @@ namespace NetProbe
         void DeleteTunnel(string name)
         {
             if (!Tunnels.Exists(name)) return;
-            if (MessageBox.Show(this, Tx("Удалить туннель «") + name + "»?", "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            if (MessageBox.Show(this, Tx("Удалить туннель «") + name + "»?", "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             Tunnels.Delete(name);
             if (st.PrimaryTunnel == name) st.PrimaryTunnel = "";
             if (st.BackupTunnel == name) st.BackupTunnel = "";

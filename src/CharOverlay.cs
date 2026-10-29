@@ -32,7 +32,7 @@ namespace NetProbe
         {
             this.host = host; this.widget = widget; this.slot = slot ?? (widget ? "widget" : "frame");
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual; AutoScaleMode = AutoScaleMode.None;
-            Text = "NetProbe character";
+            Text = "RouteX character";
             Cursor = Cursors.SizeAll;
         }
         // скрыли — при следующем показе картинка рисуется заново (раньше у виджета персонаж появлялся «через раз»)

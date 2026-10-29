@@ -149,7 +149,7 @@ namespace NetProbe
             var bCsv = new FlatButton(Tx("Экспорт CSV…")) { Glyph = "\uE74E" }.AutoW();
             bCsv.Click += (s, e) => ExportCsv(grid, "netprobe-tests");
             var bHist = new FlatButton(Tx("История")) { Glyph = "\uE81C" }.AutoW();
-            bHist.Click += (s, e) => { string f = Path.Combine(Settings.Dir, "history.csv"); if (File.Exists(f)) Process.Start(f); else MessageBox.Show(this, Tx("Истории пока нет — сначала запустите полный тест."), "NetProbe"); };
+            bHist.Click += (s, e) => { string f = Path.Combine(Settings.Dir, "history.csv"); if (File.Exists(f)) Process.Start(f); else MessageBox.Show(this, Tx("Истории пока нет — сначала запустите полный тест."), "RouteX"); };
             var bClear = new FlatButton(Tx("Очистить")) { Glyph = "\uE894" }.AutoW();
             bClear.Click += (s, e) => { grid.Rows.Clear(); rows.Clear(); };
 

@@ -154,7 +154,7 @@ namespace NetProbe
             var bData = new FlatButton(Tx("Папка настроек")) { Glyph = "\uE838" }.AutoW();
             bReset.Click += (s, e) =>
             {
-                if (MessageBox.Show(this, Tx("Сбросить все настройки по умолчанию? Туннели, списки приложений и стратегии DPI не удаляются."), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                if (MessageBox.Show(this, Tx("Сбросить все настройки по умолчанию? Туннели, списки приложений и стратегии DPI не удаляются."), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                 ApplySettings(new Settings { WidgetX = st.WidgetX, WidgetY = st.WidgetY, PrimaryTunnel = st.PrimaryTunnel, BackupTunnel = st.BackupTunnel, DpiStrategy = st.DpiStrategy });
                 LoadSettingsUi();
             };
@@ -167,8 +167,8 @@ namespace NetProbe
                 using (var d = new SaveFileDialog { Filter = "JSON (*.json)|*.json", FileName = "netprobe-settings-" + DateTime.Now.ToString("yyyyMMdd") + ".json" })
                 {
                     if (d.ShowDialog(this) != DialogResult.OK) return;
-                    try { File.WriteAllText(d.FileName, Backup.Export(), new System.Text.UTF8Encoding(false)); Logger.Write(LogLevel.Info, Tx("Настройки экспортированы: ") + d.FileName); MessageBox.Show(this, Tx("Сохранено. В файле есть ключи туннелей и серверов — храните его в надёжном месте."), "NetProbe", MessageBoxButtons.OK, MessageBoxIcon.Information); }
-                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); }
+                    try { File.WriteAllText(d.FileName, Backup.Export(), new System.Text.UTF8Encoding(false)); Logger.Write(LogLevel.Info, Tx("Настройки экспортированы: ") + d.FileName); MessageBox.Show(this, Tx("Сохранено. В файле есть ключи туннелей и серверов — храните его в надёжном месте."), "RouteX", MessageBoxButtons.OK, MessageBoxIcon.Information); }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "RouteX"); }
                 }
             };
             bImpAll.Click += (s, e) =>
@@ -176,9 +176,9 @@ namespace NetProbe
                 using (var d = new OpenFileDialog { Filter = "JSON (*.json)|*.json" })
                 {
                     if (d.ShowDialog(this) != DialogResult.OK) return;
-                    if (MessageBox.Show(this, Tx("Импортировать настройки? Текущие настройки, списки, туннели и серверы с теми же именами будут заменены."), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                    if (MessageBox.Show(this, Tx("Импортировать настройки? Текущие настройки, списки, туннели и серверы с теми же именами будут заменены."), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                     string err = Backup.Import(File.ReadAllText(d.FileName, System.Text.Encoding.UTF8));
-                    if (err != null) { MessageBox.Show(this, err, "NetProbe"); return; }
+                    if (err != null) { MessageBox.Show(this, err, "RouteX"); return; }
                     Logger.Write(LogLevel.Info, Tx("Настройки импортированы: ") + d.FileName);
                     ReloadAll();
                 }
@@ -321,7 +321,7 @@ namespace NetProbe
                 {
                     using (var d = new OpenFileDialog { Filter = "PNG (*.png)|*.png" })
                         if (d.ShowDialog(this) == DialogResult.OK)
-                            try { string dst = Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png"); File.Copy(d.FileName, dst, true); File.SetLastWriteTimeUtc(dst, DateTime.UtcNow); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); }
+                            try { string dst = Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png"); File.Copy(d.FileName, dst, true); File.SetLastWriteTimeUtc(dst, DateTime.UtcNow); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "RouteX"); }
                     inInfo(); if (!st.CharFrame) rebuild();
                 };
                 bInDel.Click += (s2, e2) => { try { File.Delete(Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png")); } catch { } inInfo(); if (!st.CharFrame) rebuild(); };
@@ -383,7 +383,7 @@ namespace NetProbe
             var bSvc = new FlatButton(Tx("Остановить службу WireSock / TunnlTo")) { Glyph = "\uE71A" }.AutoW();
             bSvc.Click += (s, e) =>
             {
-                if (MessageBox.Show(this, Tx("Остановить службу wiresock-client-service? Туннель TunnlTo будет выключен. Чтобы TunnlTo не включал её снова, отключите в нём «Enable on system start»."), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                if (MessageBox.Show(this, Tx("Остановить службу wiresock-client-service? Туннель TunnlTo будет выключен. Чтобы TunnlTo не включал её снова, отключите в нём «Enable on system start»."), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                 bool ok = WiresockRunner.StopService(); Logger.Write(ok ? LogLevel.Ok : LogLevel.Error, ok ? Tx("Служба wiresock-client-service остановлена") : Tx("Не удалось остановить wiresock-client-service")); UpdateSvc();
             };
             row(Tx("Служба TunnlTo"), bSvc, null);
@@ -466,9 +466,9 @@ namespace NetProbe
             bCheck.Click += (s, e) => CheckUpdates(true);
             row("", bCheck, null);
             bCheck.Click += (s, e) => CheckAppUpdate(false);
-            var bApp = new FlatButton(Tx("Проверить обновления NetProbe")) { Glyph = "\uE72C" }.AutoW();
+            var bApp = new FlatButton(Tx("Проверить обновления RouteX")) { Glyph = "\uE72C" }.AutoW();
             bApp.Click += (s, e) => CheckAppUpdate(true);
-            row("NetProbe", bApp, null);
+            row("RouteX", bApp, null);
             lAppVer = Ui.Label("v" + Version, Theme.Small, Theme.Muted); lAppVer.Location = new Point(bApp.Right + Theme.S(12), bApp.Top + Theme.S(8)); setBody.Controls.Add(lAppVer);
             var cNotifyUpd = Ui.Check(Tx("Уведомлять о новых версиях"), st.UpdNotify); check(cNotifyUpd);
             var cbNotifyEvery = new DarkCombo(); cbNotifyEvery.Items.AddRange(new object[] { Tx("Сразу"), Tx("День"), Tx("Неделя"), Tx("Месяц") });
@@ -631,11 +631,11 @@ namespace NetProbe
                         if (tNew && tl != st.TgUpstreamNotified)
                         {
                             st.TgUpstreamNotified = tl; st.Save();
-                            Logger.Write(LogLevel.Info, Tx("Вышла tg-ws-proxy ") + tl + Tx(": встроенный TG Proxy основан на ") + TgConst.UpstreamVersion + Tx(" — изменения придут с обновлением NetProbe"));
+                            Logger.Write(LogLevel.Info, Tx("Вышла tg-ws-proxy ") + tl + Tx(": встроенный TG Proxy основан на ") + TgConst.UpstreamVersion + Tx(" — изменения придут с обновлением RouteX"));
                             if (!manual && st.UpdNotify && tray != null) try { tray.ShowBalloonTip(5000, "TG Proxy", Tx("Вышла tg-ws-proxy ") + tl, System.Windows.Forms.ToolTipIcon.Info); } catch { }
                         }
                         if (!manual && (zNew || xNew || sNew) && st.UpdNotify && tray != null)
-                            try { tray.ShowBalloonTip(5000, Tx("NetProbe: есть обновления"), (zNew ? "zapret " + zl + "  " : "") + (xNew ? "xray " + xl + "  " : "") + (sNew ? "sing-box " + sl : ""), System.Windows.Forms.ToolTipIcon.Info); } catch { }
+                            try { tray.ShowBalloonTip(5000, Tx("RouteX: есть обновления"), (zNew ? "zapret " + zl + "  " : "") + (xNew ? "xray " + xl + "  " : "") + (sNew ? "sing-box " + sl : ""), System.Windows.Forms.ToolTipIcon.Info); } catch { }
                         if (zNew || xNew) Logger.Write(LogLevel.Info, Tx("Доступны обновления: ") + (zNew ? "zapret " + zl + " " : "") + (xNew ? "xray " + xl : ""));
                     }));
                 }
@@ -645,8 +645,8 @@ namespace NetProbe
 
         void UpdateZapretUi(FlatButton b)
         {
-            if (router.Active) { MessageBox.Show(this, Tx("Сначала отключите VPN/DPI на вкладке «Подключение»."), "NetProbe"); return; }
-            if (MessageBox.Show(this, Tx("Скачать последнюю версию zapret с GitHub (Flowseal/zapret-discord-youtube)? Ваши списки *-user.txt сохранятся."), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            if (router.Active) { MessageBox.Show(this, Tx("Сначала отключите VPN/DPI на вкладке «Подключение»."), "RouteX"); return; }
+            if (MessageBox.Show(this, Tx("Скачать последнюю версию zapret с GitHub (Flowseal/zapret-discord-youtube)? Ваши списки *-user.txt сохранятся."), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
             b.Enabled = false; string old = b.Text;
             System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
@@ -654,7 +654,7 @@ namespace NetProbe
                 try { res = Updater.UpdateZapret(st, m => { try { BeginInvoke((Action)(() => b.Text = m.Length > 40 ? m.Substring(0, 40) + "…" : m)); } catch { } }); }
                 catch (Exception ex) { res = Tx("Ошибка обновления: ") + ex.Message; }
                 Logger.Write(LogLevel.Info, res);
-                try { BeginInvoke((Action)(() => { b.Enabled = true; b.Text = old; MessageBox.Show(this, res, "NetProbe"); FillStrategies(st.DpiStrategy); LoadConnectUi(); CheckUpdates(true); })); } catch { }
+                try { BeginInvoke((Action)(() => { b.Enabled = true; b.Text = old; MessageBox.Show(this, res, "RouteX"); FillStrategies(st.DpiStrategy); LoadConnectUi(); CheckUpdates(true); })); } catch { }
             });
         }
 
@@ -664,7 +664,7 @@ namespace NetProbe
             System.Threading.ThreadPool.QueueUserWorkItem(_ =>
             {
                 bool run = WiresockRunner.ServiceRunning();
-                try { BeginInvoke((Action)(() => { if (!lSvc.IsDisposed) lSvc.Text = run ? Tx("служба запущена (конфликтует с NetProbe)") : Tx("служба не запущена"); })); } catch { }
+                try { BeginInvoke((Action)(() => { if (!lSvc.IsDisposed) lSvc.Text = run ? Tx("служба запущена (конфликтует с RouteX)") : Tx("служба не запущена"); })); } catch { }
             });
         }
 
@@ -725,7 +725,7 @@ namespace NetProbe
             n.SidePing = cSidePing.Checked; n.SideSpeed = cSideSpeed.Checked; n.SpeedChart = cSpeedChart.Checked;
             if (!n.WidgetPing && !n.WidgetSpeedOn) n.WidgetPing = true;
             if (!n.SidePing && !n.SideSpeedOn) n.SidePing = true;
-            if (n.LogDir != "" && !Directory.Exists(n.LogDir)) { try { Directory.CreateDirectory(n.LogDir); } catch (Exception ex) { MessageBox.Show(this, Tx("Папка лога недоступна: ") + ex.Message, "NetProbe"); return; } }
+            if (n.LogDir != "" && !Directory.Exists(n.LogDir)) { try { Directory.CreateDirectory(n.LogDir); } catch (Exception ex) { MessageBox.Show(this, Tx("Папка лога недоступна: ") + ex.Message, "RouteX"); return; } }
             ApplySettings(n);
             if (!auto) LoadSettingsUi();
             Logger.Write(LogLevel.Info, Tx("Настройки сохранены"));
@@ -744,7 +744,7 @@ namespace NetProbe
             ServerStore.Load();
             RebuildUi(); RebuildTrayMenu(); SelectPage(PgSettings);
             autorunApplied = null; SetAutorun(st.Autorun); autorunApplied = st.Autorun;
-            MessageBox.Show(this, Tx("Настройки импортированы."), "NetProbe", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            MessageBox.Show(this, Tx("Настройки импортированы."), "RouteX", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         void ApplySettings(Settings n)
         {

@@ -143,7 +143,7 @@ namespace NetProbe
         static readonly string[] OwnProcs = { "xray.exe", "sing-box.exe", "netprobe-direct.exe", "wiresock-client.exe", "winws.exe" };
         RouteKind DecideXrayTunnel(string name, string path, IPAddress ip, string host, Func<IEnumerable<string>, bool> m, out string why)
         {
-            if (OwnProcs.Any(o => string.Equals(o, name, StringComparison.OrdinalIgnoreCase))) { why = Tx("служебный процесс NetProbe — напрямую"); return RouteKind.Direct; }
+            if (OwnProcs.Any(o => string.Equals(o, name, StringComparison.OrdinalIgnoreCase))) { why = Tx("служебный процесс RouteX — напрямую"); return RouteKind.Direct; }
             var ex = ExclusionSet.From(WgL.Exclude);
             if (ex.Processes.Count > 0 && m(ex.Processes)) return Dpi_(host, ip, Tx("в Exclude — мимо туннеля"), out why);
             if (HostIn(host, ex.Domains)) return Dpi_(host, ip, Tx("домен в Exclude — мимо туннеля"), out why);

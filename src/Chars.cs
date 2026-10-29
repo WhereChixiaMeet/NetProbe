@@ -93,7 +93,7 @@ namespace NetProbe
                 File.SetLastWriteTimeUtc(dst, DateTime.UtcNow);
                 Logger.Write(LogLevel.Info, Tx("Персонаж: ") + Path.GetFileName(file) + " → " + slot);
             }
-            catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); return false; }
+            catch (Exception ex) { MessageBox.Show(this, ex.Message, "RouteX"); return false; }
             if (SlotOnWidget(slot)) st.CharWidget = true; else st.CharWindow = true;
             st.Save();
             UpdateChars();
@@ -112,7 +112,7 @@ namespace NetProbe
             }
             if (!onWidget && !st.CharFrame) // персонаж «внутри окна» — это фон страниц
             {
-                try { File.Copy(file, Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png"), true); File.SetLastWriteTimeUtc(Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png"), DateTime.UtcNow); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); return; }
+                try { File.Copy(file, Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png"), true); File.SetLastWriteTimeUtc(Path.Combine(CharOverlay.Folder(Theme.Kind), "window.png"), DateTime.UtcNow); } catch (Exception ex) { MessageBox.Show(this, ex.Message, "RouteX"); return; }
                 ResetPageBackground(); RebuildUi(); return;
             }
             var mine = CharOverlay.Slots.Where(x => SlotOnWidget(x) == onWidget).ToList();

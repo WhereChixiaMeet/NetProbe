@@ -49,7 +49,7 @@ namespace NetProbe
             Dictionary<string, object> root;
             try { root = new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Deserialize<Dictionary<string, object>>(json); }
             catch (Exception ex) { return ex.Message; }
-            if (root == null || !root.ContainsKey("app") || Convert.ToString(root["app"]) != "NetProbe") return Tr.Tx("Это не файл настроек NetProbe");
+            if (root == null || !root.ContainsKey("app") || Convert.ToString(root["app"]) != "NetProbe") return Tr.Tx("Это не файл настроек RouteX");
             Func<string, string> s = k => root.ContainsKey(k) ? Convert.ToString(root[k]) : "";
             if (s("settings") != "") File.WriteAllText(Path.Combine(Settings.Dir, "settings.ini"), s("settings"), new UTF8Encoding(false));
             if (root.ContainsKey("lists")) WriteFiles(root["lists"], Settings.Sub("lists"));

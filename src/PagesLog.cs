@@ -169,7 +169,7 @@ namespace NetProbe
 
         void ChangeLogDir()
         {
-            using (var d = new FolderBrowserDialog { Description = Tx("Папка для логов NetProbe"), SelectedPath = st.LogPath })
+            using (var d = new FolderBrowserDialog { Description = Tx("Папка для логов RouteX"), SelectedPath = st.LogPath })
                 if (d.ShowDialog(this) == DialogResult.OK) SetLogDir(d.SelectedPath);
         }
 

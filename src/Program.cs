@@ -17,7 +17,7 @@ namespace NetProbe
             string file = "";
             try { file = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "NetProbe-crash.txt"); System.IO.File.WriteAllText(file, DateTime.Now + "\r\n" + text); } catch { }
             try { Logger.Write(LogLevel.Error, "Fatal: " + text); } catch { }
-            try { MessageBox.Show(Tx("NetProbe не смог запуститься:\r\n\r\n") + text + (file != "" ? Tx("\r\n\r\nСохранено в ") + file : ""), "NetProbe", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
+            try { MessageBox.Show(Tx("RouteX не смог запуститься:\r\n\r\n") + text + (file != "" ? Tx("\r\n\r\nСохранено в ") + file : ""), "RouteX", MessageBoxButtons.OK, MessageBoxIcon.Error); } catch { }
         }
 
         [STAThread]

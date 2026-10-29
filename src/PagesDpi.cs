@@ -42,7 +42,7 @@ namespace NetProbe
             bDel.Click += (s, e) =>
             {
                 var n = lbStrat.SelectedItem; if (n == null) return;
-                if (MessageBox.Show(this, Tx("Удалить стратегию «") + n + "»?", "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+                if (MessageBox.Show(this, Tx("Удалить стратегию «") + n + "»?", "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
                 DpiConfigs.Delete(n); FillStrategies(null);
             };
             var bImpAll = IconBtn("", Tx("Импорт из zapret"), tt);
@@ -62,7 +62,7 @@ namespace NetProbe
                 {
                     if (d.ShowDialog(this) != DialogResult.OK) return;
                     try { CreateStrategy(Path.GetFileNameWithoutExtension(d.FileName), DpiConfigs.FromBat(d.FileName)); }
-                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "NetProbe"); }
+                    catch (Exception ex) { MessageBox.Show(this, ex.Message, "RouteX"); }
                 }
             };
             var leftBtns = new[] { bNew, bCopy, bDel, bImpAll, bImpBat };
@@ -137,7 +137,7 @@ namespace NetProbe
             bPrev.Click += (s, e) =>
             {
                 string cmd = "\"" + Path.Combine(st.ZapretPath, "bin", "winws.exe") + "\" " + ZapretRunner.BuildArgs(st, tbStratArgs.Text);
-                using (var d = new TextEditDialog(Tx("Команда winws.exe"), cmd.Replace(" --new ", " --new\r\n"), Tx("Так NetProbe запустит winws.exe (только просмотр; правки здесь не сохраняются)."))) d.ShowDialog(this);
+                using (var d = new TextEditDialog(Tx("Команда winws.exe"), cmd.Replace(" --new ", " --new\r\n"), Tx("Так RouteX запустит winws.exe (только просмотр; правки здесь не сохраняются)."))) d.ShowDialog(this);
             };
             tbStratArgs = Ui.TextBox("", true);
             tbStratArgs.TextChanged += (s, e) => { if (!loadingStrat) { stratSave.Stop(); stratSave.Start(); lStratInfo.Text = "…"; } };

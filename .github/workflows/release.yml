@@ -1,10 +1,10 @@
-# Build NetProbe.exe on Windows and publish a GitHub release.
+# Build RouteX.exe on Windows and publish a GitHub release (also as NetProbe.exe, so pre-rename versions can self-update).
 # Runs when docs/releases/*.md changes on main (or by hand from the Actions tab).
 # Tag = "v" + MainForm.Version; release text = docs/releases/<tag>.md
 # (first line is the release title, the rest is the description).
-# - no release for that tag yet          -> create it (author: github-actions) with NetProbe.exe
-# - a draft for that tag already exists  -> attach NetProbe.exe to it and publish it (author stays whoever made the draft)
-# - a published release with NetProbe.exe already exists -> nothing to do
+# - no release for that tag yet          -> create it (author: github-actions) with RouteX.exe + NetProbe.exe
+# - a draft for that tag already exists  -> attach RouteX.exe + NetProbe.exe to it and publish it (author stays whoever made the draft)
+# - the release for that tag is already published -> nothing to do
 name: Release
 
 on:
@@ -32,15 +32,14 @@ jobs:
           tag="v$v"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           # drafts have no tag yet, so look them up by tag_name in the list
-          info=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" --jq ".[] | select(.tag_name==\"$tag\") | [.id, .draft, ([.assets[].name] | index(\"NetProbe.exe\") != null)] | @tsv" | head -n 1)
+          info=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=30" --jq ".[] | select(.tag_name==\"$tag\") | [.id, .draft, ([.assets[].name] | index(\"RouteX.exe\") != null)] | @tsv" | head -n 1)
           if [ -z "$info" ]; then
             if [ -f "docs/releases/$tag.md" ]; then echo "mode=create" >> "$GITHUB_OUTPUT"; else echo "No docs/releases/$tag.md, skipping"; echo "mode=skip" >> "$GITHUB_OUTPUT"; fi
           else
             id=$(echo "$info" | cut -f1); draft=$(echo "$info" | cut -f2); hasexe=$(echo "$info" | cut -f3)
             echo "id=$id" >> "$GITHUB_OUTPUT"
             if [ "$draft" = "true" ]; then echo "mode=fill" >> "$GITHUB_OUTPUT";
-            elif [ "$hasexe" = "true" ]; then echo "Release $tag already published with NetProbe.exe, skipping"; echo "mode=skip" >> "$GITHUB_OUTPUT";
-            else echo "mode=upload" >> "$GITHUB_OUTPUT"; fi
+            else echo "Release $tag already published, skipping"; echo "mode=skip" >> "$GITHUB_OUTPUT"; fi
           fi
 
       - name: Build
@@ -57,19 +56,20 @@ jobs:
           MODE: ${{ steps.ver.outputs.mode }}
           RID: ${{ steps.ver.outputs.id }}
         run: |
-          test -f NetProbe.exe || { echo "NetProbe.exe was not built"; exit 1; }
+          test -f RouteX.exe || { echo "RouteX.exe was not built"; exit 1; }
+          cp RouteX.exe NetProbe.exe
           if [ "$MODE" = "create" ]; then
             notes="docs/releases/$TAG.md"
             title=$(head -n 1 "$notes")
             tail -n +2 "$notes" > body.md
-            gh release create "$TAG" NetProbe.exe --target "$GITHUB_SHA" --title "$title" --notes-file body.md
+            gh release create "$TAG" RouteX.exe NetProbe.exe --target "$GITHUB_SHA" --title "$title" --notes-file body.md
             exit 0
           fi
-          # draft or published release without the exe: attach the build
-          gh api -X POST -H "Content-Type: application/octet-stream" \
-            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=NetProbe.exe" \
-            --input NetProbe.exe > /dev/null
-          if [ "$MODE" = "fill" ]; then
-            # publish the draft on this commit; title / description are kept as written in the draft
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RID" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" -F draft=false -f make_latest=true > /dev/null
-          fi
+          # draft: attach the build
+          for f in RouteX.exe NetProbe.exe; do
+            gh api -X POST -H "Content-Type: application/octet-stream" \
+              "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RID/assets?name=$f" \
+              --input "$f" > /dev/null
+          done
+          # publish the draft on this commit; title / description are kept as written in the draft
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$RID" -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" -F draft=false -f make_latest=true > /dev/null

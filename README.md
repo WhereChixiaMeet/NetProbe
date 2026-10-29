@@ -1,4 +1,6 @@
-# NetProbe 3.0
+# RouteX
+*(formerly NetProbe)*
+
 ### MANUAL RESTART REQUIRED AFTER UPDATE ###
 
 Windows protocol router: WireGuard · VLESS · VMess · Trojan, DPI bypass, MTProxy (TG) per-app split routing with automatic failover and a built-in network monitor.
@@ -10,7 +12,7 @@ Windows protocol router: WireGuard · VLESS · VMess · Trojan, DPI bypass, MTPr
 
 ## Folder layout
 ```
-NetProbe.exe
+RouteX.exe       (NetProbe.exe in installs updated from NetProbe — same app)
 zapret\          winws.exe, WinDivert, lists (copied from zapret-discord-youtube)
 xray\, singbox\  cores, installed/updated from the app
 config\          settings.ini, tunnels\*.conf|*.json, dpi\*.txt, lists\*.txt, themes\, runtime\
@@ -50,7 +52,7 @@ English · Español · 中文 (Settings → Language, applied without restart).
 
 ## Known limits
 - winws cannot filter by process; legacy process exclusions from 2.x work through current TCP connections (QUIC/UDP not covered).
-- WireSock cannot run twice: stop `wiresock-client-service` (TunnlTo) first — NetProbe offers to do it.
+- WireSock cannot run twice: stop `wiresock-client-service` (TunnlTo) first — RouteX offers to do it.
 
 ## Known Issues
 - incorrect Xray engine behavior when updating the include/exclude lists while the router is running.

@@ -147,7 +147,7 @@ namespace NetProbe
         public static int Show(IWin32Window owner, string title, string text, string[] buttons, string checkText, out bool dontShow)
         {
             dontShow = false;
-            using (var f = new Form { Text = "NetProbe", StartPosition = FormStartPosition.CenterParent, BackColor = Theme.Bg, ForeColor = Theme.Text, Font = Theme.Body, MinimizeBox = false, MaximizeBox = false, FormBorderStyle = FormBorderStyle.FixedDialog, ShowInTaskbar = false, AutoScaleMode = AutoScaleMode.None })
+            using (var f = new Form { Text = "RouteX", StartPosition = FormStartPosition.CenterParent, BackColor = Theme.Bg, ForeColor = Theme.Text, Font = Theme.Body, MinimizeBox = false, MaximizeBox = false, FormBorderStyle = FormBorderStyle.FixedDialog, ShowInTaskbar = false, AutoScaleMode = AutoScaleMode.None })
             {
                 int W = Theme.S(460), p = Theme.S(20);
                 var card = new CardPanel();

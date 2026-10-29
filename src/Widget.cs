@@ -32,7 +32,7 @@ namespace NetProbe
         public WidgetForm(ContextMenuStrip menu)
         {
             FormBorderStyle = FormBorderStyle.None; ShowInTaskbar = false; StartPosition = FormStartPosition.Manual;
-            BackColor = Theme.Widget; AutoScaleMode = AutoScaleMode.None; Text = "NetProbe widget";
+            BackColor = Theme.Widget; AutoScaleMode = AutoScaleMode.None; Text = "RouteX widget";
             Size = new Size(Theme.S(264), Theme.S(96));
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
             ContextMenuStrip = menu;

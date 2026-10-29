@@ -79,7 +79,7 @@ namespace NetProbe
             bool showErr = err != null;
             if (tgpErr != null && (tgpErr.Text != (err ?? "") || tgpErr.Visible != showErr)) { tgpErr.Text = err ?? ""; tgpErr.Visible = showErr; if (tgpLayState != null) tgpLayState(); }
             bool upd = tgUpstreamLatest != null;
-            if (tgpUpd != null && tgpUpd.Visible != upd) { tgpUpd.Text = upd ? "↑ " + Tx("Вышла tg-ws-proxy ") + tgUpstreamLatest + Tx(" (у тебя основа ") + TgConst.UpstreamVersion + Tx(") — придёт с обновлением NetProbe") : ""; tgpUpd.Visible = upd; if (tgpLayState != null) tgpLayState(); }
+            if (tgpUpd != null && tgpUpd.Visible != upd) { tgpUpd.Text = upd ? "↑ " + Tx("Вышла tg-ws-proxy ") + tgUpstreamLatest + Tx(" (у тебя основа ") + TgConst.UpstreamVersion + Tx(") — придёт с обновлением RouteX") : ""; tgpUpd.Visible = upd; if (tgpLayState != null) tgpLayState(); }
             if (tgpOn != null && tgpOn.On != st.TgOn) { tgpLoading = true; tgpOn.On = st.TgOn; tgpLoading = false; }
             if (tgpStats != null) tgpStats.Set(run);
             tgpState.Invalidate(); if (tgpState.Parent != null) tgpState.Parent.Invalidate(new Rectangle(0, tgpState.Top, Theme.S(40), tgpState.Height));
@@ -182,7 +182,7 @@ namespace NetProbe
             var cs = new CardPanel { Title = "TG Proxy", Width = W, Height = Theme.S(200) };
             tgpOn = new Toggle { On = st.TgOn };
             tgpOn.Changed += (s, e) => { if (tgpLoading) return; st.TgOn = tgpOn.On; st.Save(); TgApply(); TgUpdateUi(); };
-            tip.SetToolTip(tgpOn, Tx("Включить прокси. Включённый запускается вместе с NetProbe"));
+            tip.SetToolTip(tgpOn, Tx("Включить прокси. Включённый запускается вместе с RouteX"));
             tgpState = new Label { AutoSize = false, Font = Theme.H1, BackColor = Theme.Card, UseMnemonic = false, TextAlign = ContentAlignment.MiddleLeft };
             var dot = new DoubleBufferedControl { BackColor = Theme.Card };
             dot.Paint += (s, e) => { var g = e.Graphics; Gfx.Hq(g); var col = tgpState.Tag is Color ? (Color)tgpState.Tag : Theme.Dim; Gfx.Dot(g, col, dot.Width / 2f, dot.Height / 2f, Theme.S(6), TgProxy.Running); };
@@ -201,7 +201,7 @@ namespace NetProbe
             // вышла новая tg-ws-proxy: строка-ссылка на её релиз (сам прокси — часть NetProbe и обновляется вместе с ним)
             tgpUpd = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Orange, BackColor = Theme.Card, UseMnemonic = false, Visible = false, Cursor = Cursors.Hand, AutoEllipsis = true };
             tgpUpd.Click += (s, e) => { try { Process.Start("https://github.com/" + TgConst.UpstreamRepo + "/releases/latest"); } catch { } };
-            tip.SetToolTip(tgpUpd, Tx("Встроенный прокси — перенос кода tg-ws-proxy внутрь NetProbe: новая версия попадёт к тебе с обновлением NetProbe. Клик — страница релиза"));
+            tip.SetToolTip(tgpUpd, Tx("Встроенный прокси — перенос кода tg-ws-proxy внутрь RouteX: новая версия попадёт к тебе с обновлением RouteX. Клик — страница релиза"));
             var how = new Label { Text = Tx("Вручную: Telegram → Настройки → Продвинутые → Тип соединения → Прокси → MTProto: адрес, порт и секрет «dd…» из ссылки."), AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false };
             tip.SetToolTip(tgpLink, how.Text); tip.SetToolTip(tgpAddr, how.Text);
             cs.Controls.AddRange(new Control[] { tgpOn, dot, tgpState, tgpAddr, tgpLink, bOpen, bCopy, bRestart, tgpStats, tgpErr, tgpUpd });
@@ -367,7 +367,7 @@ namespace NetProbe
             tip.SetToolTip(cTest, Tx("Весь трафик — в тестовые дата-центры. Для Telegram Desktop не нужно (тестовые DC определяются сами)"));
             fa.Check(cTest);
             var cVerb = Ui.Check(Tx("Подробный лог"), st.TgVerbose); cVerb.CheckedChanged += (s, e) => { st.TgVerbose = cVerb.Checked; TgLog.Verbose = cVerb.Checked; st.Save(); };
-            tip.SetToolTip(cVerb, Tx("Больше подробностей в лог NetProbe (вкладка «Лог и опрос», с «Каждый опрос») — для разбора проблем"));
+            tip.SetToolTip(cVerb, Tx("Больше подробностей в лог RouteX (вкладка «Лог и опрос», с «Каждый опрос») — для разбора проблем"));
             fa.Check(cVerb);
             var credit = new Label { Text = Tx("Основано на tg-ws-proxy (Flowseal, лицензия MIT)."), Font = Theme.Small, ForeColor = Theme.Dim, AutoSize = false, UseMnemonic = false };
             fa.Note(credit);

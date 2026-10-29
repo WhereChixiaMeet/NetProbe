@@ -150,7 +150,7 @@ namespace NetProbe
         void KillSelectedTasks()
         {
             var sel = SelTasks(); if (sel.Count == 0) return;
-            if (MessageBox.Show(this, Tx("Завершить: ") + string.Join(", ", sel.Select(x => x.Name + (x.Count > 1 ? " ×" + x.Count : ""))) + Tx("?\nНесохранённые данные в этих программах будут потеряны."), "NetProbe", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+            if (MessageBox.Show(this, Tx("Завершить: ") + string.Join(", ", sel.Select(x => x.Name + (x.Count > 1 ? " ×" + x.Count : ""))) + Tx("?\nНесохранённые данные в этих программах будут потеряны."), "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             foreach (var t in sel)
             {
                 try

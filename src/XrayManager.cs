@@ -181,7 +181,7 @@ namespace NetProbe
             Func<int, bool> tun = p => p == st.TunnelSocksPort || p == st.TunnelSocksPort + 1; // порты xray-туннеля «Конфигов»
             while (PortBusy(st.SocksPort) || PortBusy(st.HttpPort) || st.SocksPort == st.HttpPort || tun(st.SocksPort) || tun(st.HttpPort)) { st.SocksPort += 10; st.HttpPort += 10; if (st.SocksPort > 64000) { st.SocksPort = 20808; st.HttpPort = 20809; } }
             while (PortBusy(st.ApiPort) || st.ApiPort == st.SocksPort || st.ApiPort == st.HttpPort || tun(st.ApiPort)) { st.ApiPort += 10; if (st.ApiPort > 64000) st.ApiPort = 20813; }
-            if (s0 != st.SocksPort || h0 != st.HttpPort) { st.Save(); Logger.Write(LogLevel.Warn, Tx("Порты ") + s0 + "/" + h0 + Tx(" заняты другой программой — NetProbe использует ") + st.SocksPort + "/" + st.HttpPort); }
+            if (s0 != st.SocksPort || h0 != st.HttpPort) { st.Save(); Logger.Write(LogLevel.Warn, Tx("Порты ") + s0 + "/" + h0 + Tx(" заняты другой программой — RouteX использует ") + st.SocksPort + "/" + st.HttpPort); }
             else if (a0 != st.ApiPort) st.Save();
         }
 

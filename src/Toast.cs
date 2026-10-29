@@ -32,7 +32,7 @@ namespace NetProbe
                 try { if (icon != null) using (var b = new Bitmap(icon, 64, 64)) b.Save(png, ImageFormat.Png); } catch { }
                 using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\AppUserModelId\" + Aumid))
                 {
-                    k.SetValue("DisplayName", "NetProbe");
+                    k.SetValue("DisplayName", "RouteX");
                     if (File.Exists(png)) k.SetValue("IconUri", png);
                 }
                 registered = true;
