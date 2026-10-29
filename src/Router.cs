@@ -145,7 +145,7 @@ namespace NetProbe
                 }
                 else wg = SelfUpdate.FindChild("wiresock-client", null);
                 if (wg != null && !Wg.IsXray) Wg.Attach(wg, g("tunnel"));
-                if (wg != null) { tunnelAt = DateTime.Now; OnBackup = g("backup") == "1"; StrictOnly = g("strict") == "1"; domainDpi = !StrictOnly && TunnelDomains(false).Count > 0; learnedVer = DomainRoutes.Version; }
+                if (wg != null) { tunnelAt = DateTime.Now; tunUpAt = DateTime.MinValue; OnBackup = g("backup") == "1"; StrictOnly = g("strict") == "1"; domainDpi = !StrictOnly && TunnelDomains(false).Count > 0; learnedVer = DomainRoutes.Version; }
                 var dpi = SelfUpdate.FindChild("winws", st.ZapretPath);
                 if (dpi != null) Dpi.Attach(dpi, g("strategy"));
                 ManualDpi = g("manualdpi") == "1";
@@ -175,9 +175,34 @@ namespace NetProbe
         public void RefreshDpiExclusions() { Post(() => { if (Dpi.Running) RefreshExclusions(GetSettings(), true); }); }
 
         // результат каждого опроса VPN-канала (пробник netprobe-vpn.exe идёт через туннель)
+        // xray-туннель: пока TUN (sing-box) не стал маршрутом по умолчанию, пробник VPN идёт напрямую — такие опросы
+        // не говорят о VPN ничего (ложное «упал» от сброса провайдера или ложное «восстановлен за 32 мс»)
+        DateTime tunUpAt = DateTime.MinValue;
+        static bool TunIsDefaultRoute()
+        {
+            try
+            {
+                int best = Adapters.BestIndex();
+                foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+                    if (ni.Name == "NetProbe TUN" || ni.Description.IndexOf("NetProbe TUN", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        var p4 = ni.GetIPProperties().GetIPv4Properties();
+                        if (p4 != null && p4.Index == best) return true;
+                    }
+            }
+            catch { }
+            return false;
+        }
+
         public void VpnSample(bool ok, DateTime t)
         {
             if (t < tunnelAt.AddMilliseconds(500)) return; // опрос начался до перезапуска туннеля
+            if (Wg.IsXray && Wg.Running)
+            {
+                // ждём TUN не дольше 10 с: если адаптер так и не стал маршрутом (другое имя, чужой VPN) — снова считаем опросы
+                if (tunUpAt == DateTime.MinValue) { if (!TunIsDefaultRoute() && (DateTime.Now - tunnelAt).TotalSeconds < 10) return; tunUpAt = DateTime.Now; }
+                if (t < tunUpAt) return; // опрос начался, пока TUN ещё не был маршрутом
+            }
             if (ok) { LastVpnOk = t; if (okSince == DateTime.MinValue) okSince = t; }
             else okSince = DateTime.MinValue;
         }
@@ -262,13 +287,15 @@ namespace NetProbe
             {
                 // VLESS / VMess / Trojan: тот же сценарий, другой транспорт (xray + sing-box TUN, списки — process_path_regex)
                 wgDied = false;
-                okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue;
+                okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue; tunUpAt = DateTime.MinValue;
                 var lists = XrayTunLists(st, strictOnly);
                 lastXrayLists = lists;
-                string xerr = Wg.StartXray(st, name, lists);
+                string xerr;
+                bool kept = Wg.TryRestartTun(st, name, lists, out xerr); // тот же туннель: только sing-box, xray и соединение с сервером остаются
+                if (!kept) xerr = Wg.StartXray(st, name, lists);
                 if (xerr != null) { TunnelErr(xerr); wgDied = true; return false; }
                 lastTunnelErr = null; OnBackup = backup; StrictOnly = strictOnly;
-                Logger.Write(LogLevel.Route, Tx("Туннель «") + name + "» (" + Tunnels.Endpoint(name) + Tx(") запущен") + (backup ? Tx(" · резервный") : "") + (strictOnly ? Tx(" · только для приложений «строго VPN»") : ""));
+                Logger.Write(LogLevel.Route, Tx("Туннель «") + name + "» (" + Tunnels.Endpoint(name) + Tx(") запущен") + (backup ? Tx(" · резервный") : "") + (strictOnly ? Tx(" · только для приложений «строго VPN»") : "") + (kept ? Tx(" · соединение с сервером сохранено") : ""));
                 return true;
             }
             if (!File.Exists(st.WiresockPath)) { wgDied = true; TunnelErr(Tx("Не найден wiresock-client.exe: ") + st.WiresockPath + Tx(". Установите WireSock VPN Client (есть в папке TunnlTo\\wiresock_installers) или укажите путь в Настройках.")); return false; }

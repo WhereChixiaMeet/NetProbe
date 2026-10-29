@@ -826,6 +826,7 @@ namespace NetProbe
             { "Порт туннеля ", "El puerto del túnel " },
             { " занят: ", " está ocupado: " },
             { ") — закрой эту программу или поменяй TunnelSocksPort в config\\settings.ini", ") — cierra ese programa o cambia TunnelSocksPort en config\\settings.ini" },
+            { " · соединение с сервером сохранено", " · conexión con el servidor conservada" },
             { "Kill switch снят", "Kill switch liberado" },
             { "Kill switch: заблокировано приложений «строго VPN»: ", "Kill switch: apps «solo VPN» bloqueadas: " },
             { "Подключение · режим: ", "Conexión · modo: " },

@@ -102,6 +102,7 @@ namespace NetProbe
         public event Action<int> Exited;
         public event Action<string> Output;
         volatile bool stopping;
+        string runningXrayJson; // конфиг запущенного xray туннеля — чтобы при смене списков не трогать xray, если он тот же
 
         public XrayTunnel()
         {
@@ -146,16 +147,44 @@ namespace NetProbe
             if (!File.Exists(XrayProcess.Exe(st))) return Tx("Не найден xray.exe — установите ядро на вкладке Subscriptions («Ядро xray»)");
             if (!File.Exists(SingBoxProcess.Exe(st))) return Tx("Не найден sing-box.exe — установите ядро TUN на вкладке Subscriptions («sing-box»)");
             // свои порты, чтобы не мешать xray подписок; DirectDomains / статистика здесь не нужны
-            var cs = st.Clone(); cs.SocksPort = Port(st); cs.HttpPort = Port(st) + 1; cs.TunMode = true; cs.AllowLan = false;
+            var cs = TunSettings(st);
             string busy = FreePorts(st, new[] { cs.SocksPort, cs.HttpPort });
             if (busy != null) return busy;
-            string err = x.Start(cs, XrayConfig.Build(cs, e), Path.Combine(Settings.Sub("runtime"), "xray-tunnel.json"));
+            string xjson = XrayConfig.Build(cs, e);
+            string err = x.Start(cs, xjson, Path.Combine(Settings.Sub("runtime"), "xray-tunnel.json"));
             if (err != null) return err;
             System.Threading.Thread.Sleep(400);
             if (!x.Running) return Tx("xray туннеля сразу завершился — проверь поля конфига (лог xray)");
             err = sb.Start(cs, SingBoxConfig.Build(cs, lists), "singbox-tunnel.json");
             if (err != null) { x.Stop(); return err; }
-            TunnelName = name; StartedAt = DateTime.Now; stopping = false;
+            TunnelName = name; StartedAt = DateTime.Now; stopping = false; runningXrayJson = xjson;
+            WriteRuntime(name, e, lists);
+            return null;
+        }
+
+        // свои порты, чтобы не мешать xray подписок; DirectDomains / статистика здесь не нужны
+        static Settings TunSettings(Settings st) { var cs = st.Clone(); cs.SocksPort = Port(st); cs.HttpPort = Port(st) + 1; cs.TunMode = true; cs.AllowLan = false; return cs; }
+
+        // Смена списков или режима «строго VPN» у того же туннеля: если конфиг xray не изменился, перезапускается только
+        // sing-box (TUN и правила), а xray и его соединение с сервером продолжают работать — новое рукопожатие не нужно.
+        // false — так нельзя (другой туннель, xray не запущен, конфиг xray другой): нужен полный перезапуск.
+        public bool TryRestartTun(Settings st, string name, TunLists lists, out string err)
+        {
+            err = null;
+            if (name != TunnelName || runningXrayJson == null || !x.Running) return false;
+            var e = TunnelProto.Load(name);
+            if (e == null || TunnelProto.Missing(e) != null) return false;
+            var cs = TunSettings(st);
+            if (XrayConfig.Build(cs, e) != runningXrayJson) return false;
+            if (!File.Exists(SingBoxProcess.Exe(st))) return false;
+            err = sb.Start(cs, SingBoxConfig.Build(cs, lists), "singbox-tunnel.json"); // Start сам останавливает прежний sing-box
+            if (err != null) return true;
+            WriteRuntime(name, e, lists);
+            return true;
+        }
+
+        void WriteRuntime(string name, ServerEntry e, TunLists lists)
+        {
             // для окна «Маршрут» (RouteFacts): те же ключи, что у WireSock — только факты запущенного
             try
             {
@@ -164,14 +193,13 @@ namespace NetProbe
                     (lists.Exclude.Count > 0 ? "DisallowedApps = " + string.Join(", ", lists.Exclude) + "\r\n" : ""), new UTF8Encoding(false));
             }
             catch { }
-            return null;
         }
 
-        public void Attach(Process xp, Process sp, string name) { x.Attach(xp); sb.Attach(sp); TunnelName = name; StartedAt = DateTime.Now; }
+        public void Attach(Process xp, Process sp, string name) { x.Attach(xp); sb.Attach(sp); TunnelName = name; StartedAt = DateTime.Now; runningXrayJson = null; }
 
         public void Stop()
         {
-            stopping = true;
+            stopping = true; runningXrayJson = null;
             try { sb.Stop(); } catch { }
             try { x.Stop(); } catch { }
             stopping = false;
@@ -203,6 +231,7 @@ namespace NetProbe
 
         public string Start(Settings st, string tunnel, string config) { Stop(); IsXray = false; return Wire.Start(st, tunnel, config); }
         public string StartXray(Settings st, string tunnel, TunLists lists) { Stop(); IsXray = true; return Xr.Start(st, tunnel, lists); }
+        public bool TryRestartTun(Settings st, string tunnel, TunLists lists, out string err) { err = null; return IsXray && Xr.TryRestartTun(st, tunnel, lists, out err); }
         public void Attach(Process p, string tunnel) { IsXray = false; Wire.Attach(p, tunnel); }
         public void AttachXray(Process xp, Process sp, string tunnel) { IsXray = true; Xr.Attach(xp, sp, tunnel); }
         public void Stop() { Wire.Stop(); Xr.Stop(); }

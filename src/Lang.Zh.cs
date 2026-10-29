@@ -792,6 +792,7 @@ namespace NetProbe
             { "Порт туннеля ", "隧道端口 " },
             { " занят: ", " 被占用：" },
             { ") — закрой эту программу или поменяй TunnelSocksPort в config\\settings.ini", "）— 请关闭该程序或在 config\\settings.ini 中修改 TunnelSocksPort" },
+            { " · соединение с сервером сохранено", " · 已保持与服务器的连接" },
             { "Kill switch снят", "Kill switch 已解除" },
             { "Kill switch: заблокировано приложений «строго VPN»: ", "Kill switch：已阻止“严格 VPN”应用： " },
             { "Подключение · режим: ", "正在连接 · 模式： " },
