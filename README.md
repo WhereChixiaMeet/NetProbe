@@ -1,5 +1,5 @@
 # NetProbe 3.0
-
+!MANUAL RESTART REQUIRED AFTER UPDATE!
 Windows protocol router: WireGuard · VLESS · VMess · Trojan, DPI bypass (zapret), per-app split routing with automatic failover and a built-in network monitor.
 
 ## Requirements
