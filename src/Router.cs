@@ -161,7 +161,20 @@ namespace NetProbe
         }
 
         // DPI для вкладки «Серверы» (запасной вариант автосвитча, приложения «через DPI»): не зависит от кнопки VPN
-        public Func<bool> DpiHold;                 // winws нужен «Серверам» — не останавливать вместе с VPN
+        public Func<bool> DpiHold;
+        public Func<bool> ConfirmVpn;              // вторая проверка VPN другим адресом через туннель (до аварийного переключения)
+        bool confirmLogged;
+
+        // в момент падения VPN: что с процессами туннеля и есть ли у xray соединения с сервером — для разбора по логу
+        void LogTunnelState()
+        {
+            try
+            {
+                string s = "xray TUN: " + (Wg.IsXray ? Wg.Xr.Diag(GetSettings()) : "WireSock " + (Wg.Running ? Tx("работает") : Tx("не работает")));
+                Logger.Write(LogLevel.Warn, Tx("Состояние туннеля при падении: ") + s);
+            }
+            catch { }
+        }                 // winws нужен «Серверам» — не останавливать вместе с VPN
         public Func<List<string>> ExtraDpiExcl;    // исключения DPI вкладки «Серверы»
         public void StandaloneDpi(bool on)
         {
@@ -194,9 +207,11 @@ namespace NetProbe
             return false;
         }
 
-        public void VpnSample(bool ok, DateTime t)
+        public void VpnSample(bool ok, DateTime t, bool sameAsDirect = false)
         {
             if (t < tunnelAt.AddMilliseconds(500)) return; // опрос начался до перезапуска туннеля
+            // первые 30 с после запуска туннеля пробник VPN, вышедший с IP «Напрямую», прошёл мимо туннеля — о VPN это ничего не говорит
+            if (sameAsDirect && (t - tunnelAt).TotalSeconds < 30) return;
             if (Wg.IsXray && Wg.Running)
             {
                 // ждём TUN не дольше 10 с: если адаптер так и не стал маршрутом (другое имя, чужой VPN) — снова считаем опросы
@@ -279,7 +294,9 @@ namespace NetProbe
 
         bool HasBackup(Settings st) { return st.BackupEnabled && Tunnels.Exists(st.BackupTunnel) && st.BackupTunnel != st.PrimaryTunnel; }
 
-        bool StartTunnel(Settings st, bool backup, bool strictOnly)
+        // keepConn: тот же xray-туннель — перезапустить только sing-box (смена списков, возврат с DPI на рабочий VPN).
+        // После падения VPN — всегда false: зависшее соединение xray с сервером нужно поднять заново.
+        bool StartTunnel(Settings st, bool backup, bool strictOnly, bool keepConn = false)
         {
             string name = backup ? st.BackupTunnel : st.PrimaryTunnel;
             if (!Tunnels.Exists(name)) { TunnelErr((backup ? Tx("Резервный") : Tx("Основной")) + Tx(" туннель не выбран или не найден")); return false; }
@@ -290,8 +307,8 @@ namespace NetProbe
                 okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue; tunUpAt = DateTime.MinValue;
                 var lists = XrayTunLists(st, strictOnly);
                 lastXrayLists = lists;
-                string xerr;
-                bool kept = Wg.TryRestartTun(st, name, lists, out xerr); // тот же туннель: только sing-box, xray и соединение с сервером остаются
+                string xerr = null;
+                bool kept = keepConn && Wg.TryRestartTun(st, name, lists, out xerr); // тот же туннель: только sing-box, xray и соединение с сервером остаются
                 if (!kept) xerr = Wg.StartXray(st, name, lists);
                 if (xerr != null) { TunnelErr(xerr); wgDied = true; return false; }
                 lastTunnelErr = null; OnBackup = backup; StrictOnly = strictOnly;
@@ -463,7 +480,7 @@ namespace NetProbe
         {
             var st = GetSettings();
             if (State == RouteState.Off) return;
-            if (Wg.Running) { Logger.Write(LogLevel.Route, Tx("Списки изменены — перезапуск туннеля с новыми правилами")); StartTunnel(st, OnBackup, StrictOnly); }
+            if (Wg.Running) { Logger.Write(LogLevel.Route, Tx("Списки изменены — перезапуск туннеля с новыми правилами")); StartTunnel(st, OnBackup, StrictOnly, true); }
             if ((State == RouteState.Vpn || State == RouteState.Backup || State == RouteState.VpnDown) && (!domainDpi || DpiForcedOff) && Dpi.Running) StopDpi(); // доменов больше нет / DPI выключен кнопкой (в DPI/VPN winws держит HybridDpiWanted)
             EnsureHybridDpi(st);
             if (domainDpi && !Dpi.Running && !DpiForcedOff) { lastDomDpi = DateTime.Now; StartDpi(); }
@@ -475,6 +492,7 @@ namespace NetProbe
         void EnterDpi(Settings st, string why)
         {
             Failovers++;
+            if (lastReturn != DateTime.MinValue && (DateTime.Now - lastReturn).TotalSeconds < 60) returnFails++;
             Logger.Write(LogLevel.Route, Tx("АВАРИЙНОЕ ПЕРЕКЛЮЧЕНИЕ НА DPI: ") + why);
             StartDpi();
             // туннель оставляем только для «строго VPN» приложений и пробника — по нему ловим восстановление
@@ -495,7 +513,13 @@ namespace NetProbe
             return (now - last).TotalSeconds > st.FailoverSec;
         }
 
-        bool VpnStable(Settings st) { return Wg.Running && okSince != DateTime.MinValue && (DateTime.Now - okSince).TotalSeconds >= st.RecoverSec; }
+        bool VpnStable(Settings st) { return VpnStable(st, st.RecoverSec); }
+        bool VpnStable(Settings st, double secs) { return Wg.Running && okSince != DateTime.MinValue && (DateTime.Now - okSince).TotalSeconds >= secs; }
+
+        // возврат с DPI на VPN, после которого VPN снова упал меньше чем через минуту = неудачный; каждый такой
+        // удваивает нужное время стабильной работы перед следующим возвратом (не больше 5 мин); 5 мин нормы на VPN — сброс
+        int returnFails; DateTime lastReturn = DateTime.MinValue;
+        double RecoverNeed(Settings st) { return Math.Min(300, st.RecoverSec * Math.Pow(2, Math.Min(returnFails, 6))); }
 
         void Tick()
         {
@@ -508,8 +532,23 @@ namespace NetProbe
                     DomainTick(st);
                     EnsureHybridDpi(st);
                     if (Dpi.Running && st.RunMode == RouteMode.Hybrid) RefreshExclusions(st, false);
+                    if (returnFails > 0 && lastReturn != DateTime.MinValue && (now - lastReturn).TotalMinutes >= 5) returnFails = 0;
+                    if (VpnSilent(st) && !wgDied && Wg.Running && ConfirmVpn != null)
+                    {
+                        // пробник молчит, но это может быть один сайт (www.cloudflare.com), а не VPN: проверяем другим адресом через туннель
+                        bool alive = false;
+                        try { alive = ConfirmVpn(); } catch { }
+                        if (alive)
+                        {
+                            LastVpnOk = DateTime.Now;
+                            if (!confirmLogged) { confirmLogged = true; Logger.Write(LogLevel.Warn, Tx("Пробник VPN не получил ответа, но VPN отвечает по второму адресу — остаюсь на VPN")); }
+                            break;
+                        }
+                    }
+                    if (!VpnSilent(st)) confirmLogged = false;
                     if (VpnSilent(st))
                     {
+                        LogTunnelState();
                         string why = wgDied ? Tx("процесс WireSock остановился") : Tx("VPN не отвечает ") + st.FailoverSec + Tx(" с");
                         if (!OnBackup && HasBackup(st))
                         {
@@ -536,11 +575,12 @@ namespace NetProbe
                 case RouteState.DpiFailover:
                     if (dpiDied && dpiRestarts < 5) { dpiRestarts++; Logger.Write(LogLevel.Warn, Tx("Перезапуск winws (") + dpiRestarts + ")"); StartDpi(); }
                     RefreshExclusions(st, false);
-                    if (VpnStable(st))
+                    if (VpnStable(st, RecoverNeed(st)))
                     {
-                        Logger.Write(LogLevel.Route, Tx("VPN снова стабилен ") + st.RecoverSec + Tx(" с → возврат с DPI на VPN"));
+                        Logger.Write(LogLevel.Route, Tx("VPN снова стабилен ") + (int)RecoverNeed(st) + Tx(" с → возврат с DPI на VPN"));
                         bool b = OnBackup;
-                        if (StartTunnel(st, b, false)) { StopDpi(); Kill(st, false); if (b) backupSince = now; SetState(b ? RouteState.Backup : RouteState.Vpn, b ? st.BackupTunnel : st.PrimaryTunnel); }
+                        lastReturn = now;
+                        if (StartTunnel(st, b, false, true)) { StopDpi(); Kill(st, false); if (b) backupSince = now; SetState(b ? RouteState.Backup : RouteState.Vpn, b ? st.BackupTunnel : st.PrimaryTunnel); }
                         return;
                     }
                     if (VpnSilent(st))

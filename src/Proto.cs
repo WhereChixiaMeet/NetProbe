@@ -183,6 +183,26 @@ namespace NetProbe
             return true;
         }
 
+        // диагностика: живы ли xray и sing-box, сколько у xray TCP-соединений с сервером туннеля
+        public string Diag(Settings st)
+        {
+            string xs = x.Running ? "xray PID " + x.Pid : Tr.Tx("xray не работает");
+            string ss = sb.Running ? "sing-box OK" : Tr.Tx("sing-box не работает");
+            int n = -1;
+            try
+            {
+                var e = TunnelProto.Load(TunnelName);
+                var ips = new List<System.Net.IPAddress>();
+                System.Net.IPAddress ip;
+                if (e != null && System.Net.IPAddress.TryParse(e.Address, out ip)) ips.Add(ip);
+                else if (e != null) ips.AddRange(System.Net.Dns.GetHostAddresses(e.Address));
+                int pid = x.Pid;
+                if (pid > 0 && ips.Count > 0) n = ProcInfo.Connections().Count(c => c.Item1 == pid && ips.Any(a => a.Equals(c.Item2)));
+            }
+            catch { }
+            return xs + " · " + ss + (n >= 0 ? " · " + Tr.Tx("соединений xray с сервером: ") + n : "");
+        }
+
         void WriteRuntime(string name, ServerEntry e, TunLists lists)
         {
             // для окна «Маршрут» (RouteFacts): те же ключи, что у WireSock — только факты запущенного

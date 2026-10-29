@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.3.9";
+        public const string Version = "3.4.0";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -99,6 +99,21 @@ namespace NetProbe
             monVpn.GetProber = () => pVpn;
             monDir.GetProber = () => pDir;
             monVpn.Sample += OnSampleBg; monDir.Sample += OnSampleBg;
+            // вторая проверка перед аварийным переключением: другие адреса через тот же пробник VPN (через туннель)
+            router.ConfirmVpn = () =>
+            {
+                var p = pVpn; if (p == null) return false;
+                string dIp = chs["direct"].Ip;
+                foreach (var u in new[] { "https://1.1.1.1/cdn-cgi/trace", "https://www.gstatic.com/generate_204" })
+                {
+                    ProbeResult r;
+                    try { r = p.Http(u, 4); } catch { continue; }
+                    if (!r.Ok) continue;
+                    if (r.Ip != "" && dIp != "" && r.Ip == dIp) continue; // ответ пришёл мимо туннеля — не считается
+                    return true;
+                }
+                return false;
+            };
 
             RefreshAdapters(true);
             refreshTimer.Tick += (s, e) => RefreshAdapters(false);
@@ -859,7 +874,7 @@ namespace NetProbe
 
         void OnSampleBg(ChannelMonitor m, ProbeResult r)
         {
-            if (m.Key == "vpn") router.VpnSample(r.Ok, r.Time);
+            if (m.Key == "vpn") router.VpnSample(r.Ok, r.Time, r.Ok && r.Ip != "" && r.Ip == chs["direct"].Ip); // вышел с IP «Напрямую» = мимо туннеля
             if (bgProbe)
             {
                 // мониторинг выключен: без интерфейса, но в лог (если включено «Опросы в лог»)
