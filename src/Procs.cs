@@ -75,6 +75,35 @@ namespace NetProbe
             return rows;
         }
 
+        // PID процессов, слушающих TCP-порт (IPv4 и IPv6)
+        public static List<int> ListenerPids(int port)
+        {
+            var res = new List<int>();
+            foreach (int af in new[] { 2, 23 })
+            {
+                int size = 0;
+                GetExtendedTcpTable(IntPtr.Zero, ref size, false, af, 5, 0); // TCP_TABLE_OWNER_PID_ALL
+                if (size <= 0) continue;
+                IntPtr buf = Marshal.AllocHGlobal(size + 1024); size += 1024;
+                try
+                {
+                    if (GetExtendedTcpTable(buf, ref size, false, af, 5, 0) != 0) continue;
+                    int n = Marshal.ReadInt32(buf);
+                    IntPtr row = buf + 4;
+                    for (int i = 0; i < n; i++)
+                    {
+                        uint state; int lp, pid;
+                        // порт хранится в сетевом порядке байт в младших двух байтах DWORD
+                        if (af == 2) { state = (uint)Marshal.ReadInt32(row); lp = (Marshal.ReadByte(row + 8) << 8) | Marshal.ReadByte(row + 9); pid = Marshal.ReadInt32(row + 20); row += 24; }
+                        else { state = (uint)Marshal.ReadInt32(row + 48); lp = (Marshal.ReadByte(row + 20) << 8) | Marshal.ReadByte(row + 21); pid = Marshal.ReadInt32(row + 52); row += 56; }
+                        if (state == 2 && lp == port && pid > 4 && !res.Contains(pid)) res.Add(pid); // 2 = LISTEN
+                    }
+                }
+                finally { Marshal.FreeHGlobal(buf); }
+            }
+            return res;
+        }
+
         // (pid, удалённый IP) для всех TCP-соединений IPv4 и IPv6
         public static List<Tuple<int, IPAddress>> Connections()
         {

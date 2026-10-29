@@ -434,6 +434,13 @@ namespace NetProbe
 
         public static string Exe(Settings st) { return System.IO.Path.Combine(st.XrayPath, "xray.exe"); }
 
+        // PID всех xray, запущенных или подхваченных (после самообновления) этим запуском NetProbe.
+        // xray из папки NetProbe, которого здесь нет, — зависший от прошлого запуска (краш, диспетчер задач)
+        static readonly HashSet<int> live = new HashSet<int>();
+        public static bool IsOurs(int pid) { lock (live) return live.Contains(pid); }
+        static void Track(Process pr) { try { lock (live) live.Add(pr.Id); } catch { } }
+        static void Untrack(Process pr) { try { lock (live) live.Remove(pr.Id); } catch { } }
+
         public string LastLine = "";   // последняя ошибка из вывода (только при capture)
 
         // capture = читать вывод (для замеров). Основной xray запускается без перенаправления, чтобы пережить перезапуск NetProbe
@@ -450,9 +457,10 @@ namespace NetProbe
                 var pr = new Process { StartInfo = psi, EnableRaisingEvents = true };
                 pr.OutputDataReceived += (s, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) { var h = Output; if (h != null) h(e.Data.Trim()); } };
                 pr.ErrorDataReceived += (s, e) => { if (!string.IsNullOrWhiteSpace(e.Data)) { var h = Output; if (h != null) h(e.Data.Trim()); } };
-                pr.Exited += (s, e) => { int c = -1; try { c = pr.ExitCode; } catch { } if (pr == p) { var h = Exited; if (h != null) h(c); } };
+                pr.Exited += (s, e) => { Untrack(pr); int c = -1; try { c = pr.ExitCode; } catch { } if (pr == p) { var h = Exited; if (h != null) h(c); } };
                 if (capture) Output += l => { if (LastLine == "" || l.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0) LastLine = l; };
                 pr.Start();
+                Track(pr);
                 if (capture) { pr.BeginOutputReadLine(); pr.BeginErrorReadLine(); }
                 p = pr;
                 return null;
@@ -463,7 +471,8 @@ namespace NetProbe
         public void Attach(Process pr)
         {
             pr.EnableRaisingEvents = true;
-            pr.Exited += (s, e) => { int c = -1; try { c = pr.ExitCode; } catch { } if (pr == p) { var h = Exited; if (h != null) h(c); } };
+            Track(pr);
+            pr.Exited += (s, e) => { Untrack(pr); int c = -1; try { c = pr.ExitCode; } catch { } if (pr == p) { var h = Exited; if (h != null) h(c); } };
             p = pr;
         }
 
@@ -472,6 +481,7 @@ namespace NetProbe
             var pr = p; p = null;
             if (pr == null) return;
             try { if (!pr.HasExited) { pr.Kill(); pr.WaitForExit(3000); } } catch { }
+            Untrack(pr);
             try { pr.Dispose(); } catch { }
         }
     }

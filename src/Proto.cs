@@ -115,6 +115,28 @@ namespace NetProbe
 
         public static int Port(Settings st) { return st.TunnelSocksPort; }
 
+        // Порт туннеля занят: зависший xray.exe из папки NetProbe (не этого запуска) — закрываем;
+        // чужая программа или xray подписок этого запуска — понятная ошибка вместо «xray сразу завершился»
+        static string FreePorts(Settings st, int[] ports)
+        {
+            foreach (int port in ports)
+                foreach (int pid in ProcInfo.ListenerPids(port))
+                {
+                    string path = "";
+                    try { path = ProcInfo.ImagePath(pid); } catch { }
+                    bool ourCore = path != "" && path.StartsWith(st.XrayPath, StringComparison.OrdinalIgnoreCase) && string.Equals(Path.GetFileName(path), "xray.exe", StringComparison.OrdinalIgnoreCase);
+                    if (ourCore && !XrayProcess.IsOurs(pid))
+                    {
+                        try { using (var p = Process.GetProcessById(pid)) { p.Kill(); p.WaitForExit(3000); } } catch { }
+                        Logger.Write(LogLevel.Warn, Tx("Зависший xray.exe NetProbe от прошлого запуска держал порт туннеля ") + port + " (PID " + pid + Tx(") — закрыт"));
+                        continue;
+                    }
+                    string who = path != "" ? Path.GetFileName(path) : "PID " + pid;
+                    return Tx("Порт туннеля ") + port + Tx(" занят: ") + who + " (PID " + pid + Tx(") — закрой эту программу или поменяй TunnelSocksPort в config\\settings.ini");
+                }
+            return null;
+        }
+
         public string Start(Settings st, string name, TunLists lists)
         {
             Stop();
@@ -125,6 +147,8 @@ namespace NetProbe
             if (!File.Exists(SingBoxProcess.Exe(st))) return Tx("Не найден sing-box.exe — установите ядро TUN на вкладке Subscriptions («sing-box»)");
             // свои порты, чтобы не мешать xray подписок; DirectDomains / статистика здесь не нужны
             var cs = st.Clone(); cs.SocksPort = Port(st); cs.HttpPort = Port(st) + 1; cs.TunMode = true; cs.AllowLan = false;
+            string busy = FreePorts(st, new[] { cs.SocksPort, cs.HttpPort });
+            if (busy != null) return busy;
             string err = x.Start(cs, XrayConfig.Build(cs, e), Path.Combine(Settings.Sub("runtime"), "xray-tunnel.json"));
             if (err != null) return err;
             System.Threading.Thread.Sleep(400);
