@@ -64,6 +64,8 @@ namespace NetProbe
         void Post(Action a) { lock (q) q.Enqueue(a); wake.Set(); }
         public void Connect() { Post(DoConnect); }
         public void Disconnect() { Post(DoDisconnect); }
+        // при обычном запуске (не после самообновления) снимаем правила kill switch, оставшиеся от прошлого запуска
+        public void ClearStaleKill() { Post(() => { if (KillSwitch.NeedsClear && KillSwitch.Clear()) Logger.Write(LogLevel.Route, Tx("Kill switch: сняты правила брандмауэра от прошлого запуска")); }); }
         public void Reapply() { Post(DoReapply); }
         public void RestartDpi() { Post(() => { if (Dpi.Running) StartDpi(); }); }
         public void ShutdownSync() { DoDisconnect(); }
@@ -335,7 +337,7 @@ namespace NetProbe
 
         void Kill(Settings st, bool on)
         {
-            if (!on || !st.KillSwitch) { if (KillSwitch.Active) { KillSwitch.Clear(); Logger.Write(LogLevel.Route, Tx("Kill switch снят")); } return; }
+            if (!on || !st.KillSwitch) { if (KillSwitch.NeedsClear) { KillSwitch.Clear(); Logger.Write(LogLevel.Route, Tx("Kill switch снят")); } return; }
             if ((DateTime.Now - lastKill).TotalSeconds < 5) return;
             lastKill = DateTime.Now;
             var strict = AppLists.AppsOnly(AppLists.VpnOnlyApps);
@@ -370,7 +372,7 @@ namespace NetProbe
             domainDpi = false;
             bool was = State != RouteState.Off || Wg.Running || Dpi.Running;
             StopTunnel(); StopDpi();
-            if (KillSwitch.Active) KillSwitch.Clear();
+            if (KillSwitch.NeedsClear) KillSwitch.Clear();
             if (was) Logger.Write(LogLevel.Route, Tx("Отключено"));
             SetState(RouteState.Off, "");
         }
@@ -384,7 +386,7 @@ namespace NetProbe
             EnsureHybridDpi(st);
             if (domainDpi && !Dpi.Running && !DpiForcedOff) { lastDomDpi = DateTime.Now; StartDpi(); }
             if (Dpi.Running) RefreshExclusions(st, true);
-            if (KillSwitch.Active) { KillSwitch.Clear(); lastKill = DateTime.MinValue; }
+            if (KillSwitch.NeedsClear) { KillSwitch.Clear(); lastKill = DateTime.MinValue; }
             SetState(State, Detail);
         }
 

@@ -834,6 +834,7 @@ namespace NetProbe
             { " — останавливаю", " — stopping it" },
             { "DPI (winws) запущен · стратегия «", "DPI (winws) started · strategy «" },
             { "DPI (winws) остановлен", "DPI (winws) stopped" },
+            { "Kill switch: сняты правила брандмауэра от прошлого запуска", "Kill switch: removed firewall rules left from the previous run" },
             { "Kill switch снят", "Kill switch released" },
             { "Kill switch: заблокировано приложений «строго VPN»: ", "Kill switch: «strict VPN» apps blocked: " },
             { "Подключение · режим: ", "Connecting · mode: " },

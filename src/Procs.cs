@@ -173,6 +173,10 @@ namespace NetProbe
         static readonly HashSet<string> blocked = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public static bool Active { get { lock (blocked) return blocked.Count > 0; } }
         public static int Count { get { lock (blocked) return blocked.Count; } }
+        // Правила могли остаться от прошлого запуска (краш, закрытие через диспетчер задач, самообновление):
+        // в памяти их нет, а в брандмауэре есть. Пока Clear ни разу не вызывался, считаем, что снимать есть что.
+        static bool stale = true;
+        public static bool NeedsClear { get { lock (blocked) return stale || blocked.Count > 0; } }
 
         public static int Block(IEnumerable<string> paths)
         {
@@ -188,10 +192,12 @@ namespace NetProbe
             return added;
         }
 
-        public static void Clear()
+        // true — в брандмауэре были правила NetProbe и они удалены (netsh возвращает ошибку, если правил нет)
+        public static bool Clear()
         {
-            Proc.Run("netsh.exe", "advfirewall firewall delete rule name=\"" + RuleName + "\"", 15000, Proc.Oem);
-            lock (blocked) blocked.Clear();
+            var r = Proc.Run("netsh.exe", "advfirewall firewall delete rule name=\"" + RuleName + "\"", 15000, Proc.Oem);
+            lock (blocked) { blocked.Clear(); stale = false; }
+            return r.Exit == 0;
         }
     }
 }

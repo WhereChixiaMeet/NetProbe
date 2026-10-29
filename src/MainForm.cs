@@ -396,6 +396,7 @@ namespace NetProbe
             // подключиться параллельно с туннелем и «не выключался» кнопкой VPN маршрутизатора)
             if (handoff == null)
             {
+                router.ClearStaleKill(); // до автоподключения: очередь маршрутизатора выполнит это первым
                 // 3.2: «подключаться к последнему серверу при запуске» — к тому серверу, к которому был подключён последним (ActiveServer)
                 var last = st.XrayAutoConnect && File.Exists(XrayProcess.Exe(st)) ? ServerStore.Find(st.ActiveServer) : null;
                 if (last != null && st.HybridMode && TunnelCount > 0 && st.Source != 1) { st.Source = 1; st.Save(); } // в гибриде — переключить источник на подписки

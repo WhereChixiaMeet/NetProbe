@@ -163,7 +163,7 @@ namespace NetProbe
             nRetry = Ui.Num(0, 240, st.RetryPrimaryMin); nRetry.Width = Theme.S(72);
             nRetry.ValueChanged += (s, e) => { if (loadingConnect) return; st.RetryPrimaryMin = (int)nRetry.Value; st.Save(); };
             cKill = Ui.Check("Kill switch", st.KillSwitch); cKill.BackColor = Theme.Card;
-            cKill.CheckedChanged += (s, e) => { if (loadingConnect) return; st.KillSwitch = cKill.Checked; st.Save(); if (!st.KillSwitch && KillSwitch.Active) System.Threading.ThreadPool.QueueUserWorkItem(_ => KillSwitch.Clear()); };
+            cKill.CheckedChanged += (s, e) => { if (loadingConnect) return; st.KillSwitch = cKill.Checked; st.Save(); if (!st.KillSwitch && KillSwitch.NeedsClear) System.Threading.ThreadPool.QueueUserWorkItem(_ => KillSwitch.Clear()); };
             cDnsTun = Ui.Check(Tx("DNS через VPN"), st.DnsViaTunnel); cDnsTun.BackColor = Theme.Card;
             cDnsTun.CheckedChanged += (s, e) => { if (loadingConnect) return; st.DnsViaTunnel = cDnsTun.Checked; st.Save(); router.Reapply(); };
             cAutoConnect = Ui.Check(Tx("Автоподключение"), st.AutoConnect); cAutoConnect.BackColor = Theme.Card;
