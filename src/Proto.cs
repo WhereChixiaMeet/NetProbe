@@ -20,6 +20,10 @@ namespace NetProbe
         public static readonly string[] Ids = { "wireguard", "vless", "vmess", "trojan" };
 
         public static string JsonPath(string name) { return Path.Combine(Tunnels.Dir, Tunnels.Safe(name) + ".json"); }
+        // движок туннеля для подписей: «VLESS · xray» / «VMess · xray» / «Trojan · xray» или «WireSock» (WireGuard)
+        public static string EngineName(string name) { return IsXray(name) ? Names[IndexOf(name)] + " · xray" : "WireSock"; }
+        // нужен ли WireSock: основной или включённый резервный туннель — WireGuard
+        public static bool NeedsWiresock(Settings st) { return (!string.IsNullOrWhiteSpace(st.PrimaryTunnel) && !IsXray(st.PrimaryTunnel)) || (st.BackupEnabled && !string.IsNullOrWhiteSpace(st.BackupTunnel) && !IsXray(st.BackupTunnel)); }
         public static bool IsXray(string name) { return !string.IsNullOrWhiteSpace(name) && !File.Exists(Tunnels.PathOf(name)) && File.Exists(JsonPath(name)); }
         public static int IndexOf(string name) { if (!IsXray(name)) return 0; var e = Load(name); int i = e == null ? 1 : Array.IndexOf(Ids, e.Protocol); return i < 1 ? 1 : i; }
 

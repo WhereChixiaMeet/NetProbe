@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.3.4";
+        public const string Version = "3.3.5";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -703,7 +703,7 @@ namespace NetProbe
             if (r.StartError != null || r.Exit != 0)
                 Logger.Write(LogLevel.Error, Tx("curl.exe не найден (") + curlPath + Tx("). В Windows 10 1803+ он есть в System32; иначе положите curl.exe рядом с NetProbe.exe или укажите путь в Настройках."));
             else Logger.Write(LogLevel.Info, "curl: " + r.Out.Split('\n')[0].Trim());
-            if (!File.Exists(st.WiresockPath)) Logger.Write(LogLevel.Warn, Tx("WireSock не найден: ") + st.WiresockPath + Tx(" — VPN-режимы недоступны, пока он не установлен."));
+            if (TunnelProto.NeedsWiresock(st) && !File.Exists(st.WiresockPath)) Logger.Write(LogLevel.Warn, Tx("WireSock не найден: ") + st.WiresockPath + Tx(" — VPN-режимы недоступны, пока он не установлен."));
             string z = ZapretRunner.Check(st.ZapretPath); if (z != null) Logger.Write(LogLevel.Warn, z);
         }
 

@@ -841,6 +841,7 @@ namespace NetProbe
             { "IP в Exclude — мимо туннеля", "IP in Exclude — bypasses the tunnel" },
             { "домен/IP в Include — в туннеле «", "domain/IP in Include — in tunnel «" },
             { "не в Include — мимо туннеля", "not in Include — bypasses the tunnel" },
+            { "туннель завершился (код ", "tunnel exited (code " },
             { "Kill switch снят", "Kill switch released" },
             { "Kill switch: заблокировано приложений «строго VPN»: ", "Kill switch: «strict VPN» apps blocked: " },
             { "Подключение · режим: ", "Connecting · mode: " },

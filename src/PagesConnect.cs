@@ -414,7 +414,7 @@ namespace NetProbe
             board.Lv = s == RouteState.Off ? Level.Off : s == RouteState.Connecting ? Level.Wait : s == RouteState.Vpn || s == RouteState.DpiOnly ? Level.Good : s == RouteState.VpnDown ? Level.Down : Level.Fair;
             if (!router.Active)
             {
-                string miss = (!File.Exists(st.WiresockPath) ? Tx("WireSock не найден  ") : "") + (ZapretRunner.Check(st.ZapretPath) != null ? Tx("zapret не найден") : "");
+                string miss = (TunnelProto.NeedsWiresock(st) && !File.Exists(st.WiresockPath) ? Tx("WireSock не найден  ") : "") + (ZapretRunner.Check(st.ZapretPath) != null ? Tx("zapret не найден") : "");
                 board.Line1 = "VPN: " + (st.PrimaryTunnel != "" ? st.PrimaryTunnel : "—") + (st.BackupEnabled ? Tx("  ·  резерв: ") + (st.BackupTunnel != "" ? st.BackupTunnel : "—") : "") + "  ·  DPI: " + st.DpiStrategy;
                 board.Line2 = miss;
             }
@@ -423,7 +423,7 @@ namespace NetProbe
                 // только факты: процессы (PID), стратегия, ответ пробника; неизвестно — «—»
                 var now = DateTime.Now;
                 int wp = router.Wg.Pid, dp = router.Dpi.Pid;
-                string tun = wp > 0 ? "WireSock «" + router.Wg.TunnelName + "» PID " + wp + (router.StrictOnly ? Tx(" (строго VPN)") : "") + " · " + Dur(now - router.Wg.StartedAt) : "WireSock —";
+                string tun = wp > 0 ? TunnelProto.EngineName(router.Wg.TunnelName) + " «" + router.Wg.TunnelName + "» PID " + wp + (router.StrictOnly ? Tx(" (строго VPN)") : "") + " · " + Dur(now - router.Wg.StartedAt) : TunnelProto.EngineName(router.OnBackup ? st.BackupTunnel : st.PrimaryTunnel) + " —";
                 string dpi = dp > 0 ? "winws «" + router.Dpi.Strategy + "» PID " + dp + " · " + Dur(now - router.Dpi.StartedAt) : "winws —";
                 string probe = router.LastVpnOk == DateTime.MinValue ? Tx("пробник VPN: —") : Tx("пробник VPN: ответ ") + Dur(now - router.LastVpnOk) + Tx(" назад");
                 board.Line1 = tun + "  ·  " + dpi + "  ·  " + probe + (KillSwitch.Active ? "  ·  kill switch: " + KillSwitch.Count : "");

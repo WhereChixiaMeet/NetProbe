@@ -50,7 +50,7 @@ namespace NetProbe
 
         public Router()
         {
-            Wg.Exited += code => { wgDied = true; Logger.Write(LogLevel.Warn, Tx("WireSock завершился (код ") + code + ")"); wake.Set(); };
+            Wg.Exited += code => { wgDied = true; Logger.Write(LogLevel.Warn, (Wg.IsXray ? "xray TUN: " + Tx("туннель завершился (код ") : Tx("WireSock завершился (код ")) + code + ")"); wake.Set(); };
             Dpi.Exited += code => { dpiDied = true; Logger.Write(LogLevel.Warn, Tx("winws.exe завершился (код ") + code + ")"); wake.Set(); };
             Wg.Output += s => { if (GetSettings != null && GetSettings().LogPolls) Logger.Write(LogLevel.Poll, "[WireSock] " + s); else if (s.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0 || s.IndexOf("fail", StringComparison.OrdinalIgnoreCase) >= 0) Logger.Write(LogLevel.Warn, "[WireSock] " + s); };
             Dpi.Output += s => Logger.Write(LogLevel.Poll, "[winws] " + s);
@@ -371,7 +371,7 @@ namespace NetProbe
             }
             if (StartTunnel(st, false, false)) { SetState(RouteState.Vpn, st.PrimaryTunnel); lastHybridDpi = DateTime.MinValue; EnsureHybridDpi(st); return; }
             if (HasBackup(st) && StartTunnel(st, true, false)) { backupSince = DateTime.Now; SetState(RouteState.Backup, st.BackupTunnel); lastHybridDpi = DateTime.MinValue; EnsureHybridDpi(st); return; }
-            string why = File.Exists(st.WiresockPath) ? Tx("VPN не запустился") : Tx("WireSock не установлен");
+            string why = !TunnelProto.NeedsWiresock(st) || File.Exists(st.WiresockPath) ? Tx("VPN не запустился") : Tx("WireSock не установлен");
             if (st.RunMode == RouteMode.Hybrid) { EnterDpi(st, why); return; }
             SetState(RouteState.VpnDown, why); Kill(st, true);
         }

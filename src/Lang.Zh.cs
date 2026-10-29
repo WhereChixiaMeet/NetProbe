@@ -786,6 +786,7 @@ namespace NetProbe
             { "IP в Exclude — мимо туннеля", "IP 在 Exclude 中 — 不走隧道" },
             { "домен/IP в Include — в туннеле «", "域名/IP 在 Include 中 — 走隧道 «" },
             { "не в Include — мимо туннеля", "不在 Include 中 — 不走隧道" },
+            { "туннель завершился (код ", "隧道已退出（代码 " },
             { "Kill switch снят", "Kill switch 已解除" },
             { "Kill switch: заблокировано приложений «строго VPN»: ", "Kill switch：已阻止“严格 VPN”应用： " },
             { "Подключение · режим: ", "正在连接 · 模式： " },
