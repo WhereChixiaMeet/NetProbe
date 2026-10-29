@@ -283,8 +283,9 @@ namespace NetProbe
         bool StartDpi()
         {
             var st = GetSettings();
-            string c = ZapretRunner.Conflicts(-1);
-            if (c != null) { Logger.Write(LogLevel.Warn, Tx("Конфликт DPI: ") + c + Tx(" — останавливаю")); ZapretRunner.StopConflicts(-1); }
+            int own = Dpi.Pid; // свой winws — не конфликт (его перезапустит Dpi.Start → Stop)
+            string c = ZapretRunner.Conflicts(own);
+            if (c != null) { Logger.Write(LogLevel.Warn, Tx("Конфликт DPI: ") + c + Tx(" — останавливаю")); ZapretRunner.StopConflicts(own); }
             RefreshExclusions(st, true);
             dpiDied = false;
             string err = Dpi.Start(st, st.DpiStrategy);
