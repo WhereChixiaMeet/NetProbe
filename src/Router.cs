@@ -77,7 +77,9 @@ namespace NetProbe
         public void Disconnect() { Post(DoDisconnect); }
         // при обычном запуске (не после самообновления) снимаем правила kill switch, оставшиеся от прошлого запуска
         public void ClearStaleKill() { Post(() => { if (KillSwitch.NeedsClear && KillSwitch.Clear()) Logger.Write(LogLevel.Route, Tx("Kill switch: сняты правила брандмауэра от прошлого запуска")); }); }
-        public void Reapply() { Post(DoReapply); }
+        // несколько правок списков подряд (добавила 5 доменов за минуту) = один перезапуск туннеля, а не пять
+        Timer reapplyTimer;
+        public void Reapply() { lock (q) { if (reapplyTimer == null) reapplyTimer = new Timer(_ => Post(DoReapply)); reapplyTimer.Change(2000, Timeout.Infinite); } }
         public void RestartDpi() { Post(() => { if (Dpi.Running) StartDpi(); }); }
         public void ShutdownSync() { DoDisconnect(); }
         // DPI без маршрутизатора (запасной вариант автосвитча серверов)
@@ -314,8 +316,52 @@ namespace NetProbe
             var list = Excl(st);
             if (ExtraDpiExcl != null) list = list.Concat(ExtraDpiExcl()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var ex = ExclusionSet.From(list);
-            ZapretRunner.WriteExclusions(ex, ProcInfo.RemoteIpsOf(ex.Processes));
+            ZapretRunner.WriteExclusions(ex, ProcInfo.RemoteIpsOf(ex.Processes).Concat(VpnServerIps(st)));
             ZapretRunner.WriteUserHosts(st.ZapretPath);
+        }
+
+        // IP VPN-серверов (основной / резервный туннель, сервер подписки) — winws их никогда не трогает:
+        // иначе стратегия DPI портит рукопожатие VLESS/REALITY и VPN отваливается с «Connection was reset»
+        readonly Dictionary<string, KeyValuePair<DateTime, List<string>>> serverDns = new Dictionary<string, KeyValuePair<DateTime, List<string>>>(StringComparer.OrdinalIgnoreCase);
+        List<string> VpnServerIps(Settings st)
+        {
+            var hosts = new List<string>();
+            foreach (var t in new[] { st.PrimaryTunnel, st.BackupEnabled ? st.BackupTunnel : null })
+            {
+                if (string.IsNullOrWhiteSpace(t)) continue;
+                try
+                {
+                    if (TunnelProto.IsXray(t)) { var e = TunnelProto.Load(t); if (e != null) hosts.Add(e.Address); }
+                    else if (Tunnels.Exists(t)) hosts.Add(HostOfEndpoint(Tunnels.Endpoint(t)));
+                }
+                catch { }
+            }
+            try { var srv = ServerStore.Find(st.ActiveServer); if (srv != null) hosts.Add(srv.Address); } catch { }
+            var res = new List<string>();
+            foreach (var h0 in hosts)
+            {
+                string h = (h0 ?? "").Trim().Trim('[', ']');
+                if (h == "") continue;
+                System.Net.IPAddress ip;
+                if (System.Net.IPAddress.TryParse(h, out ip)) { res.Add(ip.ToString()); continue; }
+                KeyValuePair<DateTime, List<string>> c;
+                if (!serverDns.TryGetValue(h, out c) || (DateTime.Now - c.Key).TotalMinutes > 10)
+                {
+                    var l = new List<string>();
+                    try { l = System.Net.Dns.GetHostAddresses(h).Select(a => a.ToString()).ToList(); } catch { }
+                    if (l.Count == 0 && serverDns.TryGetValue(h, out c)) l = c.Value; // DNS не ответил — оставляем прошлые адреса
+                    serverDns[h] = c = new KeyValuePair<DateTime, List<string>>(DateTime.Now, l);
+                }
+                res.AddRange(c.Value);
+            }
+            return res.Distinct().ToList();
+        }
+        static string HostOfEndpoint(string ep)
+        {
+            ep = (ep ?? "").Trim();
+            if (ep.StartsWith("[")) { int j = ep.IndexOf(']'); return j > 0 ? ep.Substring(1, j - 1) : ep; }
+            int i = ep.LastIndexOf(':');
+            return i > 0 && ep.IndexOf(':') == i ? ep.Substring(0, i) : ep;
         }
 
         // VPN поднят, а домены приложений должны идти под DPI: держим winws, учим новые IP из кэша DNS

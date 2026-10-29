@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.3.5";
+        public const string Version = "3.3.6";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -948,7 +948,7 @@ namespace NetProbe
             {
                 sameRoute = same;
                 if (same) Logger.Write(LogLevel.Warn, Tx("VPN и «Напрямую» выходят с одного IP ") + cs.Ip + Tx(" — оба идут одним маршрутом."));
-                else Logger.Write(LogLevel.Ok, Tx("Каналы разделены: VPN ") + chs["vpn"].Ip + Tx(" / напрямую ") + chs["direct"].Ip);
+                else if (r.Ok && other.Ok == true) Logger.Write(LogLevel.Ok, Tx("Каналы разделены: VPN ") + chs["vpn"].Ip + Tx(" / напрямую ") + chs["direct"].Ip);
             }
             cardVpn.Badge = cardDir.Badge = sameRoute ? Tx("ОДИН МАРШРУТ") : null;
             if (st.LogPolls)
