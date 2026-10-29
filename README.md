@@ -1,6 +1,7 @@
 # NetProbe 3.0
-!MANUAL RESTART REQUIRED AFTER UPDATE!
-Windows protocol router: WireGuard · VLESS · VMess · Trojan, DPI bypass (zapret), per-app split routing with automatic failover and a built-in network monitor.
+### MANUAL RESTART REQUIRED AFTER UPDATE ###
+
+Windows protocol router: WireGuard · VLESS · VMess · Trojan, DPI bypass, MTProxy (TG) per-app split routing with automatic failover and a built-in network monitor.
 
 ## Requirements
 - Windows 10/11, .NET Framework 4.8 (built in).
@@ -50,3 +51,8 @@ English · Español · 中文 (Settings → Language, applied without restart).
 ## Known limits
 - winws cannot filter by process; legacy process exclusions from 2.x work through current TCP connections (QUIC/UDP not covered).
 - WireSock cannot run twice: stop `wiresock-client-service` (TunnlTo) first — NetProbe offers to do it.
+
+## Known Issues
+- incorrect Xray engine behavior when updating the include/exclude lists while the router is running.
+- the application breaks the routing configuration during an update (SAME ROUT issue)
+- minor UI issues using custom themes
