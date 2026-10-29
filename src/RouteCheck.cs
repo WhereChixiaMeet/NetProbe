@@ -22,6 +22,7 @@ namespace NetProbe
     public class RouteFacts
     {
         public bool Wg, WgStrict, Dpi, Xray, Tun, Proxy, Kill;
+        public bool WgX; public TunLists WgL; // туннель маршрутизатора — VLESS / VMess / Trojan (xray + sing-box TUN): правила sing-box, а не WireSock
         public string Tunnel = "", Strategy = "", Server = "";
         public List<string> Allow = new List<string>(), Deny = new List<string>(), Strict = new List<string>();
         public List<Cidr> AllowedIps = new List<Cidr>(), DisallowedIps = new List<Cidr>();
@@ -43,7 +44,9 @@ namespace NetProbe
             if (f.Wg)
             {
                 f.Tunnel = router.Wg.TunnelName; f.WgStrict = router.StrictOnly;
-                try
+                f.WgX = router.Wg.IsXray;
+                if (f.WgX) { try { f.WgL = router.CurrentXrayLists(); } catch { } }
+                else try
                 {
                     foreach (var raw in File.ReadAllLines(WiresockRunner.RuntimeFile))
                     {
@@ -136,6 +139,23 @@ namespace NetProbe
         static readonly string[] Browsers = { "chrome", "brave", "msedge", "firefox", "opera", "browser", "vivaldi", "yandex", "thorium", "librewolf", "floorp", "zen" };
         static bool UsesProxy(string name) { return Browsers.Any(b => name.IndexOf(b, StringComparison.OrdinalIgnoreCase) >= 0); }
 
+        // VLESS / VMess / Trojan туннель маршрутизатора: тот же порядок правил, что в SingBoxConfig.Build
+        static readonly string[] OwnProcs = { "xray.exe", "sing-box.exe", "netprobe-direct.exe", "wiresock-client.exe", "winws.exe" };
+        RouteKind DecideXrayTunnel(string name, string path, IPAddress ip, string host, Func<IEnumerable<string>, bool> m, out string why)
+        {
+            if (OwnProcs.Any(o => string.Equals(o, name, StringComparison.OrdinalIgnoreCase))) { why = Tx("служебный процесс NetProbe — напрямую"); return RouteKind.Direct; }
+            var ex = ExclusionSet.From(WgL.Exclude);
+            if (ex.Processes.Count > 0 && m(ex.Processes)) return Dpi_(host, ip, Tx("в Exclude — мимо туннеля"), out why);
+            if (HostIn(host, ex.Domains)) return Dpi_(host, ip, Tx("домен в Exclude — мимо туннеля"), out why);
+            if (IpIn(ip, ex.Ips.Select(Cidr.Parse).Where(c => c != null))) return Dpi_(host, ip, Tx("IP в Exclude — мимо туннеля"), out why);
+            var ih = ExclusionSet.From(WgL.IncludeHosts ?? new List<string>());
+            string strict = WgStrict ? Tx(" (авария: только «Строго VPN»)") : "";
+            if (HostIn(host, ih.Domains) || IpIn(ip, ih.Ips.Select(Cidr.Parse).Where(c => c != null))) { why = Tx("домен/IP в Include — в туннеле «") + Tunnel + "»" + strict; return RouteKind.Vpn; }
+            bool all = WgL.Include.Count == 0 && ih.Domains.Count == 0 && ih.Ips.Count == 0;
+            if (all || m(WgL.Include.Concat(new[] { "netprobe-vpn.exe" }))) { why = Tx("в туннеле «") + Tunnel + "»" + strict; return RouteKind.Vpn; }
+            return Dpi_(host, ip, Tx("не в Include — мимо туннеля"), out why);
+        }
+
         // маршрут одного соединения: приложение (имя + путь) → IP (+ имя хоста, если известно)
         public RouteKind Decide(string name, string path, IPAddress ip, string host, out string why)
         {
@@ -158,6 +178,7 @@ namespace NetProbe
                 if (HostIn(host, XrayDirect.Where(x => !ExclusionSet.IsIp(x)))) return Dpi_(host, ip, Tx("домен в «Через DPI» «Серверов» — xray пускает напрямую"), out why);
                 why = Tx("системный прокси → сервер «") + Server + "»"; return RouteKind.Server;
             }
+            if (Wg && WgX && WgL != null) return DecideXrayTunnel(name, path, ip, host, m, out why);
             if (Wg)
             {
                 bool inTun = (Allow.Count == 0 || m(Allow)) && !m(Deny);

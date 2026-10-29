@@ -61,6 +61,17 @@ namespace NetProbe
         public bool Active { get { return State != RouteState.Off; } }
         public bool NeedsVpnProbe { get { return Active && true; } }
 
+        // списки, с которыми запущен VLESS / VMess / Trojan туннель (sing-box TUN) — для окна «Маршрут»
+        volatile TunLists lastXrayLists;
+        static TunLists XrayTunLists(Settings st, bool strictOnly)
+        {
+            var strictAll = AppLists.Get(AppLists.VpnOnlyApps);
+            return strictOnly
+                ? TunLists.FromLists(strictAll.Concat(new[] { VpnProbe }), new string[0])
+                : TunLists.FromLists(AppLists.Get(AppLists.HybridApps).Concat(strictAll), AppLists.Get(TunExclKey(st)));
+        }
+        public TunLists CurrentXrayLists() { return lastXrayLists ?? XrayTunLists(GetSettings(), StrictOnly); } // после самообновления (Adopt) — по текущим спискам
+
         void Post(Action a) { lock (q) q.Enqueue(a); wake.Set(); }
         public void Connect() { Post(DoConnect); }
         public void Disconnect() { Post(DoDisconnect); }
@@ -250,10 +261,8 @@ namespace NetProbe
                 // VLESS / VMess / Trojan: тот же сценарий, другой транспорт (xray + sing-box TUN, списки — process_path_regex)
                 wgDied = false;
                 okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue;
-                var strictAll = AppLists.Get(AppLists.VpnOnlyApps);
-                var lists = strictOnly
-                    ? TunLists.FromLists(strictAll.Concat(new[] { VpnProbe }), new string[0])
-                    : TunLists.FromLists(AppLists.Get(AppLists.HybridApps).Concat(strictAll), AppLists.Get(TunExclKey(st)));
+                var lists = XrayTunLists(st, strictOnly);
+                lastXrayLists = lists;
                 string xerr = Wg.StartXray(st, name, lists);
                 if (xerr != null) { TunnelErr(xerr); wgDied = true; return false; }
                 lastTunnelErr = null; OnBackup = backup; StrictOnly = strictOnly;
