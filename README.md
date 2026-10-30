@@ -39,6 +39,7 @@ The protocol is a property of each tunnel config (Configs tab): **WireGuard** (v
 - **Include** — apps in the tunnel (empty = all traffic).
 - **Strict VPN** — always in the tunnel, never DPI; blocked by the kill switch when the tunnel is down.
 - **Exclude** — bypass the tunnel.
+Disconnect the VPN before adding, deleting, pasting, renaming or moving entries in TUN routing lists. Changes take effect on the next connection.
 DPI is global: domains for DPI and "don't touch these sites" live on Configs → DPI → Sites. Priority: Strict VPN > domain > app.
 
 ## Build
@@ -55,6 +56,5 @@ English · Español · 中文 (Settings → Language, applied without restart).
 - WireSock cannot run twice: stop `wiresock-client-service` (TunnlTo) first — RouteX offers to do it.
 
 ## Known Issues
-- incorrect Xray engine behavior when updating the include/exclude lists while the router is running.
 - the application breaks the routing configuration during an update (SAME ROUTE issue)
 - minor UI issues using custom themes
