@@ -90,7 +90,7 @@ namespace NetProbe
             while (running)
             {
                 var st = GetSettings();
-                double rate = Math.Max(Settings.MinPollRate, Math.Min(st.MaxPollRate, st.PollRate));
+                double rate = Math.Max(Settings.MinPollRate, Math.Min(st.MaxPollRate, Key == "direct" ? st.DirectPollRate : st.PollRate));
                 double interval = Math.Max(Settings.MinIntervalMs, 1000.0 / rate);
                 if (Paused) { wake.WaitOne(500); continue; }
                 var t0 = DateTime.Now;

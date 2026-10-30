@@ -120,7 +120,9 @@ namespace NetProbe
         public bool AsDpiFallback = false;   // ни один сервер не работает — включить DPI (zapret)
 
         // --- мониторинг ---
-        public double PollRate = 1.0;
+        public double PollRate = 0.5;        // опросов/с канала VPN (пробник внутри туннеля)
+        public double DirectPollRate = 0.1;  // опросов/с канала «Напрямую» — раз в 10 с: он идёт с твоего обычного IP
+        public bool PollDefaults34 = false;  // 3.4.1: один раз перевести старое значение по умолчанию 1.0 на новое
         public int TimeoutSec = 5;
         public string ProbeUrl = "https://www.cloudflare.com/cdn-cgi/trace";
         public string CurlPath = "curl.exe";
@@ -289,7 +291,9 @@ namespace NetProbe
             if (!LockDefault321) { LockDefault321 = true; UiLocked = true; }
             if (!MonDefaults312) { MonDefaults312 = true; AutoStartMonitor = true; SpeedOn = true; LogProbes = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
             if (!SpeedDefaults) { SpeedDefaults = true; WidgetPing = SidePing = true; WidgetSpeed = SideSpeed = SpeedChart = true; }
+            if (!PollDefaults34) { PollDefaults34 = true; if (Math.Abs(PollRate - 1.0) < 0.01) PollRate = 0.5; } // сам не менял — новое значение
             PollRate = Math.Max(MinPollRate, Math.Min(MaxPollRate, PollRate));
+            DirectPollRate = Math.Max(MinPollRate, Math.Min(MaxPollRate, DirectPollRate));
             TimeoutSec = Math.Max(2, Math.Min(30, TimeoutSec));
             DownAfterFails = Math.Max(1, Math.Min(10, DownAfterFails));
             PingCount = Math.Max(5, Math.Min(200, PingCount));
