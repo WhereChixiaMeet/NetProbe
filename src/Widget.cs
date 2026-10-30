@@ -94,7 +94,7 @@ namespace NetProbe
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left && e.Clicks == 1 && !CardPanel.Locked) // Lock interface — виджет не двигается
+            if (e.Button == MouseButtons.Left && e.Clicks == 1) // Desktop widgets move independently of the main interface lock.
             {
                 Native.ReleaseCapture();
                 Native.SendMessage(Handle, 0xA1, (IntPtr)2, IntPtr.Zero);

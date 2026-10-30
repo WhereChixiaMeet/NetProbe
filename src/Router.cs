@@ -73,7 +73,13 @@ namespace NetProbe
         public TunLists CurrentXrayLists() { return lastXrayLists ?? XrayTunLists(GetSettings(), StrictOnly); } // после самообновления (Adopt) — по текущим спискам
 
         void Post(Action a) { lock (q) q.Enqueue(a); wake.Set(); }
-        public void Connect() { Post(DoConnect); }
+        int pendingConnects;
+        public bool ConnectPending { get { return Volatile.Read(ref pendingConnects) > 0; } }
+        public void Connect()
+        {
+            Interlocked.Increment(ref pendingConnects);
+            Post(() => { try { DoConnect(); } finally { Interlocked.Decrement(ref pendingConnects); } });
+        }
         public void Disconnect() { Post(DoDisconnect); }
         // при обычном запуске (не после самообновления) снимаем правила kill switch, оставшиеся от прошлого запуска
         public void ClearStaleKill() { Post(() => { if (KillSwitch.NeedsClear && KillSwitch.Clear()) Logger.Write(LogLevel.Route, Tx("Kill switch: сняты правила брандмауэра от прошлого запуска")); }); }

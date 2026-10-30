@@ -65,7 +65,13 @@ namespace NetProbe
         void Fire() { var h = Changed; if (h != null) try { h(); } catch { } }
         void Set(XState s, string d) { State = s; Detail = d; Fire(); }
 
-        public void Connect(string id) { Post(() => DoConnect(id, true)); }
+        int pendingConnects;
+        public bool ConnectPending { get { return Volatile.Read(ref pendingConnects) > 0; } }
+        public void Connect(string id)
+        {
+            Interlocked.Increment(ref pendingConnects);
+            Post(() => { try { DoConnect(id, true); } finally { Interlocked.Decrement(ref pendingConnects); } });
+        }
         // Отключение не ждёт фоновых замеров автосвитча: они прерываются сразу (раньше кнопка VPN «не выключала»,
         // пока поток xray проверял до 60 кандидатов — Disconnect стоял в очереди за ними).
         readonly CancelFlag abort = new CancelFlag();

@@ -185,6 +185,7 @@ namespace NetProbe
                 var lc = new ListCard(); listCards[i] = lc;
                 lc.BAdd.Click += (s, e) =>
                 {
+                    if (!CanEditList(lc.Key)) return;
                     using (var d = new ProcPicker(lc.Title, AppLists.Recent().Where(r => !AppLists.Get(lc.Key).Contains(r, StringComparer.OrdinalIgnoreCase)).ToList()))
                         if (d.ShowDialog(this) == DialogResult.OK) foreach (var x in d.Result) AddToList(lc.Key, x);
                 };
@@ -213,7 +214,9 @@ namespace NetProbe
                 lc.Box.ContextMenuStrip.Items.AddRange(new ToolStripItem[] { miRen, miIco, miIcoReset });
                 // копирование выделенных строк (Ctrl+C) и перетаскивание между Include / «Строго VPN» / Exclude
                 Func<List<string>, List<string>> movable = l => l.Where(x => x != ListCard.BuiltIn && !AppLists.IsChild(x)).ToList();
-                lc.Box.CopyItems = movable; lc.Box.DragItems = movable; lc.Box.AllowDrop = true;
+                lc.Box.CopyItems = movable;
+                lc.Box.DragItems = l => CanEditList(lcRef.Key) ? movable(l) : new List<string>();
+                lc.Box.AllowDrop = true;
                 lc.Box.ItemsDropped += (from, items) => MoveBetweenLists(from, lcRef, items);
                 var miCopySel = new ToolStripMenuItem(Tx("Копировать выделенное") + "   Ctrl+C");
                 miCopySel.Click += (s, e) => lcRef.Box.CopySelected();
@@ -323,6 +326,7 @@ namespace NetProbe
         {
             var src = listCards.FirstOrDefault(c => c.Box == from);
             if (src == null || src.Key == null || to.Key == null || src.Key == to.Key || items.Count == 0) return;
+            if (!CanEditList(src.Key) || !CanEditList(to.Key)) return;
             foreach (var x in items) AddToList(to.Key, x);
             var left = AppLists.Get(src.Key);
             var still = items.Where(x => left.Contains(x, StringComparer.OrdinalIgnoreCase)).ToList();
@@ -333,6 +337,7 @@ namespace NetProbe
 
         void RemoveFromList(string key, List<string> sel)
         {
+            if (!CanEditList(key)) return;
             var kids = sel.Where(AppLists.IsChild).ToList(); var rest = sel.Where(x => !AppLists.IsChild(x)).ToList();
             string dk = AppLists.DomKey(key) ?? key;
             if (kids.Count > 0) AppLists.Remove(dk, kids);
@@ -342,6 +347,7 @@ namespace NetProbe
 
         void RenameInList(string key, string old)
         {
+            if (!CanEditList(key)) return;
             bool child = AppLists.IsChild(old);
             if (child) key = AppLists.DomKey(key) ?? key;
             string v = Prompt(Tx("Переименовать"), child ? Tx("Домен:") : Tx("Имя процесса, путь, домен или IP:"), child ? AppLists.ChildOf(old) : old);
@@ -349,6 +355,7 @@ namespace NetProbe
             v = v.Trim();
             if (child) { if (v.IndexOf(AppLists.Sep) >= 0) return; v = AppLists.ParentOf(old) + AppLists.Sep + v.ToLowerInvariant(); }
             if (v == old || (!child && v.IndexOf(AppLists.Sep) >= 0)) return;
+            if (!CanEditList(key)) return; // Connection may have started while the dialog was open.
             AppLists.Rename(key, old, v);
         }
 

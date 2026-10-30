@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.4.1";
+        public const string Version = "3.4.2";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -33,7 +33,6 @@ namespace NetProbe
         readonly System.Windows.Forms.Timer uiTimer = new System.Windows.Forms.Timer { Interval = 1000 };
         readonly System.Windows.Forms.Timer updTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
         readonly System.Windows.Forms.Timer appUpdTimer = new System.Windows.Forms.Timer { Interval = 20000 }; // проверка релизов NetProbe: через 20 с после старта, дальше раз в час
-        readonly System.Windows.Forms.Timer reapplyTimer = new System.Windows.Forms.Timer { Interval = 700 };
 
         class ChState { public int FailRun; public DateTime FirstFail; public bool? Ok; public string Ip = ""; public DateTime DownSince; public DateTime LastNotify; public Level Lv = Level.Off; public string Val = "—"; }
         bool sameRoute;
@@ -77,15 +76,13 @@ namespace NetProbe
             router.DpiForcedOff = st.DpiButton == 2;
             router.AskStopService = q => (bool)Invoke((Func<bool>)(() => { RestoreFromTray(); return MessageBox.Show(this, q, "RouteX", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes; }));
             router.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)OnRouteChanged); } catch { } };
-            // несколько правок подряд (добавить + убрать из соседнего списка) = один перезапуск туннеля
-            reapplyTimer.Tick += (s, e) => { reapplyTimer.Stop(); if (router.Active) router.Reapply(); };
-            // списки сайтов DPI не трогают туннель (и наоборот): DPI — обновить исключения winws; приложения — перезапуск туннеля с новыми правилами
+            // TUN lists are edited offline and read on the next connection; never queue a live restart.
             AppLists.Changed += key => { if (IsHandleCreated) try { BeginInvoke((Action)(() =>
             {
                 if (AppLists.IsServers(key)) return;
                 if (key == AppLists.DpiDomains || key == AppLists.DpiOnlyExcl) { router.RefreshDpiExclusions(); FillDpiSites(); return; }
                 if (key == AppLists.DpiApps) return; // 3.0: dpi-apps больше не читается
-                reapplyTimer.Stop(); reapplyTimer.Start(); RefreshListsUi();
+                RefreshListsUi();
             })); } catch { } };
 
             InitXray();
@@ -1097,8 +1094,6 @@ namespace NetProbe
             trayMenu.Opening += (s, e) => { if (miCharEdit != null) { miCharEdit.Visible = Theme.Personal; miCharEdit.Checked = charEdit; } };
             trayMenu.Items.Add(miWidget);
             trayMenu.Items.Add(miCharEdit);
-            // страховка: если что-то «потерялось» при раскладке — всё на свои места (работает и при Lock interface)
-            trayMenu.Items.Add(Tx("Сбросить раскладку интерфейса"), null, (s, e) => ResetLayout());
             miMonitor = new ToolStripMenuItem(Tx("Мониторинг"));
             miMonitor.Click += (s, e) => { if (MonOn) StopMonitoring(); else StartMonitoring(); };
             trayMenu.Items.Add(miMonitor);

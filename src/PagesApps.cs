@@ -16,9 +16,22 @@ namespace NetProbe
     {
         void RefreshListsUi() { if (listCards != null) foreach (var c in listCards) if (!c.IsDisposed) c.Fill(); if (curPage == PgConnect) UpdateConnectUi(); }
 
+        // Keep rules unchanged throughout connection, failover and shutdown, including queued connects.
+        bool TunSettingsLocked { get { return router.Active || router.ConnectPending || xm.Active || xm.ConnectPending || pendingXConnect != null; } }
+
+        bool CanEditList(string key)
+        {
+            bool tunList = key == AppLists.HybridApps || key == AppLists.VpnOnlyApps ||
+                key == AppLists.HybridExcl || key == AppLists.VpnOnlyExcl || AppLists.IsServers(key);
+            if (!tunList || !TunSettingsLocked) return true;
+            Notice.Show(this, "TUN settings", "Turn off the VPN before changing TUN settings.");
+            return false;
+        }
+
         void AddToList(string key, string item)
         {
             if (string.IsNullOrWhiteSpace(item)) return;
+            if (!CanEditList(key)) return;
             if (AppLists.IsServers(key)) { AddToSrvList(key, item); return; }
             // одно и то же приложение не может быть и в «через VPN», и в исключениях этого же блока
             if (key == AppLists.HybridExcl) { AppLists.Remove(AppLists.HybridApps, new[] { item }); AppLists.Remove(AppLists.VpnOnlyApps, new[] { item }); }
@@ -56,7 +69,7 @@ namespace NetProbe
 
         void BuildTasksPage()
         {
-            var p = NewPage(Tx("Диспетчер задач"), Tx("Добавляйте процессы в списки без отключения VPN"));
+            var p = NewPage(Tx("Диспетчер задач"), "Turn off the VPN before adding processes to TUN lists.");
             tbTaskSearch = Ui.TextBox(); tbTaskSearch.Width = Theme.S(240);
             var lSearch = Ui.Label(Tx("Поиск:"), Theme.Body, Theme.Muted);
             tbTaskSearch.TextChanged += (s, e) => RefreshTasks(true);
@@ -135,6 +148,7 @@ namespace NetProbe
 
         void AddSelectedTasks(string key, bool fullPath)
         {
+            if (!CanEditList(key)) return;
             var sel = SelTasks();
             if (sel.Count == 0) { lTasks.Text = Tx("Выберите процессы в таблице."); return; }
             foreach (var t in sel)

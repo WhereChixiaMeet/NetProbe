@@ -18,7 +18,7 @@ namespace NetProbe
         FlatButton bSortAll; bool applyingSort;
         TabStrip srvTabs; Toggle tgTun; ToolTip srvTip; SourceSwitch srcSwitch; TopButtons topSrv; Toggle cXAutoTun;
         bool loadingAs, xTesting; CancelFlag xTestCf; FlatButton btnSb, btnTest, btnSpeed; ServerEntry speedNow;
-        readonly System.Windows.Forms.Timer tunReapply = new System.Windows.Forms.Timer { Interval = 1200 }, srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
+        readonly System.Windows.Forms.Timer srvProxyReapply = new System.Windows.Forms.Timer { Interval = 1500 };
         static readonly string[] SrvListKeys = { AppLists.SrvApps, AppLists.SrvExcl, AppLists.SrvDpiApps, AppLists.SrvDpiExcl };
 
         void InitXray()
@@ -42,12 +42,7 @@ namespace NetProbe
             ZapretRunner.ExtraDomains = () => new List<string>();
             XrayConfig.DirectDomains = () => new List<string>();
             xm.TunBlocked = () => router.Wg.Running ? Tx("TUN не запущен: работает туннель WireSock (вкладка Routing)") : null;
-            AppLists.Changed += key =>
-            {
-                bool appKey = key == AppLists.HybridApps || key == AppLists.VpnOnlyApps || key == AppLists.HybridExcl || key == AppLists.VpnOnlyExcl;
-                if (appKey && xm.Active && st.TunMode) { tunReapply.Stop(); tunReapply.Start(); }
-            };
-            tunReapply.Tick += (s, e) => { tunReapply.Stop(); xm.ReapplyTun(); };
+            // TUN list edits apply on the next connection, without restarting a live sing-box instance.
             srvProxyReapply.Tick += (s, e) => { srvProxyReapply.Stop(); if (xm.Active) xm.Reapply(); };
             ServerStore.Changed += () => { if (IsHandleCreated && !IsDisposed) try { BeginInvoke((Action)(() => FillServers())); } catch { } };
         }
@@ -344,6 +339,7 @@ namespace NetProbe
         void AddToSrvList(string key, string item)
         {
             if (string.IsNullOrWhiteSpace(item)) return;
+            if (!CanEditList(key)) return;
             item = item.Trim();
             var one = new[] { item };
             // Include и Include DPI не вычищают друг друга: приложение в обоих = через сервер, кроме своих доменов из Include DPI
@@ -358,6 +354,7 @@ namespace NetProbe
         // Список приложений из буфера: в любой список «Подключения» или «Серверов»
         void PasteToList(string key, Control near)
         {
+            if (!CanEditList(key)) return;
             string t = ""; try { t = Clipboard.GetText(); } catch { }
             var items = AppLists.ParseClipboard(t);
             var before = AppLists.Get(key);
