@@ -397,7 +397,9 @@ namespace NetProbe
                 { "log", new Dictionary<string, object> { { "loglevel", "warning" } } },
                 { "inbounds", inbounds },
                 { "outbounds", new object[] { srv.Outbound("proxy"), new Dictionary<string, object> { { "tag", "direct" }, { "protocol", "freedom" } }, new Dictionary<string, object> { { "tag", "block" }, { "protocol", "blackhole" } } } },
-                { "routing", new Dictionary<string, object> { { "domainStrategy", "IPIfNonMatch" }, { "rules", rules } } }
+                // за sing-box TUN приходят уже IP (TUN видит адреса), домен xray узнаёт из sniffing — резолвить ему нечего.
+                // IPIfNonMatch здесь заставлял xray спрашивать DNS Windows, а тот через TUN шёл обратно в этот же xray: петля
+                { "routing", new Dictionary<string, object> { { "domainStrategy", st.TunMode ? "AsIs" : "IPIfNonMatch" }, { "rules", rules } } }
             };
             if (stats)
             {

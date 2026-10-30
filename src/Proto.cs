@@ -150,12 +150,13 @@ namespace NetProbe
             var cs = TunSettings(st);
             string busy = FreePorts(st, new[] { cs.SocksPort, cs.HttpPort });
             if (busy != null) return busy;
-            string xjson = XrayConfig.Build(cs, e);
+            RotateLogs(st);
+            string xjson = TunXrayJson(st, cs, e);
             string err = x.Start(cs, xjson, Path.Combine(Settings.Sub("runtime"), "xray-tunnel.json"));
             if (err != null) return err;
             System.Threading.Thread.Sleep(400);
             if (!x.Running) return Tx("xray туннеля сразу завершился — проверь поля конфига (лог xray)");
-            err = sb.Start(cs, SingBoxConfig.Build(cs, lists), "singbox-tunnel.json");
+            err = sb.Start(cs, SingBoxConfig.Build(cs, lists, SingLog(st)), "singbox-tunnel.json");
             if (err != null) { x.Stop(); return err; }
             TunnelName = name; StartedAt = DateTime.Now; stopping = false; runningXrayJson = xjson;
             WriteRuntime(name, e, lists);
@@ -163,6 +164,40 @@ namespace NetProbe
         }
 
         // свои порты, чтобы не мешать xray подписок; DirectDomains / статистика здесь не нужны
+        // логи движков туннеля в папке логов RouteX: вывод процессов не перехватывается (они переживают обновление RouteX)
+        public static string XrayLog(Settings st) { return Path.Combine(st.LogPath, "xray-tunnel.log"); }
+        public static string SingLog(Settings st) { return Path.Combine(st.LogPath, "singbox-tunnel.log"); }
+        static void RotateLogs(Settings st)
+        {
+            foreach (var f in new[] { XrayLog(st), SingLog(st) })
+                try { if (File.Exists(f) && new FileInfo(f).Length > 1024 * 1024) { File.Copy(f, f + ".old", true); File.Delete(f); } } catch { }
+        }
+        static string TunXrayJson(Settings st, Settings cs, ServerEntry e)
+        {
+            string j = XrayConfig.Build(cs, e);
+            string esc = XrayLog(st).Replace("\\", "\\\\").Replace("\"", "\\\"");
+            return j.Replace("\"log\":{\"loglevel\":\"warning\"}", "\"log\":{\"loglevel\":\"warning\",\"error\":\"" + esc + "\"}");
+        }
+        // последние строки логов xray и sing-box — в общий лог при падении VPN
+        public static string LogTails(Settings st, int n)
+        {
+            var sb = new StringBuilder();
+            foreach (var f in new[] { XrayLog(st), SingLog(st) })
+            {
+                try
+                {
+                    if (!File.Exists(f)) continue;
+                    string[] lines;
+                    using (var fs = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                    using (var r = new StreamReader(fs, Encoding.UTF8)) lines = r.ReadToEnd().Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                    var recent = lines.Skip(Math.Max(0, lines.Length - n)).ToArray();
+                    if (recent.Length > 0) sb.Append("\r\n  [" + Path.GetFileName(f) + "] " + string.Join("\r\n  [" + Path.GetFileName(f) + "] ", recent));
+                }
+                catch { }
+            }
+            return sb.ToString();
+        }
+
         static Settings TunSettings(Settings st) { var cs = st.Clone(); cs.SocksPort = Port(st); cs.HttpPort = Port(st) + 1; cs.TunMode = true; cs.AllowLan = false; return cs; }
 
         // Смена списков или режима «строго VPN» у того же туннеля: если конфиг xray не изменился, перезапускается только
@@ -175,9 +210,9 @@ namespace NetProbe
             var e = TunnelProto.Load(name);
             if (e == null || TunnelProto.Missing(e) != null) return false;
             var cs = TunSettings(st);
-            if (XrayConfig.Build(cs, e) != runningXrayJson) return false;
+            if (TunXrayJson(st, cs, e) != runningXrayJson) return false;
             if (!File.Exists(SingBoxProcess.Exe(st))) return false;
-            err = sb.Start(cs, SingBoxConfig.Build(cs, lists), "singbox-tunnel.json"); // Start сам останавливает прежний sing-box
+            err = sb.Start(cs, SingBoxConfig.Build(cs, lists, SingLog(st)), "singbox-tunnel.json"); // Start сам останавливает прежний sing-box
             if (err != null) return true;
             WriteRuntime(name, e, lists);
             return true;

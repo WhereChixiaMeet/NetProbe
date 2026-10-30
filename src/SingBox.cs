@@ -40,7 +40,8 @@ namespace NetProbe
 
         static string Rx(string entry) { return "(?i)" + Regex.Escape(entry.Trim()); } // подстрока пути, как у WireSock
 
-        public static string Build(Settings st, TunLists l)
+        // logFile: куда sing-box пишет свои предупреждения и ошибки (вывод процесса не перехватывается — он переживает обновление RouteX)
+        public static string Build(Settings st, TunLists l, string logFile = null)
         {
             var include = l.Include;
             var ex = ExclusionSet.From(l.Exclude);
@@ -77,7 +78,9 @@ namespace NetProbe
             }
             var cfg = new Dictionary<string, object>
             {
-                { "log", new Dictionary<string, object> { { "level", "warn" }, { "timestamp", true } } },
+                { "log", logFile != null
+                    ? new Dictionary<string, object> { { "level", "warn" }, { "timestamp", true }, { "output", logFile } }
+                    : new Dictionary<string, object> { { "level", "warn" }, { "timestamp", true } } },
                 { "dns", new Dictionary<string, object>
                     {
                         { "servers", new object[] {
@@ -90,7 +93,7 @@ namespace NetProbe
                         { "strategy", "ipv4_only" }
                     } },
                 { "inbounds", new object[] { new Dictionary<string, object> {
-                    { "type", "tun" }, { "tag", "tun-in" }, { "interface_name", "NetProbe TUN" }, { "address", new[] { "172.19.0.1/30" } },
+                    { "type", "tun" }, { "tag", "tun-in" }, { "interface_name", "NetProbe TUN" }, { "address", new[] { "172.19.0.1/30", "fdfe:dcba:9876::1/126" } },
                     { "mtu", 9000 }, { "auto_route", true }, { "strict_route", true }, { "stack", "mixed" } } } },
                 { "outbounds", new object[] {
                     new Dictionary<string, object> { { "type", "socks" }, { "tag", "proxy" }, { "server", "127.0.0.1" }, { "server_port", st.SocksPort }, { "version", "5" } },

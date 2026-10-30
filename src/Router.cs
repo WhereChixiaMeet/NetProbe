@@ -171,6 +171,7 @@ namespace NetProbe
             try
             {
                 string s = "xray TUN: " + (Wg.IsXray ? Wg.Xr.Diag(GetSettings()) : "WireSock " + (Wg.Running ? Tx("работает") : Tx("не работает")));
+                if (Wg.IsXray) s += XrayTunnel.LogTails(GetSettings(), 4);
                 Logger.Write(LogLevel.Warn, Tx("Состояние туннеля при падении: ") + s);
             }
             catch { }
@@ -218,8 +219,8 @@ namespace NetProbe
                 if (tunUpAt == DateTime.MinValue) { if (!TunIsDefaultRoute() && (DateTime.Now - tunnelAt).TotalSeconds < 10) return; tunUpAt = DateTime.Now; }
                 if (t < tunUpAt) return; // опрос начался, пока TUN ещё не был маршрутом
             }
-            if (ok) { LastVpnOk = t; if (okSince == DateTime.MinValue) okSince = t; }
-            else okSince = DateTime.MinValue;
+            if (ok) { LastVpnOk = t; if (okSince == DateTime.MinValue) okSince = t; failStreak = 0; }
+            else { okSince = DateTime.MinValue; failStreak++; }
         }
 
         void SetState(RouteState s, string detail)
@@ -304,7 +305,7 @@ namespace NetProbe
             {
                 // VLESS / VMess / Trojan: тот же сценарий, другой транспорт (xray + sing-box TUN, списки — process_path_regex)
                 wgDied = false;
-                okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue; tunUpAt = DateTime.MinValue;
+                okSince = DateTime.MinValue; tunnelAt = DateTime.Now; LastVpnOk = DateTime.MinValue; tunUpAt = DateTime.MinValue; failStreak = 0;
                 var lists = XrayTunLists(st, strictOnly);
                 lastXrayLists = lists;
                 string xerr = null;
@@ -503,14 +504,18 @@ namespace NetProbe
 
         double Grace(Settings st) { return st.FailoverSec + st.TimeoutSec + 3; }
 
-        // VPN «молчит» дольше порога?
+        // VPN «молчит»? Не дольше порога — нет. Дольше — только если две проверки подряд не удались
+        // или пробник завис так, что не вернул даже ошибку (FailoverSec + 2 таймаута без единого ответа)
+        volatile int failStreak;
         bool VpnSilent(Settings st)
         {
             if (wgDied || !Wg.Running) return true;
             var now = DateTime.Now;
             if ((now - tunnelAt).TotalSeconds < Grace(st)) return false;
             var last = LastVpnOk > tunnelAt ? LastVpnOk : tunnelAt.AddSeconds(Grace(st) - st.FailoverSec);
-            return (now - last).TotalSeconds > st.FailoverSec;
+            double silent = (now - last).TotalSeconds;
+            if (silent <= st.FailoverSec) return false;
+            return failStreak >= 2 || silent > st.FailoverSec + 2 * st.TimeoutSec;
         }
 
         bool VpnStable(Settings st) { return VpnStable(st, st.RecoverSec); }
