@@ -56,5 +56,5 @@ English · Español · 中文 (Settings → Language, applied without restart).
 
 ## Known Issues
 - incorrect Xray engine behavior when updating the include/exclude lists while the router is running.
-- the application breaks the routing configuration during an update (SAME ROUT issue)
+- the application breaks the routing configuration during an update (SAME ROUTE issue)
 - minor UI issues using custom themes
