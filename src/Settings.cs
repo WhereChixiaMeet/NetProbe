@@ -130,7 +130,7 @@ namespace NetProbe
         public string ProbeUrl = "https://www.cloudflare.com/cdn-cgi/trace";
         // 3.4.7: опросы по кругу — ProbeUrl (даёт IP и страну), затем эти адреса; один сбойный сайт не роняет VPN
         public bool ProbeRotate = true;
-        public string ProbeSpare = "https://www.gstatic.com/generate_204 http://www.msftconnecttest.com/connecttest.txt https://www.apple.com/library/test/success.html";
+        public string ProbeSpare = "https://www.gstatic.com/generate_204 https://www.google.com/generate_204";
         // 3.4.7: VLESS/VMess/Trojan-туннель — пока данные идут через сервер (Clash API sing-box), сайт не опрашивается;
         // активный опрос не реже раза в ProbeIdleSec и сразу, если трафик через сервер встал
         public bool ProbePassive = true;
@@ -346,6 +346,8 @@ namespace NetProbe
             if (string.IsNullOrWhiteSpace(CurlPath)) CurlPath = "curl.exe";
             if (string.IsNullOrWhiteSpace(ProbeUrl)) ProbeUrl = "https://www.cloudflare.com/cdn-cgi/trace";
             ProbeIdleSec = Math.Max(10, Math.Min(600, ProbeIdleSec));
+            // 3.4.9: msftconnecttest / apple отвечали медленно или с ошибкой у части провайдеров — ложные обрывы «Напрямую»
+            if (ProbeSpare == "https://www.gstatic.com/generate_204 http://www.msftconnecttest.com/connecttest.txt https://www.apple.com/library/test/success.html") ProbeSpare = "https://www.gstatic.com/generate_204 https://www.google.com/generate_204";
             if (string.IsNullOrWhiteSpace(PingHost)) PingHost = "1.1.1.1";
             if (string.IsNullOrWhiteSpace(DirectInterface)) DirectInterface = "auto";
             if (string.IsNullOrWhiteSpace(WiresockLogLevel)) WiresockLogLevel = "info";

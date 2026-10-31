@@ -1,7 +1,7 @@
 # RouteX
 *(formerly NetProbe)*
 
-Version 3.4.8: live 5-minute latency chart with a scale that ignores single spikes; passive VPN checks only in the background. See [release notes](docs/releases/v3.4.8.md).
+Version 3.4.9: steady ping on one site while the window is open; site rotation and passive VPN checks only in the background. See [release notes](docs/releases/v3.4.9.md).
 
 ### MANUAL RESTART REQUIRED AFTER UPDATE ###
 

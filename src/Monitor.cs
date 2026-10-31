@@ -70,6 +70,8 @@ namespace NetProbe
         public int ConsecutiveFails;
         // VPN-канал: пассивная проверка туннеля (null или Unavailable — обычный опрос сайта)
         public Func<TunnelFlowState> Passive;
+        // опросы по кругу только когда это разрешено (окно и виджеты скрыты): на виду — один сайт, ровный график
+        public Func<bool> Rotate;
         public event Action<ChannelMonitor, TunnelFlowState> PassiveSample; // данные через сервер идут / тишина — опрос сайта пропущен
         DateTime lastActive = DateTime.MinValue; int urlIndex;
 
@@ -111,7 +113,8 @@ namespace NetProbe
                     }
                 }
                 var urls = st.ProbeUrls();
-                string url = urls[(urlIndex++ & int.MaxValue) % urls.Count];
+                bool rotate = Rotate == null || Rotate();
+                string url = rotate ? urls[(urlIndex++ & int.MaxValue) % urls.Count] : st.ProbeUrl;
                 lastActive = t0;
                 ProbeResult r;
                 try { r = GetProber().Http(url, st.TimeoutSec); }

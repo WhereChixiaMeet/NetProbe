@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.4.8";
+        public const string Version = "3.4.9";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -104,6 +104,7 @@ namespace NetProbe
                 { TunnelFlow.Reset(); return TunnelFlowState.Unavailable; }
                 return TunnelFlow.Read(st.TunnelSocksPort + 1);
             };
+            monVpn.Rotate = monDir.Rotate = () => !uiLive;
             monVpn.PassiveSample += (m, fs) => router.VpnPassive(fs == TunnelFlowState.Flowing, DateTime.Now);
             // вторая проверка перед аварийным переключением: другие адреса через тот же пробник VPN (через туннель)
             router.ConfirmVpn = () =>
