@@ -39,7 +39,7 @@ namespace NetProbe
         public static RouteFacts Take(Router router, XrayManager xm, Settings st)
         {
             var f = new RouteFacts();
-            f.Strict = AppLists.Get(AppLists.VpnOnlyApps);
+            f.Strict = Router.KillApps(st);
             f.Kill = KillSwitch.Active;
             f.Wg = router.Wg.Running;
             if (f.Wg)

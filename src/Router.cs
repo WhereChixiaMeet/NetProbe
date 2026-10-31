@@ -443,14 +443,22 @@ namespace NetProbe
             }
         }
 
+        // Kill switch: «строго VPN» всегда; в режиме «Только VPN» и Include — им некуда падать (DPI-фолбэка нет)
+        public static List<string> KillApps(Settings st)
+        {
+            var apps = AppLists.AppsOnly(AppLists.VpnOnlyApps);
+            if (st.RunMode == RouteMode.VpnOnly) apps = apps.Concat(AppLists.AppsOnly(AppLists.HybridApps)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return apps;
+        }
+
         void Kill(Settings st, bool on)
         {
             if (!on || !st.KillSwitch) { if (KillSwitch.NeedsClear) { KillSwitch.Clear(); Logger.Write(LogLevel.Route, Tx("Kill switch снят")); } return; }
             if ((DateTime.Now - lastKill).TotalSeconds < 5) return;
             lastKill = DateTime.Now;
-            var strict = AppLists.AppsOnly(AppLists.VpnOnlyApps);
-            if (strict.Count == 0) return;
-            int n = KillSwitch.Block(ProcInfo.PathsOf(strict));
+            var apps = KillApps(st);
+            if (apps.Count == 0) return;
+            int n = KillSwitch.Block(ProcInfo.PathsOf(apps));
             if (n > 0) Logger.Write(LogLevel.Route, Tx("Kill switch: заблокировано приложений «строго VPN»: ") + KillSwitch.Count);
         }
 

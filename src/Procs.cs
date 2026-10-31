@@ -207,13 +207,21 @@ namespace NetProbe
         static bool stale = true;
         public static bool NeedsClear { get { lock (blocked) return stale || blocked.Count > 0; } }
 
+        // свои ядра и сам RouteX не блокируются, даже если подстрока из списка совпала с их путём
+        static bool OwnCore(string p)
+        {
+            string f = Path.GetFileName(p);
+            if (new[] { "wiresock-client.exe", "xray.exe", "sing-box.exe", "winws.exe" }.Contains(f, StringComparer.OrdinalIgnoreCase)) return true;
+            try { return string.Equals(Path.GetFullPath(p), Path.GetFullPath(System.Windows.Forms.Application.ExecutablePath), StringComparison.OrdinalIgnoreCase); } catch { return false; }
+        }
+
         public static int Block(IEnumerable<string> paths)
         {
             int added = 0;
             foreach (var p in paths)
             {
                 lock (blocked) if (blocked.Contains(p)) continue;
-                if (p.Contains("\"") || p.Contains("netprobe-")) continue;
+                if (p.Contains("\"") || p.Contains("netprobe-") || OwnCore(p)) continue;
                 var r = Proc.Run("netsh.exe", "advfirewall firewall add rule name=\"" + RuleName + "\" dir=out action=block enable=yes program=\"" + p + "\"", 10000, Proc.Oem);
                 if (r.Exit == 0) { lock (blocked) blocked.Add(p); added++; }
                 else Logger.Write(LogLevel.Error, Tx("Kill switch: не удалось заблокировать ") + p + " — " + (r.Out + r.Err).Trim());

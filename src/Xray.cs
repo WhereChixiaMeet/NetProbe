@@ -368,6 +368,13 @@ namespace NetProbe
         }
     }
 
+    // Random per-run credentials of the router tunnel's local SOCKS port (xray inbound ↔ sing-box outbound)
+    public static class TunnelAuth
+    {
+        static string Rnd() { var b = new byte[18]; using (var r = System.Security.Cryptography.RandomNumberGenerator.Create()) r.GetBytes(b); return Convert.ToBase64String(b).Replace('+', 'A').Replace('/', 'B').TrimEnd('='); }
+        public static readonly string User = "rx" + Rnd().Substring(0, 8), Pass = Rnd();
+    }
+
     // Генерация конфига xray и запуск процесса
     public static class XrayConfig
     {
@@ -375,12 +382,19 @@ namespace NetProbe
 
         public static string Build(Settings st, ServerEntry srv, bool stats = false)
         {
+            // Router tunnel (VLESS / VMess / Trojan in Configs): only sing-box talks to this xray. A password on the local
+            // SOCKS port keeps other local programs (including Exclude apps that scan localhost for proxies) from using
+            // the VPN and seeing its exit IP; the HTTP inbound is not needed there at all.
+            bool own = st.PrimaryXrayTunnel;
+            var socksSettings = own
+                ? new Dictionary<string, object> { { "udp", true }, { "auth", "password" }, { "accounts", new object[] { new Dictionary<string, object> { { "user", TunnelAuth.User }, { "pass", TunnelAuth.Pass } } } } }
+                : new Dictionary<string, object> { { "udp", true }, { "auth", "noauth" } };
             var inbounds = new List<object>
             {
-                new Dictionary<string, object> { { "tag", "socks" }, { "port", st.SocksPort }, { "listen", st.AllowLan ? "0.0.0.0" : "127.0.0.1" }, { "protocol", "socks" },
-                    { "settings", new Dictionary<string, object> { { "udp", true }, { "auth", "noauth" } } }, { "sniffing", new Dictionary<string, object> { { "enabled", true }, { "destOverride", new[] { "http", "tls", "quic" } }, { "routeOnly", true } } } },
-                new Dictionary<string, object> { { "tag", "http" }, { "port", st.HttpPort }, { "listen", st.AllowLan ? "0.0.0.0" : "127.0.0.1" }, { "protocol", "http" }, { "settings", new Dictionary<string, object>() } }
+                new Dictionary<string, object> { { "tag", "socks" }, { "port", st.SocksPort }, { "listen", st.AllowLan && !own ? "0.0.0.0" : "127.0.0.1" }, { "protocol", "socks" },
+                    { "settings", socksSettings }, { "sniffing", new Dictionary<string, object> { { "enabled", true }, { "destOverride", new[] { "http", "tls", "quic" } }, { "routeOnly", true } } } }
             };
+            if (!own) inbounds.Add(new Dictionary<string, object> { { "tag", "http" }, { "port", st.HttpPort }, { "listen", st.AllowLan ? "0.0.0.0" : "127.0.0.1" }, { "protocol", "http" }, { "settings", new Dictionary<string, object>() } });
             var rules = new List<object>();
             rules.Add(new Dictionary<string, object> { { "type", "field" }, { "ip", new[] { "geoip:private" } }, { "outboundTag", "direct" } });
             var dd = !st.TunMode && DirectDomains != null ? DirectDomains() : new List<string>();

@@ -37,24 +37,29 @@ namespace NetProbe
         static readonly Cidr[] Private = new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "169.254.0.0/16", "fc00::/7", "fe80::/10", "::1/128" }.Select(Cidr.Parse).ToArray();
         static bool? Or(IEnumerable<bool?> vals) { bool unknown = false; foreach (var v in vals) { if (v == true) return true; if (!v.HasValue) unknown = true; } return unknown ? (bool?)null : false; }
         static bool? And(IEnumerable<bool?> vals) { bool unknown = false; foreach (var v in vals) { if (v == false) return false; if (!v.HasValue) unknown = true; } return unknown ? (bool?)null : true; }
-        public static bool? Matches(Dictionary<string, object> r, string name, string path, IPAddress ip, string host)
+        // Missing facts: a check without an app means "an app outside the lists" (process conditions are false);
+        // without a domain, domain conditions are assumed not to match (the caller reports which rule could change that);
+        // without both a domain and an IP (app-only check), destination conditions describe the app's ordinary traffic.
+        public static bool? Matches(Dictionary<string, object> r, string name, string path, IPAddress ip, string host) { return Matches(r, name, path, ip, host, false, false, false); }
+        public static bool? Matches(Dictionary<string, object> r, string name, string path, IPAddress ip, string host, bool noApp, bool noDomain, bool noDest)
         {
             object type;
             if (r.TryGetValue("type", out type) && (string)type == "logical")
             {
-                var v = Items(r["rules"]).Cast<Dictionary<string, object>>().Select(x => Matches(x, name, path, ip, host));
+                var v = Items(r["rules"]).Cast<Dictionary<string, object>>().Select(x => Matches(x, name, path, ip, host, noApp, noDomain, noDest)).ToList();
                 return (string)r["mode"] == "or" ? Or(v) : And(v);
             }
             var conditions = new List<bool?>();
             foreach (var kv in r)
             {
                 if (kv.Key == "outbound" || kv.Key == "action") continue;
+                if (noDest && (kv.Key.StartsWith("domain") || kv.Key.StartsWith("ip_") || kv.Key.StartsWith("port") || kv.Key == "network" || kv.Key == "protocol")) { conditions.Add(false); continue; }
                 if (kv.Key == "ip_version") { conditions.Add(ip == null ? (bool?)null : (ip.GetAddressBytes().Length == 4 ? 4 : 6) == Convert.ToInt32(kv.Value)); continue; }
                 if (kv.Key == "ip_is_private") { conditions.Add(ip == null ? (bool?)null : Private.Any(c => c.Contains(ip))); continue; }
                 var vals = kv.Value is IEnumerable && !(kv.Value is string) ? Items(kv.Value).Select(x => x.ToString()).ToArray() : new[] { kv.Value.ToString() };
                 if (kv.Key.StartsWith("domain"))
                 {
-                    if (string.IsNullOrEmpty(host)) { conditions.Add(null); continue; }
+                    if (string.IsNullOrEmpty(host)) { conditions.Add(noDomain ? false : (bool?)null); continue; }
                     host = host.TrimEnd('.').ToLowerInvariant();
                     try
                     {
@@ -63,6 +68,7 @@ namespace NetProbe
                     catch { conditions.Add(null); }
                 }
                 else if (kv.Key == "ip_cidr") conditions.Add(ip == null ? (bool?)null : vals.Any(v => Cidr.Parse(v).Contains(ip)));
+                else if (kv.Key.StartsWith("process_") && noApp) conditions.Add(false);
                 else if (kv.Key == "process_name") conditions.Add(string.IsNullOrEmpty(name) ? (bool?)null : vals.Contains(name, StringComparer.OrdinalIgnoreCase));
                 else if (kv.Key == "process_path") conditions.Add(string.IsNullOrEmpty(path) ? (bool?)null : vals.Contains(path, StringComparer.OrdinalIgnoreCase));
                 else if (kv.Key == "process_path_regex")
@@ -78,26 +84,44 @@ namespace NetProbe
         {
             if (Error != null) { why = Error; return "unknown"; }
             string result = DecideStage(Routes, Final, name, path, ip, host, out why);
+            if (ip == null && string.IsNullOrEmpty(host)) why += " · ordinary traffic of the app (domain / IP rules may send some sites elsewhere)";
             if (result != "proxy") return result;
+            string first = why;
             string second = DecideStage(XrayRoutes, "proxy", name, path, ip, host, out why);
-            why = "Active sing-box → Xray rules: " + why;
+            why = "sing-box: " + first + " → Xray: " + why;
             return second;
         }
+        static string Outbound(Dictionary<string, object> r) { object o; return r.TryGetValue("outbound", out o) ? (string)o : "block"; }
+        // First match wins. A rule that cannot be decided from the given facts (port / transport, or a domain that the
+        // connection table does not know) only makes the answer Unknown when it would lead somewhere else.
         static string DecideStage(List<Dictionary<string, object>> rules, string fallback, string name, string path, IPAddress ip, string host, out string why)
         {
+            bool noApp = string.IsNullOrEmpty(name) && string.IsNullOrEmpty(path);
+            bool noDomain = string.IsNullOrEmpty(host);
+            bool noDest = noDomain && ip == null;
+            var maybe = new List<KeyValuePair<int, string>>();   // rules that need a port / transport
+            var domainOnly = new List<KeyValuePair<int, string>>(); // rules that would decide if the domain were known
+            string result = null, reason = null;
             for (int i = 0; i < rules.Count; i++)
             {
                 object action; var r = rules[i];
                 if (r.TryGetValue("action", out action) && ((string)action == "sniff" || (string)action == "hijack-dns")) continue;
-                bool? match = Matches(r, name, path, ip, host);
-                if (!match.HasValue) { why = "Rule " + (i + 1) + " needs more information (domain / IP / process / port / network)."; return "unknown"; }
-                if (match == true)
-                {
-                    why = "Runtime rule " + (i + 1);
-                    return r.ContainsKey("outbound") ? (string)r["outbound"] : "block";
-                }
+                bool? match = Matches(r, name, path, ip, host, noApp, noDomain, noDest);
+                if (!match.HasValue) { maybe.Add(new KeyValuePair<int, string>(i + 1, Outbound(r))); continue; }
+                if (match == true) { result = Outbound(r); reason = "Runtime rule " + (i + 1); break; }
+                if (noDomain && !noDest && Matches(r, name, path, ip, host, noApp, false, false) != false) domainOnly.Add(new KeyValuePair<int, string>(i + 1, Outbound(r)));
             }
-            why = "Runtime fallback: " + fallback; return fallback;
+            if (result == null) { result = fallback; reason = "Runtime fallback: " + fallback; }
+            var other = maybe.Where(m => m.Value != result).ToList();
+            if (other.Count > 0)
+            {
+                why = "Rule " + other[0].Key + " (" + other[0].Value + ") needs a port / transport that is not known here; otherwise " + reason + " → " + result + ".";
+                return "unknown";
+            }
+            why = reason;
+            var dom = domainOnly.Where(m => m.Value != result).ToList();
+            if (dom.Count > 0) why += " · domain unknown: rule " + string.Join(", ", dom.Select(m => m.Key + " → " + m.Value)) + " applies if the site matches it";
+            return result;
         }
     }
 }

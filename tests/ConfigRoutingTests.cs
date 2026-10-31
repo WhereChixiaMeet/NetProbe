@@ -82,6 +82,13 @@ static class ConfigRoutingTests
             var portRule = new ConfigRouteRule { Kind = "domain", Values = "example.com", Outbound = "proxy", Ports = "443", Network = "tcp" };
             st.ConfigRulesJson = ConfigRouting.Json().Serialize(new[] { portRule });
             Check(Decide(Build(st, l, "ordered-port.json"), "example.com") == "unknown", "Route inspector does not invent port / network information");
+            string w;
+            Check(Snapshot(custom).Decide("brave.exe", @"C:\Apps\brave.exe", IPAddress.Parse("203.0.113.1"), null, out w) == "proxy", "Live connection without a known domain is not Unknown");
+            Check(Snapshot(custom).Decide("brave.exe", @"C:\Apps\brave.exe", null, null, out w) == "proxy", "App-only check is not Unknown");
+            Check(Snapshot(custom).Decide("", "", IPAddress.Parse("203.0.113.1"), "example.com", out w) == "direct", "Domain-only check means an app outside the lists");
+            var tunXray = ConfigRouting.Json().Serialize(ConfigRouting.Json().DeserializeObject(XrayConfig.Build(Tun(st), new ServerEntry { Protocol = "vless", Address = "example.invalid", Port = 443, UserId = "00000000-0000-0000-0000-000000000000", Security = "none", Network = "tcp", Method = "none" })));
+            Check(tunXray.Contains("\"auth\":\"password\"") && tunXray.Contains(TunnelAuth.Pass) && !tunXray.Contains("\"protocol\":\"http\""), "Router tunnel SOCKS port needs a password and has no HTTP inbound");
+            Check(ConfigRouting.Json().Serialize(Obj(Arr(custom["outbounds"])[0])).Contains(TunnelAuth.Pass), "sing-box authenticates to the tunnel SOCKS port");
             Invalid(() => ConfigRouting.Matcher(new ConfigRouteRule { Kind = "ip", Values = "192.0.2.0/99" }, st), "Invalid CIDR is rejected");
             Invalid(() => ConfigRouting.Matcher(new ConfigRouteRule { Values = "example.com", Ports = "65536" }, st), "Invalid port is rejected");
             Invalid(() => ConfigRouting.Matcher(new ConfigRouteRule { Values = "geosite:missing-category-xyz" }, st), "Missing geodata category fails clearly");
