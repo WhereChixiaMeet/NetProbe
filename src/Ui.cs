@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -545,8 +546,14 @@ namespace NetProbe
 
     public class LatencyChart : DoubleBufferedControl
     {
-        public const int Capacity = 120;
+        public const int Capacity = 600;
+        // Session: окно по времени (последние WindowSec секунд) — обе линии на одной шкале времени, график плывёт каждую секунду
+        public const int WindowSec = 300;
         public readonly List<double> A = new List<double>(), B = new List<double>();
+        public readonly List<DateTime> TA = new List<DateTime>(), TB = new List<DateTime>();
+        readonly System.Windows.Forms.Timer scroll = new System.Windows.Forms.Timer { Interval = 1000 };
+        public LatencyChart() { scroll.Tick += (s, e) => { if (Visible && !Hist && (A.Count > 0 || B.Count > 0)) Invalidate(); }; scroll.Start(); }
+        protected override void Dispose(bool disposing) { if (disposing) scroll.Dispose(); base.Dispose(disposing); }
         public string NameA = "VPN", NameB = Tx("Напрямую");
         public int Good = 120, Warn = 300;
         // Day / Week: точки из логов (NaN = нет данных, разрыв). null — режим Session (живые опросы)
@@ -556,9 +563,12 @@ namespace NetProbe
 
         public void Add(bool a, double v)
         {
-            var l = a ? A : B; l.Add(v); if (l.Count > Capacity) l.RemoveAt(0); Invalidate();
+            var l = a ? A : B; var t = a ? TA : TB; var now = DateTime.Now;
+            l.Add(v); t.Add(now);
+            while (l.Count > 0 && (l.Count > Capacity || (now - t[0]).TotalSeconds > WindowSec + 30)) { l.RemoveAt(0); t.RemoveAt(0); }
+            Invalidate();
         }
-        public void Clear() { A.Clear(); B.Clear(); Invalidate(); }
+        public void Clear() { A.Clear(); B.Clear(); TA.Clear(); TB.Clear(); Invalidate(); }
         // NaN — обрыв, -∞ — неподтверждённый сбой опроса
         public const double Blip = double.NegativeInfinity;
         static bool Bad(double v) { return double.IsNaN(v) || double.IsInfinity(v); }
@@ -584,7 +594,7 @@ namespace NetProbe
             Gfx.Panel(g, rr, Theme.R(12), Theme.Card);
             int pad = Theme.S(18);
             Gfx.Text(g, Tx("Задержка, мс"), Theme.H2, Theme.Text, new Rectangle(pad, Theme.S(12), Theme.S(300), Theme.S(24)), TextFormatFlags.Left);
-            Gfx.Text(g, Hist ? (HistSub ?? "") : Tx("последние ") + Capacity + Tx(" опросов  ·  красные отметки = неудачные опросы"), Theme.Small, Theme.Muted, new Rectangle(pad, Theme.S(34), Theme.S(560), Theme.S(18)), TextFormatFlags.Left);
+            Gfx.Text(g, Hist ? (HistSub ?? "") : Tx("последние ") + (WindowSec / 60) + Tx(" мин") + "  ·  " + Tx("красные отметки = неудачные опросы"), Theme.Small, Theme.Muted, new Rectangle(pad, Theme.S(34), Theme.S(560), Theme.S(18)), TextFormatFlags.Left);
 
             int lx = Width - pad;
             foreach (var it in new[] { Tuple.Create(NameB, Theme.Direct), Tuple.Create(NameA, Theme.Vpn) })
@@ -600,10 +610,10 @@ namespace NetProbe
             var plot = new RectangleF(pad + Theme.S(36), Theme.S(62), Width - pad * 2 - Theme.S(40), Height - Theme.S(62) - Theme.S(26));
             if (plot.Width < 20 || plot.Height < 20) return;
             var sA = HA ?? (Hist ? new List<double>() : A); var sB = HB ?? (Hist ? new List<double>() : B);
-            double mx = 0;
-            foreach (var v in sA) if (!Bad(v)) mx = Math.Max(mx, v);
-            foreach (var v in sB) if (!Bad(v)) mx = Math.Max(mx, v);
-            double ymax = Nice(Math.Max(mx * 1.15, Math.Min(Good * 1.2, 150)));
+            // шкала по основной массе точек, а не по одному всплеску: 90-й процентиль × 1.5; всплески упираются в верх со стрелкой
+            var vals = sA.Concat(sB).Where(v => !Bad(v)).OrderBy(v => v).ToList();
+            double mx = vals.Count == 0 ? 0 : vals.Count < 10 ? vals[vals.Count - 1] * 1.15 : Math.Min(vals[vals.Count - 1] * 1.15, vals[(int)(vals.Count * 0.9)] * 1.5);
+            double ymax = Nice(Math.Max(mx, Math.Min(Good * 1.2, 150)));
 
             using (var gp = new Pen(Theme.Grid, 1))
             {
@@ -622,20 +632,23 @@ namespace NetProbe
                 float y = (float)(plot.Bottom - plot.Height * th.Item1 / ymax);
                 using (var p = new Pen(Color.FromArgb(90, th.Item2), 1) { DashStyle = DashStyle.Dash }) g.DrawLine(p, plot.Left, y, plot.Right, y);
             }
-            DrawSeries(g, plot, sA, Theme.Vpn, ymax, 0, false);
-            DrawSeries(g, plot, sB, Theme.Direct, ymax, 1, false);
+            DrawSeries(g, plot, sA, Hist ? null : TA, Theme.Vpn, ymax, 0, false);
+            DrawSeries(g, plot, sB, Hist ? null : TB, Theme.Direct, ymax, 1, false);
             if (Hist && HA == null)
                 Gfx.Text(g, HistEmpty, Theme.Body, Theme.Dim, Rectangle.Round(plot), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             else if (sA.Count == 0 && sB.Count == 0)
                 Gfx.Text(g, Tx("Пока нет данных — запустите мониторинг"), Theme.Body, Theme.Dim, Rectangle.Round(plot), TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
-        void DrawSeries(Graphics g, RectangleF plot, List<double> s, Color c, double ymax, int idx, bool dashed)
+        void DrawSeries(Graphics g, RectangleF plot, List<double> s, List<DateTime> ts, Color c, double ymax, int idx, bool dashed)
         {
             if (s.Count == 0) return;
             int cap = Cap; bool hist = Hist;
             float step = plot.Width / (cap - 1);
             int off = cap - s.Count;
+            var now = DateTime.Now;
+            bool timed = ts != null && ts.Count == s.Count;
+            Func<int, float> X = i => timed ? (float)(plot.Right - plot.Width * Math.Min(WindowSec, Math.Max(0, (now - ts[i]).TotalSeconds)) / WindowSec) : plot.Left + (off + i) * step;
             var pts = new List<PointF>();
             Action flush = () =>
             {
@@ -654,7 +667,8 @@ namespace NetProbe
             };
             for (int i = 0; i < s.Count; i++)
             {
-                float x = plot.Left + (off + i) * step;
+                if (timed && (now - ts[i]).TotalSeconds > WindowSec) continue;
+                float x = X(i);
                 if (Bad(s[i]))
                 {
                     flush();
@@ -664,12 +678,14 @@ namespace NetProbe
                 }
                 float y = (float)(plot.Bottom - plot.Height * Math.Min(s[i], ymax) / ymax);
                 pts.Add(new PointF(x, y));
+                if (s[i] > ymax) // всплеск выше шкалы: стрелка у верхнего края
+                    using (var b = new SolidBrush(c)) g.FillPolygon(b, new[] { new PointF(x, plot.Top - Theme.S(5)), new PointF(x - Theme.S(4), plot.Top + Theme.S(2)), new PointF(x + Theme.S(4), plot.Top + Theme.S(2)) });
             }
             flush();
             int last = s.Count - 1;
             if (!Bad(s[last]))
             {
-                float x = plot.Left + (off + last) * step, y = (float)(plot.Bottom - plot.Height * Math.Min(s[last], ymax) / ymax);
+                float x = X(last), y = (float)(plot.Bottom - plot.Height * Math.Min(s[last], ymax) / ymax);
                 Gfx.Dot(g, c, x, y, Theme.S(3.5), true);
             }
         }

@@ -1,7 +1,7 @@
 # RouteX
 *(formerly NetProbe)*
 
-Version 3.4.7: VPN checks rotate between several sites, and VLESS tunnels are checked passively by their traffic instead of constant Cloudflare requests. See [release notes](docs/releases/v3.4.7.md).
+Version 3.4.8: live 5-minute latency chart with a scale that ignores single spikes; passive VPN checks only in the background. See [release notes](docs/releases/v3.4.8.md).
 
 ### MANUAL RESTART REQUIRED AFTER UPDATE ###
 

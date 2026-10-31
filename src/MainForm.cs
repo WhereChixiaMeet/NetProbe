@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.4.7";
+        public const string Version = "3.4.8";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -100,7 +100,7 @@ namespace NetProbe
             monVpn.Passive = () =>
             {
                 var rs = router.State;
-                if ((rs != RouteState.Vpn && rs != RouteState.Backup) || !router.Wg.IsXray || !router.Wg.Running || router.StrictOnly || router.LastVpnOk == DateTime.MinValue)
+                if (uiLive || (rs != RouteState.Vpn && rs != RouteState.Backup) || !router.Wg.IsXray || !router.Wg.Running || router.StrictOnly || router.LastVpnOk == DateTime.MinValue)
                 { TunnelFlow.Reset(); return TunnelFlowState.Unavailable; }
                 return TunnelFlow.Read(st.TunnelSocksPort + 1);
             };
@@ -519,13 +519,14 @@ namespace NetProbe
         {
             ResetPageBackground();
             var a = chart != null ? chart.A.ToList() : new List<double>(); var b = chart != null ? chart.B.ToList() : new List<double>();
+            var ta = chart != null ? chart.TA.ToList() : new List<DateTime>(); var tb = chart != null ? chart.TB.ToList() : new List<DateTime>();
             if (runner != null) runner.Cf.Cancelled = true;
             SuspendLayout();
             var old = Controls.Cast<Control>().ToList();
             Controls.Clear();
             foreach (var c in old) c.Dispose();
             BuildUi();
-            chart.A.AddRange(a); chart.B.AddRange(b); chart.Invalidate();
+            chart.A.AddRange(a); chart.B.AddRange(b); chart.TA.AddRange(ta); chart.TB.AddRange(tb); chart.Invalidate();
             RedrawLog();
             Native.TitleTheme(Handle, Theme.IsDark); DwmTheme.Apply(Handle);
             trayMenu.Renderer = new ThemedMenuRenderer();
@@ -1052,8 +1053,11 @@ namespace NetProbe
             if (speedChart != null && !speedChart.IsDisposed) { speedChart.Adapter = SpeedMeter.AdapterName; speedChart.Add(d, u); }
         }
 
+        // окно или виджет на экране — монитор должен быть живым: пассивная проверка VPN (без опросов сайтов) только в фоне
+        volatile bool uiLive = true;
         void OnUiTick()
         {
+            try { uiLive = (Visible && WindowState != FormWindowState.Minimized) || widget.Visible || (widget2 != null && widget2.Visible) || (miniMon != null && !miniMon.IsDisposed && miniMon.Visible && Visible && WindowState != FormWindowState.Minimized); } catch { }
             UpdateWidgetHeader();
             if (curPage == PgConnect) UpdateConnectUi();
             History.Tick();

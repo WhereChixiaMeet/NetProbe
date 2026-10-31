@@ -917,6 +917,7 @@ namespace NetProbe
             { "Задержка, мс", "Latencia, ms" },
             { "последние ", "últimos " },
             { " опросов  ·  красные отметки = неудачные опросы", " sondeos  ·  marcas rojas = sondeos fallidos" },
+            { "красные отметки = неудачные опросы", "marcas rojas = sondeos fallidos" },
             { "Пока нет данных — запустите мониторинг", "Aún no hay datos: inicie la monitorización" },
             { "Не найден winws.exe в ", "No se encontró winws.exe en " },
             { ". Укажите папку zapret в Настройках.", ". Indique la carpeta de zapret en Ajustes." },
