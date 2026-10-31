@@ -406,7 +406,7 @@ namespace NetProbe
             if (board == null || board.IsDisposed) return;
             if (lRouteHint != null)
                 lRouteHint.Text = st.ConfigRulesEnabled && TunnelProto.IsXray(router.Wg.Running ? router.Wg.TunnelName : st.PrimaryTunnel)
-                    ? "Configs use ordered rules from Settings → Routing → Rule editor. Include/Exclude below remain available for legacy routing; they are not linked to the editor."
+                    ? "Configs use ordered rules from Settings → Engine → Rule editor. Include/Exclude below remain available for legacy routing; they are not linked to the editor."
                     : Tx("DPI глобален: касается всего вне туннеля. Домены для DPI — на вкладке DPI  ·  Приоритет: «Строго VPN» > домен > приложение");
             // источник — подписка (xray), маршрутизатор при этом выключен: показываем реальное состояние подключения, как на Subscriptions
             if (!router.Active && xm.Active)

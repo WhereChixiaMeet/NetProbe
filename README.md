@@ -1,7 +1,7 @@
 # RouteX
 *(formerly NetProbe)*
 
-Version 3.4.3: see [changes and testing instructions](CHANGES-3.4.3.md).
+Version 3.4.4: the Configs rule editor and IPv4-only / RU bypass settings are under **Settings → Engine**. See [release notes](RELEASE-3.4.4.md) and the [3.4.3 routing changes](CHANGES-3.4.3.md).
 
 ### MANUAL RESTART REQUIRED AFTER UPDATE ###
 

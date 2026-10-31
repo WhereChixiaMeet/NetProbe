@@ -68,6 +68,7 @@ namespace NetProbe
         static readonly string[][] SetSections = {
             new[] { "Оформление", "set.look", "look" }, new[] { "Шрифты", "set.fonts", "look" }, new[] { "Персонаж", "set.char", "char" },
             new[] { "VPN · WireSock", "set.ws", "vpn" }, new[] { "DPI · zapret", "set.dpi", "vpn" }, new[] { "Источники", "set.src", "vpn" },
+            new[] { "Routing · Configs (VLESS / VMess / Trojan)", "set.routing", "vpn" },
             new[] { "Подписки", "set.subs", "subs" }, new[] { "Обновления", "set.upd", "upd" }, new[] { "Мониторы: пинг и скорость", "set.mons", "win" },
             new[] { "Мониторинг · канал VPN", "set.monvpn", "mon" }, new[] { "Мониторинг · канал напрямую", "set.mondir", "mon" }, new[] { "Тесты", "set.tests", "mon" },
             new[] { "Лог", "set.log", "log" }, new[] { "Окно, трей и виджет", "set.win", "win" } };
