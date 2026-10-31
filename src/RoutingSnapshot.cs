@@ -128,6 +128,7 @@ namespace NetProbe
             {
                 object action; var r = rules[i];
                 if (r.TryGetValue("action", out action) && ((string)action == "sniff" || (string)action == "hijack-dns" || (string)action == "resolve")) continue;
+                if (SingBoxConfig.IsQuicGuard(r)) continue; // only QUIC (UDP 443) to the server; the route check is about the site
                 bool? match = Matches(r, name, path, ip, host, noApp, noDomain, noDest);
                 if (!match.HasValue) { maybe.Add(new KeyValuePair<int, string>(i + 1, Outbound(r))); continue; }
                 if (match == true) { result = Outbound(r); reason = "Runtime rule " + (i + 1); break; }

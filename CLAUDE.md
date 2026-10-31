@@ -81,6 +81,12 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 - Delay/speed tests: servers run in chunks in one test xray; if xray refuses the config, the chunk is split in halves until the bad server is isolated (before, one bad server made the whole chunk "none").
 - "+" lists have a clipboard button (Ctrl+V): one app per line / comma / semicolon.
 
+## Speed of the xray path (3.4.11)
+- xray sniffing has `routeOnly: false` (as v2rayN): the server gets the sniffed domain and resolves it near itself (right CDN node). DoH hosts are in `domainsExcluded`.
+- xray `domainStrategy`: AsIs in proxy mode; IPIfNonMatch only in TUN with BypassRu (the override hides the IP from geoip:ru; the lookup hits the Windows / sing-box DNS cache).
+- sing-box remote DNS is DoH (`type: https`, 1.1.1.1 via proxy), not TCP per query.
+- `TunRejectQuic` (default on): every sing-box rule to `proxy` gets a twin before it rejecting UDP 443 (`no_drop`), so browsers fall back to TCP at once; `RoutingSnapshot` skips these twins (`SingBoxConfig.IsQuicGuard`).
+
 ## Rule editor (Configs, v2rayN-style; off by default)
 - 3.4.6 removed the 3.4.3 table editor; it came back in v2rayN form. Switch = `Settings.RuleSetsEnabled` (new name, so an old `ConfigRulesEnabled=1` stays ignored). Off → standard Include/Exclude + RU sites direct, exactly as 3.4.6+.
 - `ConfigRouting.cs` / `PagesRoutingRules.cs`: rule sets in `config\routing.json` (v2rayN JSON keys: remarks, outboundTag, port, network, protocol, inboundTag, domain, ip, process, ruleType, enabled). Only the active set is used; first match wins; unmatched → proxy (as v2rayN). Domain / IP / Process of a rule are separate sing-box rules sharing port/network/protocol; plain domain = keyword. Domain strategy AsIs / IPIfNonMatch / IPOnDemand via sing-box `resolve`.

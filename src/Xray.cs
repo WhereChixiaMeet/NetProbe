@@ -389,10 +389,15 @@ namespace NetProbe
             var socksSettings = own
                 ? new Dictionary<string, object> { { "udp", true }, { "auth", "password" }, { "accounts", new object[] { new Dictionary<string, object> { { "user", TunnelAuth.User }, { "pass", TunnelAuth.Pass } } } } }
                 : new Dictionary<string, object> { { "udp", true }, { "auth", "noauth" } };
+            // As in v2rayN: the sniffed domain replaces the address, so the server resolves the site itself and reaches the
+            // CDN node nearest to it. With routeOnly the server got the IP from the local DNS (a node picked for this
+            // country), and every request went the long way. DoH hosts keep their IP: resolving them would loop through DNS.
+            var sniffing = new Dictionary<string, object> { { "enabled", true }, { "destOverride", new[] { "http", "tls", "quic" } }, { "routeOnly", false },
+                { "domainsExcluded", new[] { "cloudflare-dns.com", "one.one.one.one", "dns.google", "dns.quad9.net" } } };
             var inbounds = new List<object>
             {
                 new Dictionary<string, object> { { "tag", "socks" }, { "port", st.SocksPort }, { "listen", st.AllowLan && !own ? "0.0.0.0" : "127.0.0.1" }, { "protocol", "socks" },
-                    { "settings", socksSettings }, { "sniffing", new Dictionary<string, object> { { "enabled", true }, { "destOverride", new[] { "http", "tls", "quic" } }, { "routeOnly", true } } } }
+                    { "settings", socksSettings }, { "sniffing", sniffing } }
             };
             if (!own) inbounds.Add(new Dictionary<string, object> { { "tag", "http" }, { "port", st.HttpPort }, { "listen", st.AllowLan ? "0.0.0.0" : "127.0.0.1" }, { "protocol", "http" }, { "settings", new Dictionary<string, object>() } });
             var rules = new List<object>();
@@ -411,9 +416,10 @@ namespace NetProbe
                 { "log", new Dictionary<string, object> { { "loglevel", "warning" } } },
                 { "inbounds", inbounds },
                 { "outbounds", new object[] { srv.Outbound("proxy"), new Dictionary<string, object> { { "tag", "direct" }, { "protocol", "freedom" } }, new Dictionary<string, object> { { "tag", "block" }, { "protocol", "blackhole" } } } },
-                // за sing-box TUN приходят уже IP (TUN видит адреса), домен xray узнаёт из sniffing — резолвить ему нечего.
-                // IPIfNonMatch здесь заставлял xray спрашивать DNS Windows, а тот через TUN шёл обратно в этот же xray: петля
-                { "routing", new Dictionary<string, object> { { "domainStrategy", st.TunMode ? "AsIs" : "IPIfNonMatch" }, { "rules", rules } } }
+                // Proxy mode: AsIs as in v2rayN, no DNS lookup before every new site. TUN: the sniffed domain replaced the IP,
+                // so geoip:ru (RU sites direct) needs IPIfNonMatch; the app has just resolved that name, so the answer
+                // comes from the DNS cache of Windows / sing-box.
+                { "routing", new Dictionary<string, object> { { "domainStrategy", st.TunMode && st.BypassRu ? "IPIfNonMatch" : "AsIs" }, { "rules", rules } } }
             };
             if (stats)
             {

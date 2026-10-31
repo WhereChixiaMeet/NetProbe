@@ -64,6 +64,7 @@ namespace NetProbe
         public bool WiresockAdapter = false; // -lac: виртуальный адаптер
         public bool DnsViaTunnel = false;
         public bool TunBlockIpv6 = true; // IPv4-only TUN; strict_route blocks the unsupported family on Windows.
+        public bool TunRejectQuic = true; // TUN: QUIC (UDP 443) to the server is refused at once, so browsers switch to TCP without waiting
         // 3.4.9: rule editor (config\routing.json, v2rayN style) instead of Include/Exclude for Configs; off by default.
         // New name on purpose: an old ConfigRulesEnabled=1 (3.4.3 editor, removed in 3.4.6) must not switch it on.
         public bool RuleSetsEnabled = false;

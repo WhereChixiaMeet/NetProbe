@@ -39,6 +39,37 @@ namespace NetProbe
                 .Select(g => new KeyValuePair<string, List<string>>(g.Key, g.SelectMany(p => ExclusionSet.IsIp(p.Value) ? new List<string> { p.Value } : DomainRoutes.Expand(p.Value)).Distinct(StringComparer.OrdinalIgnoreCase).ToList())).ToList();
         }
 
+        // QUIC through VLESS is UDP inside TCP, and with flow Vision xray drops UDP 443 silently: the browser waits for
+        // QUIC before it falls back to TCP. Refused at once (ICMP unreachable), it uses TCP right away.
+        // Every rule that sends traffic to the server gets a twin before it that rejects UDP 443.
+        static Dictionary<string, object> QuicGuard(Dictionary<string, object> r)
+        {
+            var g = r == null ? new Dictionary<string, object>() : new Dictionary<string, object>(r);
+            g.Remove("outbound");
+            g["network"] = "udp"; g["port"] = new[] { 443 }; g["action"] = "reject"; g["no_drop"] = true;
+            return g;
+        }
+        public static bool IsQuicGuard(Dictionary<string, object> r)
+        {
+            object a, n, d;
+            return r.TryGetValue("action", out a) && a as string == "reject" && r.TryGetValue("network", out n) && n as string == "udp" && r.TryGetValue("no_drop", out d) && d is bool && (bool)d;
+        }
+        static List<object> RejectQuic(List<object> rules, string final)
+        {
+            var res = new List<object>();
+            foreach (var o in rules)
+            {
+                var r = o as Dictionary<string, object>;
+                object ob;
+                if (r != null && r.TryGetValue("outbound", out ob) && ob as string == "proxy" && !r.ContainsKey("type") && !r.ContainsKey("invert")
+                    && !r.ContainsKey("network") && !r.ContainsKey("port") && !r.ContainsKey("port_range") && !r.ContainsKey("protocol"))
+                    res.Add(QuicGuard(r));
+                res.Add(o);
+            }
+            if (final == "proxy") res.Add(QuicGuard(null));
+            return res;
+        }
+
         static string Rx(string entry) { return "(?i)" + Regex.Escape(entry.Trim()); } // подстрока пути, как у WireSock
 
         // logFile: куда sing-box пишет свои предупреждения и ошибки (вывод процесса не перехватывается — он переживает обновление RouteX)
@@ -113,6 +144,7 @@ namespace NetProbe
             }
             if (primary && !string.IsNullOrWhiteSpace(st.TunServerDomain))
                 dnsRules.Insert(ipv4 ? 1 : 0, new Dictionary<string, object> { { "domain", new[] { st.TunServerDomain } }, { "server", "local" } });
+            if (st.TunRejectQuic) rules = RejectQuic(rules, final);
             var cfg = new Dictionary<string, object>
             {
                 { "log", logFile != null
@@ -121,7 +153,8 @@ namespace NetProbe
                 { "dns", new Dictionary<string, object>
                     {
                         { "servers", new object[] {
-                            new Dictionary<string, object> { { "tag", "remote" }, { "type", "tcp" }, { "server", "1.1.1.1" }, { "detour", "proxy" } },
+                            // DoH keeps one connection through the server; plain TCP DNS opened a new one (with a full VLESS handshake) per query
+                            new Dictionary<string, object> { { "tag", "remote" }, { "type", "https" }, { "server", "1.1.1.1" }, { "detour", "proxy" } },
                             new Dictionary<string, object> { { "tag", "local" }, { "type", "local" } } } },
                         { "final", primary ? (st.DnsViaTunnel ? "remote" : "local") : (all ? "remote" : "local") },
                         { "rules", primary ? dnsRules.ToArray() : dnsRules
