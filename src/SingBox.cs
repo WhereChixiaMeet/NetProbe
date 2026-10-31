@@ -57,15 +57,12 @@ namespace NetProbe
             // домены под приложением (Include DPI): это приложение + этот домен → напрямую (winws обработает), остальное как обычно
             var dnsRules = new List<object>();
             bool primary = st.PrimaryXrayTunnel;
-            bool custom = primary && st.ConfigRulesEnabled && !l.StrictOnly;
             bool ipv4 = primary && st.TunBlockIpv6;
             if (ipv4)
             {
                 rules.Insert(0, new Dictionary<string, object> { { "ip_version", 6 }, { "action", "reject" } });
                 dnsRules.Add(new Dictionary<string, object> { { "query_type", new[] { "AAAA" } }, { "action", "predefined" }, { "rcode", "NOERROR" } });
             }
-            int safetyRules = rules.Count;
-            int safetyDns = dnsRules.Count;
             foreach (var g in DomainGroups(l.Domains))
             {
                 var r = new Dictionary<string, object> { { "process_path_regex", new[] { Rx(g.Key) } }, { "outbound", "direct" } };
@@ -93,18 +90,7 @@ namespace NetProbe
                 rules.Add(new Dictionary<string, object> { { "process_path_regex", inc }, { "outbound", "proxy" } });
             }
             string final = all ? "proxy" : "direct";
-            if (custom)
-            {
-                rules.RemoveRange(safetyRules, rules.Count - safetyRules);
-                dnsRules.RemoveRange(safetyDns, dnsRules.Count - safetyDns);
-                // The health probe tests the server, even when the user's fallback is Direct.
-                rules.Add(new Dictionary<string, object> { { "process_name", new[] { "netprobe-vpn.exe" } }, { "outbound", "proxy" } });
-                foreach (var r in ConfigRouting.Read(st.ConfigRulesJson)) ConfigRouting.AddRule(rules, dnsRules, r, st);
-                if (!ConfigRouting.Outbounds.Contains(st.ConfigRulesDefault)) throw new FormatException("Invalid default route.");
-                final = st.ConfigRulesDefault;
-                if (final == "block") { rules.Add(new Dictionary<string, object> { { "action", "reject" } }); final = "direct"; }
-            }
-            if (primary && !custom)
+            if (primary)
             {
                 if (ih.Domains.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", ih.Domains.ToArray() }, { "server", st.DnsViaTunnel ? "remote" : "local" } });
                 if (include.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", st.DnsViaTunnel ? "remote" : "local" } });

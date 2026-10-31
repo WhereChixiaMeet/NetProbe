@@ -51,57 +51,33 @@ static class ConfigRoutingTests
             Check((string)Obj(local["dns"])["final"] == "local", "DNS through VPN off changes generated config");
             st.TunBlockIpv6 = false; var dual = Build(st, l, "legacy-dual-stack.json");
             Check(Arr(Obj(Arr(dual["inbounds"])[0])["address"]).Length == 2 && (string)Obj(dual["dns"])["strategy"] == "prefer_ipv4", "Optional dual-stack has consistent address / resolver settings");
-            st.TunBlockIpv6 = true; st.ConfigRulesEnabled = true; st.DnsViaTunnel = true;
-            var rules = ConfigRouting.Preset(l); st.ConfigRulesJson = ConfigRouting.Json().Serialize(rules);
-            var custom = Build(st, l, "ordered-ru.json");
-            Check(!Tun(st).BypassRu && !Tun(st).BlockAds, "Ordered editor disables second-stage Xray overrides");
-            Check(Decide(custom, "yandex.ru") == "direct", "RU domain takes priority over included Brave");
-            Check(Decide(custom, "example.com") == "proxy", "Non-RU Brave traffic goes to VPN");
-            Check(Decide(custom, "example.com", "chrome.exe") == "direct", "Excluded Chrome stays Direct");
-            Check(Decide(custom, "example.com", "other.exe") == "direct", "Unmatched traffic uses explicit Direct fallback");
-            Check(Decide(custom, "example.com", "brave.exe", "192.168.1.2") == "direct", "Service local-network exception stays ahead of editable rules");
-            Check(Decide(custom, "example.com", "netprobe-vpn.exe") == "proxy", "VPN health probe cannot accidentally test Direct fallback");
-            var strictLists = TunLists.FromLists(new[] { "strict.exe", "netprobe-vpn.exe" }, new string[0]); strictLists.StrictOnly = true;
-            var strictConfig = Build(st, strictLists, "strict-recovery.json");
-            Check(Decide(strictConfig, "example.com", "brave.exe") == "direct" && Decide(strictConfig, "example.com", "strict.exe") == "proxy", "Strict-only recovery does not enable ordinary editor VPN rules");
-            var bootstrap = Tun(st); typeof(Settings).GetField("TunServerDomain", Hidden).SetValue(bootstrap, "vpn.example.invalid");
-            var bootstrapConfig = Obj(ConfigRouting.Json().DeserializeObject(SingBoxConfig.Build(bootstrap, l)));
-            var bootstrapRules = Arr(Obj(bootstrapConfig["dns"])["rules"]).Select(Obj).ToList();
-            Check(bootstrapRules[1].ContainsKey("domain") && Arr(bootstrapRules[1]["domain"]).Contains("vpn.example.invalid") && (string)bootstrapRules[1]["server"] == "local", "VPN server DNS bootstraps locally before remote DNS rules");
-            var ruFirst = rules[0]; var appFirst = rules.First(r => r.Name == "Include → VPN"); rules.Remove(appFirst); rules.Insert(0, appFirst);
-            st.ConfigRulesJson = ConfigRouting.Json().Serialize(rules); var reordered = Build(st, l, "ordered-app-first.json");
-            Check(Decide(reordered, "yandex.ru") == "proxy", "Moving process rule ahead of RU actually changes the selected route");
-            appFirst.Enabled = false; st.ConfigRulesJson = ConfigRouting.Json().Serialize(rules);
-            Check(Decide(Build(st, l, "ordered-disabled.json"), "yandex.ru") == "direct", "Disabled rule is ignored");
-            rules = new List<ConfigRouteRule> { new ConfigRouteRule { Name = "Block domain", Values = "domain:example.com", Outbound = "block" } };
-            st.ConfigRulesJson = ConfigRouting.Json().Serialize(rules); st.ConfigRulesDefault = "block";
-            var blocked = Build(st, l, "ordered-block.json");
-            Check(Decide(blocked, "www.example.com") == "block" && Decide(blocked, "other.com") == "block", "Domain blocking and Block fallback compile to reject actions");
-            st.ConfigRulesDefault = "direct"; st.ConfigRulesJson = "[]";
-            Check(Decide(Build(st, TunLists.FromLists(new string[0], new string[0]), "empty-editor.json"), "example.com") == "direct", "Empty enabled editor does not silently switch all traffic to VPN");
-            var portRule = new ConfigRouteRule { Kind = "domain", Values = "example.com", Outbound = "proxy", Ports = "443", Network = "tcp" };
-            st.ConfigRulesJson = ConfigRouting.Json().Serialize(new[] { portRule });
-            Check(Decide(Build(st, l, "ordered-port.json"), "example.com") == "unknown", "Route inspector does not invent port / network information");
-            string w;
-            Check(Snapshot(custom).Decide("brave.exe", @"C:\Apps\brave.exe", IPAddress.Parse("203.0.113.1"), null, out w) == "proxy", "Live connection without a known domain is not Unknown");
-            Check(Snapshot(custom).Decide("brave.exe", @"C:\Apps\brave.exe", null, null, out w) == "proxy", "App-only check is not Unknown");
-            Check(Snapshot(custom).Decide("", "", IPAddress.Parse("203.0.113.1"), "example.com", out w) == "direct", "Domain-only check means an app outside the lists");
-            var tunXray = ConfigRouting.Json().Serialize(ConfigRouting.Json().DeserializeObject(XrayConfig.Build(Tun(st), new ServerEntry { Protocol = "vless", Address = "example.invalid", Port = 443, UserId = "00000000-0000-0000-0000-000000000000", Security = "none", Network = "tcp", Method = "none" })));
-            Check(tunXray.Contains("\"auth\":\"password\"") && tunXray.Contains(TunnelAuth.Pass) && !tunXray.Contains("\"protocol\":\"http\""), "Router tunnel SOCKS port needs a password and has no HTTP inbound");
-            Check(ConfigRouting.Json().Serialize(Obj(Arr(custom["outbounds"])[0])).Contains(TunnelAuth.Pass), "sing-box authenticates to the tunnel SOCKS port");
-            Invalid(() => ConfigRouting.Matcher(new ConfigRouteRule { Kind = "ip", Values = "192.0.2.0/99" }, st), "Invalid CIDR is rejected");
-            Invalid(() => ConfigRouting.Matcher(new ConfigRouteRule { Values = "example.com", Ports = "65536" }, st), "Invalid port is rejected");
-            Invalid(() => ConfigRouting.Matcher(new ConfigRouteRule { Values = "geosite:missing-category-xyz" }, st), "Missing geodata category fails clearly");
-            Invalid(() => ConfigRouting.Matcher(new ConfigRouteRule { Values = "geosite:../../file" }, st), "Geodata category cannot select arbitrary files");
-            Check(GeoData.Read(st, true, "category-ru").Count > 0 && GeoData.Read(st, false, "ru").Count > 0, "Installed real Xray geodata is read without downloads");
+            st.TunBlockIpv6 = true; st.DnsViaTunnel = true;
+            var standard = Build(st, l, "standard-lists.json");
+            Check(Decide(standard, "example.com") == "proxy", "Standard Include sends Brave through VPN");
+            Check(Decide(standard, "example.com", "chrome.exe") == "direct", "Standard Exclude sends Chrome directly");
+            Check(Decide(standard, "other.com", "other.exe") == "direct", "Unlisted apps keep standard Direct fallback");
+            Check(Decide(standard, "yandex.ru") == "direct", "Domain exclusions remain effective");
+            Check(Decide(Build(st, TunLists.FromLists(new string[0], new string[0]), "standard-empty.json"), "example.com") == "proxy", "Empty Include retains original all-traffic VPN behavior");
+            Check(typeof(Settings).GetField("ConfigRulesEnabled") == null && typeof(Settings).GetField("ConfigRulesJson") == null, "Removed editor settings cannot activate a second policy");
+            st.Save(); File.AppendAllText(Path.Combine(Settings.Dir, "settings.ini"), "\nConfigRulesEnabled=1\nConfigRulesDefault=block\nConfigRulesJson=invalid old table\n");
+            var migrated = Settings.Load(); migrated.XrayDir = st.XrayDir;
+            Check(Decide(Build(migrated, l, "standard-migrated.json"), "example.com") == "proxy", "Old enabled editor settings are ignored on upgrade");
+            Check(GeoData.Read(st, true, "category-ru").Count > 0 && GeoData.Read(st, false, "ru").Count > 0, "Standard RU geodata remains available to route inspection");
+            string routeReason;
+            Check(Snapshot(standard).Decide("brave.exe", @"C:\Apps\brave.exe", IPAddress.Parse("203.0.113.1"), null, out routeReason) == "proxy", "3.4.5 fix preserved: live app connection without a known domain is not Unknown");
+            Check(Snapshot(standard).Decide("brave.exe", @"C:\Apps\brave.exe", null, null, out routeReason) == "proxy", "3.4.5 fix preserved: app-only route check is not Unknown");
+            Check(Snapshot(standard).Decide("", "", IPAddress.Parse("203.0.113.1"), "example.com", out routeReason) == "direct", "3.4.5 fix preserved: domain-only check uses an app outside lists");
             var plain = new ServerEntry { Protocol = "vless", Address = "example.invalid", Port = 443, UserId = "00000000-0000-0000-0000-000000000000", Security = "none", Network = "tcp", Method = "none" };
+            string authenticatedTunnel = XrayConfig.Build(Tun(st), plain);
+            Check(authenticatedTunnel.Contains("\"auth\":\"password\"") && authenticatedTunnel.Contains(TunnelAuth.Pass) && !authenticatedTunnel.Contains("\"protocol\":\"http\""), "3.4.5 fix preserved: Configs SOCKS is authenticated and has no HTTP inbound");
+            Check(ConfigRouting.Json().Serialize(Obj(Arr(standard["outbounds"])[0])).Contains(TunnelAuth.Pass), "3.4.5 fix preserved: sing-box uses the matching SOCKS credentials");
             Check(TunnelProto.Missing(plain) == null, "VLESS without TLS remains permitted as requested");
             plain.Security = "tls"; plain.Insecure = true;
             Check(ConfigRouting.Json().Serialize(plain.Outbound("proxy")).Contains("\"allowInsecure\":true"), "allowInsecure remains unchanged as requested");
-            plain.Insecure = false; st.BypassRu = false; st.ConfigRulesJson = "[]";
+            plain.Insecure = false; st.BypassRu = false;
             File.WriteAllText("sample-xray.json", XrayConfig.Build(Tun(st), plain));
             // Actual runtime inspector, including the legacy Xray RU routing stage.
-            st.ConfigRulesEnabled = false; st.BypassRu = true;
+            st.BypassRu = true;
             Directory.CreateDirectory(Settings.Sub("runtime"));
             File.WriteAllText(Path.Combine(Settings.Sub("runtime"), "singbox-tunnel.json"), SingBoxConfig.Build(Tun(st), TunLists.FromLists(new[] { "brave.exe" }, new string[0])));
             File.WriteAllText(Path.Combine(Settings.Sub("runtime"), "xray-tunnel.json"), XrayConfig.Build(Tun(st), plain));
@@ -124,42 +100,6 @@ static class ConfigRoutingTests
                 Check(Convert.ToInt32(Obj(Arr(saved["outbounds"])[0])["server_port"]) == fake.SocksPort, "Restarted TUN uses the new SOCKS port");
             }
             finally { sb.Stop(); }
-            // Render just the editor; MainForm startup and networking are never invoked.
-            st.ConfigRulesEnabled = true; st.ConfigRulesJson = ConfigRouting.Json().Serialize(ConfigRouting.Preset(l));
-            foreach (var theme in new[] { ThemeKind.Dark, ThemeKind.Light })
-            {
-                Theme.Apply(theme); Theme.MakeFonts();
-                using (var form = new RoutingRulesDialog(st, () => true, () => l))
-                using (var bmp = new Bitmap(form.Width, form.Height))
-                {
-                    // Mark logical visibility only after creating the hidden HWND; never Show the form.
-                    var handle = form.Handle;
-                    typeof(Control).GetMethod("SetState", Hidden).Invoke(form, new object[] { 2, true });
-                    typeof(Control).GetMethod("CreateControl", Hidden, null, new[] { typeof(bool) }, null).Invoke(form, new object[] { true });
-                    form.PerformLayout(); form.DrawToBitmap(bmp, new Rectangle(Point.Empty, bmp.Size)); bmp.Save("routing-editor-" + theme + ".png");
-                    var colors = new HashSet<int>(); for (int x = 10; x < bmp.Width; x += 5) for (int y = 40; y < bmp.Height; y += 5) colors.Add(bmp.GetPixel(x, y).ToArgb());
-                    Check(colors.Count > 10, "Editor renders controls in " + theme + " theme");
-                }
-            }
-            bool editAllowed = true;
-            using (var form = new RoutingRulesDialog(st, () => editAllowed, () => l))
-            {
-                var rows = (List<ConfigRouteRule>)typeof(RoutingRulesDialog).GetField("rules", Hidden).GetValue(form);
-                typeof(RoutingRulesDialog).GetMethod("Fill", Hidden).Invoke(form, new object[] { 1 });
-                var initialFirst = rows[0]; var initialSecond = rows[1];
-                typeof(RoutingRulesDialog).GetMethod("MoveRule", Hidden).Invoke(form, new object[] { -1 });
-                Check(rows[0] == initialSecond && rows[1] == initialFirst, "Editor Up button changes the draft order");
-                editAllowed = false;
-                typeof(RoutingRulesDialog).GetMethod("MoveRule", Hidden).Invoke(form, new object[] { 1 });
-                Check(rows[0] == initialSecond, "Editor refuses reorder when VPN state becomes locked");
-                string before = st.ConfigRulesJson;
-                typeof(RoutingRulesDialog).GetMethod("Save", Hidden).Invoke(form, null);
-                Check(st.ConfigRulesJson == before, "Editor refuses save while locked");
-                editAllowed = true; rows[0].Name = "Saved \\ path\nsecond line";
-                typeof(RoutingRulesDialog).GetMethod("Save", Hidden).Invoke(form, null);
-                var reloaded = Settings.Load();
-                Check(reloaded.ConfigRulesEnabled && ConfigRouting.Read(reloaded.ConfigRulesJson)[0].Name == rows[0].Name, "Rule order and escaped text persist through settings save/load");
-            }
             Console.WriteLine("TOTAL: " + checks + " checks. Real VPN engines were not started; one offline fake process was used for lifecycle checks.");
             return 0;
         }

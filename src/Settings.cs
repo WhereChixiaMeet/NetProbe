@@ -64,9 +64,6 @@ namespace NetProbe
         public bool WiresockAdapter = false; // -lac: виртуальный адаптер
         public bool DnsViaTunnel = false;
         public bool TunBlockIpv6 = true; // IPv4-only TUN; strict_route blocks the unsupported family on Windows.
-        public bool ConfigRulesEnabled = false;
-        public string ConfigRulesJson = "[]";
-        public string ConfigRulesDefault = "direct";
         internal bool PrimaryXrayTunnel;
         internal string TunServerDomain;
 

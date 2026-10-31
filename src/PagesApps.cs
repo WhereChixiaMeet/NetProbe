@@ -19,6 +19,13 @@ namespace NetProbe
         // Keep rules unchanged throughout connection, failover and shutdown, including queued connects.
         bool TunSettingsLocked { get { return router.Active || router.ConnectPending || xm.Active || xm.ConnectPending || pendingXConnect != null; } }
 
+        bool CanEditTunSettings()
+        {
+            if (!TunSettingsLocked) return true;
+            Notice.Show(this, "TUN settings", "Turn off the VPN before changing TUN settings.");
+            return false;
+        }
+
         bool CanEditList(string key)
         {
             bool tunList = key == AppLists.HybridApps || key == AppLists.VpnOnlyApps ||

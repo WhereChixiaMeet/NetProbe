@@ -1,7 +1,7 @@
 # RouteX
 *(formerly NetProbe)*
 
-Version 3.4.5: Route window without false "Unknown", password on the Configs tunnel SOCKS port, VPN Only kill switch covers Include apps. See [release notes](docs/releases/v3.4.5.md).
+Version 3.4.6: the separate Rule editor is removed. Use the standard **Routing → Include/Exclude** lists and **Settings → Engine → RU sites direct**. All 3.4.5 fixes are preserved; see [release notes](RELEASE-3.4.6.md) and [3.4.5 notes](docs/releases/v3.4.5.md).
 
 ### MANUAL RESTART REQUIRED AFTER UPDATE ###
 

@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -10,122 +9,40 @@ using System.Web.Script.Serialization;
 
 namespace NetProbe
 {
+    // Only used to inspect the active Xray routing stage; not a user-configurable rules engine.
     public sealed class ConfigRouteRule
     {
-        public bool Enabled = true;
-        public string Name = "New rule", Kind = "domain", Values = "", Outbound = "direct", Network = "", Ports = "";
+        public string Kind, Values, Outbound;
     }
-
-    // One ordered routing stage in sing-box. Xray only transports its proxy outbound.
     public static class ConfigRouting
     {
-        public static readonly string[] Kinds = { "domain", "ip", "process", "all" };
-        public static readonly string[] Outbounds = { "direct", "proxy", "block" };
         public static JavaScriptSerializer Json() { return new JavaScriptSerializer { MaxJsonLength = 64 * 1024 * 1024 }; }
-        public static List<ConfigRouteRule> Read(string json)
-        {
-            var r = Json().Deserialize<List<ConfigRouteRule>>(json ?? "[]");
-            if (r == null || r.Count > 256 || r.Any(x => x == null)) throw new FormatException("Invalid rule list (maximum 256 rules).");
-            return r;
-        }
-        public static string[] Tokens(string s) { return (s ?? "").Split(new[] { ',', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).ToArray(); }
         public static Dictionary<string, object> Field(string key, object value) { return new Dictionary<string, object> { { key, value } }; }
         public static Dictionary<string, object> Logical(string mode, IEnumerable<object> rules) { return new Dictionary<string, object> { { "type", "logical" }, { "mode", mode }, { "rules", rules.ToArray() } }; }
         public static Dictionary<string, object> Matcher(ConfigRouteRule r, Settings st)
         {
-            if (!Kinds.Contains(r.Kind) || !Outbounds.Contains(r.Outbound)) throw new FormatException("Unknown rule type or outbound.");
-            if ((r.Values ?? "").Length > 256 * 1024 || (r.Ports ?? "").Length > 4096 || (r.Name ?? "").Length > 256) throw new FormatException("Rule is too large.");
-            var parts = new List<object>();
-            var vals = Tokens(r.Values);
-            if (r.Kind != "all" && vals.Length == 0) throw new FormatException("Rule values cannot be empty.");
-            if (r.Kind != "all")
+            if (r.Kind != "domain" && r.Kind != "ip") throw new FormatException("Unsupported runtime rule.");
+            var matches = new List<object>();
+            foreach (var val in (r.Values ?? "").Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()))
             {
-                var matches = new List<object>();
-                foreach (var val in vals)
+                if (r.Kind == "ip")
                 {
-                    if (r.Kind == "process")
-                    {
-                        if (val.IndexOfAny(new[] { '\\', '/' }) >= 0)
-                        {
-                            if (!Path.IsPathRooted(val)) throw new FormatException("Use a full process path or an executable name: " + val);
-                            matches.Add(Field("process_path", new[] { Path.GetFullPath(val) }));
-                        }
-                        else matches.Add(Field("process_name", new[] { val }));
-                    }
-                    else if (r.Kind == "ip")
-                    {
-                        if (val.StartsWith("geoip:", StringComparison.OrdinalIgnoreCase)) matches.AddRange(GeoData.Read(st, false, val.Substring(6)));
-                        else
-                        {
-                            string[] p = val.Split('/'); IPAddress ip; int bits;
-                            if (p.Length > 2 || !IPAddress.TryParse(p[0], out ip) || (p.Length == 2 && (!int.TryParse(p[1], out bits) || bits < 0 || bits > ip.GetAddressBytes().Length * 8))) throw new FormatException("Invalid IP/CIDR: " + val);
-                            matches.Add(Field("ip_cidr", new[] { p.Length == 1 ? val + (ip.GetAddressBytes().Length == 4 ? "/32" : "/128") : val }));
-                        }
-                    }
-                    else if (val.StartsWith("geosite:", StringComparison.OrdinalIgnoreCase)) matches.AddRange(GeoData.Read(st, true, val.Substring(8)));
-                    else
-                    {
-                        int colon = val.IndexOf(':'); string kind = colon < 0 ? "domain" : val.Substring(0, colon).ToLowerInvariant(), v = colon < 0 ? val : val.Substring(colon + 1);
-                        string key = kind == "domain" ? "domain_suffix" : kind == "full" ? "domain" : kind == "keyword" ? "domain_keyword" : kind == "regexp" ? "domain_regex" : null;
-                        if (key == null || v.Length == 0) throw new FormatException("Use domain:, full:, keyword:, regexp: or geosite: for domains.");
-                        if (key == "domain_regex") new Regex(v, RegexOptions.None, TimeSpan.FromMilliseconds(50));
-                        else if (key != "domain_keyword") v = new System.Globalization.IdnMapping().GetAscii(v.TrimEnd('.')).ToLowerInvariant();
-                        matches.Add(Field(key, new[] { v }));
-                    }
+                    if (val.StartsWith("geoip:", StringComparison.OrdinalIgnoreCase)) matches.AddRange(GeoData.Read(st, false, val.Substring(6)));
+                    else { var cidr = Cidr.Parse(val); if (cidr == null) throw new FormatException("Invalid runtime IP rule."); matches.Add(Field("ip_cidr", new[] { val })); }
                 }
-                parts.Add(Logical("or", matches));
+                else if (val.StartsWith("geosite:", StringComparison.OrdinalIgnoreCase)) matches.AddRange(GeoData.Read(st, true, val.Substring(8)));
+                else
+                {
+                    int i = val.IndexOf(':'); string kind = i < 0 ? "keyword" : val.Substring(0, i), value = i < 0 ? val : val.Substring(i + 1);
+                    string field = kind == "domain" ? "domain_suffix" : kind == "full" ? "domain" : kind == "keyword" ? "domain_keyword" : kind == "regexp" ? "domain_regex" : null;
+                    if (field == null || value.Length == 0) throw new FormatException("Unsupported runtime domain rule.");
+                    matches.Add(Field(field, new[] { value }));
+                }
             }
-            if (!string.IsNullOrEmpty(r.Network))
-            {
-                if (r.Network != "tcp" && r.Network != "udp") throw new FormatException("Network must be tcp, udp or empty.");
-                parts.Add(Field("network", r.Network));
-            }
-            var ports = new List<object>();
-            foreach (var token in Tokens(r.Ports))
-            {
-                var p = token.Split('-'); int lo, hi;
-                if (p.Length > 2 || !int.TryParse(p[0], out lo) || lo < 1 || lo > 65535) throw new FormatException("Invalid port: " + token);
-                hi = lo;
-                if (p.Length == 2 && (!int.TryParse(p[1], out hi) || hi < lo || hi > 65535)) throw new FormatException("Invalid port range: " + token);
-                ports.Add(p.Length == 1 ? Field("port", new[] { lo }) : Field("port_range", new[] { lo + ":" + hi }));
-            }
-            if (ports.Count > 0) parts.Add(Logical("or", ports));
-            return parts.Count == 0 ? new Dictionary<string, object>() : Logical("and", parts);
-        }
-        public static void AddRule(List<object> routes, List<object> dns, ConfigRouteRule r, Settings st)
-        {
-            if (!r.Enabled) return;
-            var match = Matcher(r, st);
-            var route = new Dictionary<string, object>(match);
-            if (r.Outbound == "block") route["action"] = "reject";
-            else route["outbound"] = r.Outbound;
-            routes.Add(route);
-            // DNS cannot identify an app whose queries are issued by the Windows DNS service.
-            // Destination IP/port and transport rules have no equivalent for a name-only DNS query.
-            if (r.Kind == "ip" || r.Network != "" || Tokens(r.Ports).Length > 0) return;
-            var dr = new Dictionary<string, object>(match);
-            if (r.Outbound == "block") { dr["action"] = "predefined"; dr["rcode"] = "NXDOMAIN"; }
-            else dr["server"] = r.Outbound == "direct" || !st.DnsViaTunnel ? "local" : "remote";
-            dns.Add(dr);
-        }
-        public static List<ConfigRouteRule> Preset(TunLists lists)
-        {
-            var res = new List<ConfigRouteRule> {
-                new ConfigRouteRule { Name = "RU domains → Direct", Kind = "domain", Values = "geosite:category-ru,domain:ru,domain:su,domain:xn--p1ai" },
-                new ConfigRouteRule { Name = "RU IP → Direct", Kind = "ip", Values = "geoip:ru" }
-            };
-            var ex = ExclusionSet.From(lists.Exclude);
-            if (ex.Processes.Count > 0) res.Add(new ConfigRouteRule { Name = "Exclude → Direct", Kind = "process", Values = string.Join(",", ex.Processes) });
-            if (ex.Domains.Count > 0) res.Add(new ConfigRouteRule { Name = "Excluded domains → Direct", Values = string.Join(",", ex.Domains) });
-            if (ex.Ips.Count > 0) res.Add(new ConfigRouteRule { Name = "Excluded IP → Direct", Kind = "ip", Values = string.Join(",", ex.Ips) });
-            if (lists.Include.Count > 0) res.Add(new ConfigRouteRule { Name = "Include → VPN", Kind = "process", Values = string.Join(",", lists.Include), Outbound = "proxy" });
-            var inc = ExclusionSet.From(lists.IncludeHosts);
-            if (inc.Domains.Count > 0) res.Add(new ConfigRouteRule { Name = "Included domains → VPN", Values = string.Join(",", inc.Domains), Outbound = "proxy" });
-            if (inc.Ips.Count > 0) res.Add(new ConfigRouteRule { Name = "Included IP → VPN", Kind = "ip", Values = string.Join(",", inc.Ips), Outbound = "proxy" });
-            return res;
+            if (matches.Count == 0) throw new FormatException("Empty runtime rule.");
+            return Logical("or", matches);
         }
     }
-
     // Read the installed Xray geodata, without downloading extra routing databases.
     // Wire format: v2ray routercommon/common.proto (GeoSiteList / GeoIPList).
     public static class GeoData

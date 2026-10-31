@@ -205,7 +205,6 @@ namespace NetProbe
         static Settings TunSettings(Settings st)
         {
             var cs = st.Clone(); cs.SocksPort = Port(st); cs.HttpPort = Port(st) + 1; cs.TunMode = true; cs.AllowLan = false; cs.PrimaryXrayTunnel = true;
-            if (cs.ConfigRulesEnabled) { cs.BypassRu = false; cs.BlockAds = false; }
             return cs;
         }
 

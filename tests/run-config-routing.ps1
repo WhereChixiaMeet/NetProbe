@@ -24,8 +24,8 @@ try {
     try {
         & .\ConfigRoutingTests.exe $XrayDirectory $SingBoxDirectory
         if ($LASTEXITCODE -ne 0) { throw 'Config routing tests failed' }
-        foreach ($configFile in Get-ChildItem -Filter '*.json') {
-            if ($configFile.Name -eq 'sample-xray.json') { continue }
+        foreach ($configName in @('legacy-v4.json', 'legacy-local-dns.json', 'legacy-dual-stack.json', 'standard-lists.json', 'standard-empty.json', 'standard-migrated.json')) {
+            $configFile = Get-Item -LiteralPath $configName
             & (Join-Path $SingBoxDirectory 'sing-box.exe') check -c $configFile.FullName
             if ($LASTEXITCODE -ne 0) { throw ('sing-box rejected ' + $configFile.Name) }
         }
