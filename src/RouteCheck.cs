@@ -14,7 +14,7 @@ using static NetProbe.Tr;
 
 namespace NetProbe
 {
-    public enum RouteKind { Vpn, Server, Dpi, Direct, Blocked }
+    public enum RouteKind { Vpn, Server, Dpi, Direct, Blocked, Unknown }
 
     // «Куда пойдёт домен / соединение» — по тому, что реально запущено сейчас:
     // конфиг WireSock (config\runtime\tunnel.conf: AllowedApps / DisallowedApps / DisallowedIPs), списки winws из стратегии,
@@ -23,6 +23,7 @@ namespace NetProbe
     {
         public bool Wg, WgStrict, Dpi, Xray, Tun, Proxy, Kill;
         public bool WgX; public TunLists WgL; // туннель маршрутизатора — VLESS / VMess / Trojan (xray + sing-box TUN): правила sing-box, а не WireSock
+        public RoutingSnapshot ConfigSnapshot;
         public string Tunnel = "", Strategy = "", Server = "";
         public List<string> Allow = new List<string>(), Deny = new List<string>(), Strict = new List<string>();
         public List<Cidr> AllowedIps = new List<Cidr>(), DisallowedIps = new List<Cidr>();
@@ -45,7 +46,7 @@ namespace NetProbe
             {
                 f.Tunnel = router.Wg.TunnelName; f.WgStrict = router.StrictOnly;
                 f.WgX = router.Wg.IsXray;
-                if (f.WgX) { try { f.WgL = router.CurrentXrayLists(); } catch { } }
+                if (f.WgX) { try { f.WgL = router.CurrentXrayLists(); f.ConfigSnapshot = RoutingSnapshot.Load(st); } catch { } }
                 else try
                 {
                     foreach (var raw in File.ReadAllLines(WiresockRunner.RuntimeFile))
@@ -162,6 +163,14 @@ namespace NetProbe
             name = name ?? ""; path = path ?? "";
             Func<IEnumerable<string>, bool> m = l => l.Any(r => ProcInfo.Matches(r, name, path));
             if (Kill && m(Strict)) { why = Tx("kill switch: «Строго VPN», а VPN недоступен"); return RouteKind.Blocked; }
+            if (Wg && WgX && ConfigSnapshot != null)
+            {
+                string route = ConfigSnapshot.Decide(name, path, ip, host, out why);
+                if (route == "proxy") return RouteKind.Vpn;
+                if (route == "block") return RouteKind.Blocked;
+                if (route == "unknown") return RouteKind.Unknown;
+                return Dpi_(host, ip, why, out why);
+            }
             if (ip != null && IsPrivate(ip)) { why = Tx("локальная сеть"); return RouteKind.Direct; }
             if (Tun && TunL != null)
             {
@@ -211,7 +220,7 @@ namespace NetProbe
 
         public static string Name(RouteKind k)
         {
-            switch (k) { case RouteKind.Vpn: return "VPN"; case RouteKind.Server: return Tx("Сервер"); case RouteKind.Dpi: return "DPI"; case RouteKind.Blocked: return Tx("Блок"); default: return Tx("Напрямую"); }
+            switch (k) { case RouteKind.Vpn: return "VPN"; case RouteKind.Server: return Tx("Сервер"); case RouteKind.Dpi: return "DPI"; case RouteKind.Blocked: return Tx("Блок"); case RouteKind.Unknown: return "Unknown"; default: return Tx("Напрямую"); }
         }
 
         public static Color ColorOf(RouteKind k)

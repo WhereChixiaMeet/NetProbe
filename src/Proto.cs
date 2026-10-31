@@ -148,6 +148,10 @@ namespace NetProbe
             if (!File.Exists(SingBoxProcess.Exe(st))) return Tx("Не найден sing-box.exe — установите ядро TUN на вкладке Subscriptions («sing-box»)");
             // свои порты, чтобы не мешать xray подписок; DirectDomains / статистика здесь не нужны
             var cs = TunSettings(st);
+            cs.TunServerDomain = e.Address;
+            string sbjson;
+            try { sbjson = SingBoxConfig.Build(cs, lists, SingLog(st)); }
+            catch (Exception ex) { return "Invalid TUN routing configuration: " + ex.Message; }
             string busy = FreePorts(st, new[] { cs.SocksPort, cs.HttpPort });
             if (busy != null) return busy;
             RotateLogs(st);
@@ -156,7 +160,7 @@ namespace NetProbe
             if (err != null) return err;
             System.Threading.Thread.Sleep(400);
             if (!x.Running) return Tx("xray туннеля сразу завершился — проверь поля конфига (лог xray)");
-            err = sb.Start(cs, SingBoxConfig.Build(cs, lists, SingLog(st)), "singbox-tunnel.json");
+            err = sb.Start(cs, sbjson, "singbox-tunnel.json");
             if (err != null) { x.Stop(); return err; }
             TunnelName = name; StartedAt = DateTime.Now; stopping = false; runningXrayJson = xjson;
             WriteRuntime(name, e, lists);
@@ -198,7 +202,12 @@ namespace NetProbe
             return sb.ToString();
         }
 
-        static Settings TunSettings(Settings st) { var cs = st.Clone(); cs.SocksPort = Port(st); cs.HttpPort = Port(st) + 1; cs.TunMode = true; cs.AllowLan = false; return cs; }
+        static Settings TunSettings(Settings st)
+        {
+            var cs = st.Clone(); cs.SocksPort = Port(st); cs.HttpPort = Port(st) + 1; cs.TunMode = true; cs.AllowLan = false; cs.PrimaryXrayTunnel = true;
+            if (cs.ConfigRulesEnabled) { cs.BypassRu = false; cs.BlockAds = false; }
+            return cs;
+        }
 
         // Смена списков или режима «строго VPN» у того же туннеля: если конфиг xray не изменился, перезапускается только
         // sing-box (TUN и правила), а xray и его соединение с сервером продолжают работать — новое рукопожатие не нужно.
@@ -210,6 +219,7 @@ namespace NetProbe
             var e = TunnelProto.Load(name);
             if (e == null || TunnelProto.Missing(e) != null) return false;
             var cs = TunSettings(st);
+            cs.TunServerDomain = e.Address;
             if (TunXrayJson(st, cs, e) != runningXrayJson) return false;
             if (!File.Exists(SingBoxProcess.Exe(st))) return false;
             err = sb.Start(cs, SingBoxConfig.Build(cs, lists, SingLog(st)), "singbox-tunnel.json"); // Start сам останавливает прежний sing-box

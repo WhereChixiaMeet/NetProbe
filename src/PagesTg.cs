@@ -16,7 +16,7 @@ namespace NetProbe
     {
         Panel tgBody; ScrollHost tgHost;
         Label tgpState, tgpAddr, tgpLink, tgpErr, tgpDcRes, tgpCfRes;
-        TgStatsView tgpStats; Action tgpLayState; Label tgpUpd; string tgUpstreamLatest;
+        TgStatsView tgpStats; Action tgpLayState;
         Toggle tgpOn;
         System.Windows.Forms.Timer tgpTimer, tgpApply;
         bool tgpLogHooked, tgpLoading;
@@ -78,8 +78,6 @@ namespace NetProbe
             tgpLink.Text = cur != null ? TgProxy.Link(cur) : "";
             bool showErr = err != null;
             if (tgpErr != null && (tgpErr.Text != (err ?? "") || tgpErr.Visible != showErr)) { tgpErr.Text = err ?? ""; tgpErr.Visible = showErr; if (tgpLayState != null) tgpLayState(); }
-            bool upd = tgUpstreamLatest != null;
-            if (tgpUpd != null && tgpUpd.Visible != upd) { tgpUpd.Text = upd ? "↑ " + Tx("Вышла tg-ws-proxy ") + tgUpstreamLatest + Tx(" (у тебя основа ") + TgConst.UpstreamVersion + Tx(") — придёт с обновлением RouteX") : ""; tgpUpd.Visible = upd; if (tgpLayState != null) tgpLayState(); }
             if (tgpOn != null && tgpOn.On != st.TgOn) { tgpLoading = true; tgpOn.On = st.TgOn; tgpLoading = false; }
             if (tgpStats != null) tgpStats.Set(run);
             tgpState.Invalidate(); if (tgpState.Parent != null) tgpState.Parent.Invalidate(new Rectangle(0, tgpState.Top, Theme.S(40), tgpState.Height));
@@ -198,13 +196,9 @@ namespace NetProbe
             bRestart.Click += (s, e) => { if (!st.TgOn) { st.TgOn = true; st.Save(); } TgApply(); };
             tgpStats = new TgStatsView();
             tgpErr = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Red, BackColor = Theme.Card, UseMnemonic = false, Visible = false };
-            // вышла новая tg-ws-proxy: строка-ссылка на её релиз (сам прокси — часть NetProbe и обновляется вместе с ним)
-            tgpUpd = new Label { AutoSize = false, Font = Theme.Small, ForeColor = Theme.Orange, BackColor = Theme.Card, UseMnemonic = false, Visible = false, Cursor = Cursors.Hand, AutoEllipsis = true };
-            tgpUpd.Click += (s, e) => { try { Process.Start("https://github.com/" + TgConst.UpstreamRepo + "/releases/latest"); } catch { } };
-            tip.SetToolTip(tgpUpd, Tx("Встроенный прокси — перенос кода tg-ws-proxy внутрь RouteX: новая версия попадёт к тебе с обновлением RouteX. Клик — страница релиза"));
             var how = new Label { Text = Tx("Вручную: Telegram → Настройки → Продвинутые → Тип соединения → Прокси → MTProto: адрес, порт и секрет «dd…» из ссылки."), AutoSize = false, Font = Theme.Small, ForeColor = Theme.Muted, BackColor = Theme.Card, UseMnemonic = false };
             tip.SetToolTip(tgpLink, how.Text); tip.SetToolTip(tgpAddr, how.Text);
-            cs.Controls.AddRange(new Control[] { tgpOn, dot, tgpState, tgpAddr, tgpLink, bOpen, bCopy, bRestart, tgpStats, tgpErr, tgpUpd });
+            cs.Controls.AddRange(new Control[] { tgpOn, dot, tgpState, tgpAddr, tgpLink, bOpen, bCopy, bRestart, tgpStats, tgpErr });
             bool layingState = false;
             tgpLayState = () =>
             {
@@ -225,7 +219,6 @@ namespace NetProbe
                     foreach (var b in new[] { bOpen, bCopy, bRestart }) { if (x > ip && x + b.Width > ip + leftW) { x = ip; y += bh + Theme.S(8); } b.Location = new Point(x, y); x = b.Right + Theme.S(8); }
                     y = bOpen.Bottom; foreach (var b in new[] { bCopy, bRestart }) y = Math.Max(y, b.Bottom);
                     if (tgpErr.Visible) { tgpErr.SetBounds(ip, y + Theme.S(8), leftW, Theme.S(18)); y = tgpErr.Bottom; }
-                    if (tgpUpd.Visible) { tgpUpd.SetBounds(ip, y + Theme.S(8), leftW, Theme.S(18)); y = tgpUpd.Bottom; }
                     int sh = tgpStats.Needed(statsW);
                     if (side) { tgpStats.SetBounds(w - ip - statsW, top, statsW, sh); y = Math.Max(y, tgpStats.Bottom); }
                     else { tgpStats.SetBounds(ip, y + Theme.S(14), statsW, sh); y = tgpStats.Bottom; }

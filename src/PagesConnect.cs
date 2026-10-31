@@ -165,11 +165,12 @@ namespace NetProbe
             cKill = Ui.Check("Kill switch", st.KillSwitch); cKill.BackColor = Theme.Card;
             cKill.CheckedChanged += (s, e) => { if (loadingConnect) return; st.KillSwitch = cKill.Checked; st.Save(); if (!st.KillSwitch && KillSwitch.NeedsClear) System.Threading.ThreadPool.QueueUserWorkItem(_ => KillSwitch.Clear()); };
             cDnsTun = Ui.Check(Tx("DNS через VPN"), st.DnsViaTunnel); cDnsTun.BackColor = Theme.Card;
-            cDnsTun.CheckedChanged += (s, e) => { if (loadingConnect) return; st.DnsViaTunnel = cDnsTun.Checked; st.Save(); router.Reapply(); };
+            cDnsTun.CheckedChanged += (s, e) => { if (loadingConnect || cDnsTun.Checked == st.DnsViaTunnel) return; if (!CanEditTunSettings()) { cDnsTun.Checked = st.DnsViaTunnel; return; } st.DnsViaTunnel = cDnsTun.Checked; st.Save(); };
             cAutoConnect = Ui.Check(Tx("Автоподключение"), st.AutoConnect); cAutoConnect.BackColor = Theme.Card;
             cAutoConnect.CheckedChanged += (s, e) => { if (loadingConnect) return; st.AutoConnect = cAutoConnect.Checked; st.Save(); };
             var tip = Ui.Tip();
             tip.SetToolTip(cKill, Tx("Блокировать приложения «Строго VPN», пока VPN недоступен"));
+            tip.SetToolTip(cDnsTun, "Configs: use VPN DNS by default, with local DNS for explicit Direct domain rules. Windows DNS service queries may not identify the original process. Changes apply on reconnect.");
             tip.SetToolTip(lF, Tx("VPN не отвечает дольше — переключение")); tip.SetToolTip(lR, Tx("VPN стабилен столько — возврат с DPI"));
             cFail.Controls.AddRange(new Control[] { lF, nFailover, lR, nRecover, lT, nRetry, cKill, cDnsTun, cAutoConnect });
 
@@ -403,6 +404,10 @@ namespace NetProbe
         void UpdateConnectUi()
         {
             if (board == null || board.IsDisposed) return;
+            if (lRouteHint != null)
+                lRouteHint.Text = st.ConfigRulesEnabled && TunnelProto.IsXray(router.Wg.Running ? router.Wg.TunnelName : st.PrimaryTunnel)
+                    ? "Configs use ordered rules from Settings → Routing → Rule editor. Include/Exclude below remain available for legacy routing; they are not linked to the editor."
+                    : Tx("DPI глобален: касается всего вне туннеля. Домены для DPI — на вкладке DPI  ·  Приоритет: «Строго VPN» > домен > приложение");
             // источник — подписка (xray), маршрутизатор при этом выключен: показываем реальное состояние подключения, как на Subscriptions
             if (!router.Active && xm.Active)
             {

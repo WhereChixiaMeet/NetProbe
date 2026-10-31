@@ -411,14 +411,24 @@ namespace NetProbe
                 if (!st.HybridMode && xm.Active && TunnelCount > 0) xm.Disconnect(); // вне гибрида при наличии туннелей подписки выключены
                 UpdateModeUi(); UpdateServersUi();
             };
+            section("Routing · Configs (VLESS / VMess / Trojan)");
+            var rulesButton = new FlatButton("Rule editor…").AutoW(); rulesButton.Click += (s, e) => ShowRoutingRules();
+            row("Ordered routing rules", rulesButton, null);
+            var cNoV6 = Ui.Check("IPv4-only TUN (disable IPv6 in Configs)", st.TunBlockIpv6);
+            cNoV6.CheckedChanged += (s, e) => { if (loadingSettings || cNoV6.Checked == st.TunBlockIpv6) return; if (!CanEditTunSettings()) { cNoV6.Checked = st.TunBlockIpv6; return; } st.TunBlockIpv6 = cNoV6.Checked; st.Save(); };
+            check(cNoV6);
+            var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu);
+            cRu.CheckedChanged += (s, e) => { if (loadingSettings || cRu.Checked == st.BypassRu) return; if (!CanEditTunSettings()) { cRu.Checked = st.BypassRu; return; } st.BypassRu = cRu.Checked; st.Save(); };
+            check(cRu);
+            var routeNote = Ui.Hint("Changes apply on the next connection. RU bypass also applies to subscriptions; when the Configs rule editor is enabled, its table controls RU routing instead. WireGuard uses its own routing configuration.", cw); routeNote.BackColor = Theme.Bg;
+            routeNote.Location = new Point(lw, y); setBody.Controls.Add(routeNote); y += routeNote.Height + Theme.S(8);
             section(Tx("Подписки"));
             // 3.0.2: настройки прокси xray перенесены сюда с вкладки Subscriptions
             var cSys = Ui.Check(Tx("Системный прокси Windows"), st.SysProxy); cSys.CheckedChanged += (s, e) => { if (loadingSettings) return; st.SysProxy = cSys.Checked; st.Save(); if (xm.Active && !st.TunMode) { if (st.SysProxy) SysProxy.Set("127.0.0.1:" + st.HttpPort); else SysProxy.Clear(); } };
-            var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu); cRu.CheckedChanged += (s, e) => { if (loadingSettings) return; st.BypassRu = cRu.Checked; st.Save(); xm.Reapply(); };
             var cAds = Ui.Check(Tx("Блокировать рекламу"), st.BlockAds); cAds.CheckedChanged += (s, e) => { if (loadingSettings) return; st.BlockAds = cAds.Checked; st.Save(); xm.Reapply(); };
             var cLan = Ui.Check(Tx("Разрешить подключения из LAN"), st.AllowLan); cLan.CheckedChanged += (s, e) => { if (loadingSettings) return; st.AllowLan = cLan.Checked; st.Save(); xm.Reapply(); };
             // «подключаться при запуске» — только тумблер Startup на карточке TUN (дубль убран)
-            foreach (var c in new[] { cSys, cRu, cAds, cLan }) check(c);
+            foreach (var c in new[] { cSys, cAds, cLan }) check(c);
             y += Theme.S(4);
             var nSocks = Ui.Num(1024, 65000, st.SocksPort); nSocks.ValueChanged += (s, e) => { if (loadingSettings) return; st.SocksPort = (int)nSocks.Value; st.Save(); xm.Reapply(); };
             var nHttp = Ui.Num(1024, 65000, st.HttpPort); nHttp.ValueChanged += (s, e) => { if (loadingSettings) return; st.HttpPort = (int)nHttp.Value; st.Save(); xm.Reapply(); };
@@ -592,7 +602,7 @@ namespace NetProbe
         {
             if (navs.Count > PgSettings) navs[PgSettings].Badge = updZapret || updXray;
             if (navs.Count > PgServers) navs[PgServers].Badge = updXray;
-            if (navs.Count > PgTg) navs[PgTg].Badge = tgUpstreamLatest != null;
+            if (navs.Count > PgTg) navs[PgTg].Badge = false;
         }
 
         // Плановая проверка: при запуске и далее по расписанию из настроек
@@ -613,7 +623,6 @@ namespace NetProbe
                 string zc = Updater.ZapretVersion(st), xc = Updater.XrayVersion(st), sc = Updater.SingBoxVersion(st), zl = null, xl = null, sl = null, err = null;
                 if ((manual || st.UpdXray) && (sc != "" || manual)) try { sl = Updater.SingBoxLatest().Tag; } catch { }
                 if (manual || st.UpdZapret) try { zl = Updater.Latest(Updater.ZapretRepo, n => n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)).Tag; } catch (Exception ex) { err = ex.Message; }
-                string tl = null; try { tl = Updater.Latest(TgConst.UpstreamRepo, n => false).Tag; } catch { } // TG Proxy: вышла ли новая tg-ws-proxy
                 if (manual || st.UpdXray) try { xl = Updater.Latest(Updater.XrayRepo, n => n.StartsWith("Xray-windows", StringComparison.OrdinalIgnoreCase)).Tag; } catch (Exception ex) { err = ex.Message; }
                 st.LastUpdCheck = DateTime.Now.ToOADate(); st.Save();
                 Func<string, string, string> fmt = (cur, lat) => (cur == "" ? Tx("не установлен") : cur) + (lat == null ? "" : lat.TrimStart('v') == cur.TrimStart('v') ? "  ·  " + Tx("последняя") : "  →  " + lat + " " + Tx("доступна"));
@@ -626,14 +635,7 @@ namespace NetProbe
                     {
                         if (lZVer != null && !lZVer.IsDisposed) { lZVer.Text = fmt(zc, zl) + (err != null && zl == null ? "  ·  " + err : ""); lXVer.Text = fmt(xc, xl); if (lSVer != null) lSVer.Text = fmt(sc, sl); }
                         UpdateCoreLabel();
-                        bool tNew = TgConst.UpstreamNewer(tl); tgUpstreamLatest = tNew ? tl : null;
                         updZapret = zNew; updXray = xNew || sNew; ApplyUpdateBadges(); TgUpdateUi();
-                        if (tNew && tl != st.TgUpstreamNotified)
-                        {
-                            st.TgUpstreamNotified = tl; st.Save();
-                            Logger.Write(LogLevel.Info, Tx("Вышла tg-ws-proxy ") + tl + Tx(": встроенный TG Proxy основан на ") + TgConst.UpstreamVersion + Tx(" — изменения придут с обновлением RouteX"));
-                            if (!manual && st.UpdNotify && tray != null) try { tray.ShowBalloonTip(5000, "TG Proxy", Tx("Вышла tg-ws-proxy ") + tl, System.Windows.Forms.ToolTipIcon.Info); } catch { }
-                        }
                         if (!manual && (zNew || xNew || sNew) && st.UpdNotify && tray != null)
                             try { tray.ShowBalloonTip(5000, Tx("RouteX: есть обновления"), (zNew ? "zapret " + zl + "  " : "") + (xNew ? "xray " + xl + "  " : "") + (sNew ? "sing-box " + sl : ""), System.Windows.Forms.ToolTipIcon.Info); } catch { }
                         if (zNew || xNew) Logger.Write(LogLevel.Info, Tx("Доступны обновления: ") + (zNew ? "zapret " + zl + " " : "") + (xNew ? "xray " + xl : ""));

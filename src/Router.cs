@@ -66,9 +66,11 @@ namespace NetProbe
         static TunLists XrayTunLists(Settings st, bool strictOnly)
         {
             var strictAll = AppLists.Get(AppLists.VpnOnlyApps);
-            return strictOnly
+            var lists = strictOnly
                 ? TunLists.FromLists(strictAll.Concat(new[] { VpnProbe }), new string[0])
                 : TunLists.FromLists(AppLists.Get(AppLists.HybridApps).Concat(strictAll), AppLists.Get(TunExclKey(st)));
+            lists.StrictOnly = strictOnly;
+            return lists;
         }
         public TunLists CurrentXrayLists() { return lastXrayLists ?? XrayTunLists(GetSettings(), StrictOnly); } // после самообновления (Adopt) — по текущим спискам
 

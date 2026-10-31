@@ -39,6 +39,7 @@ namespace NetProbe
         public Func<TunLists> GetTunLists;
         public Func<string> TunBlocked;                            // причина, по которой TUN нельзя включить (например, работает WireSock)
         DateTime lastTunTry = DateTime.MinValue;
+        string runningTunJson;
         public bool TunRunning { get { return sb.Running; } }
         readonly Queue<Action> q = new Queue<Action>();
         readonly AutoResetEvent wake = new AutoResetEvent(false);
@@ -88,7 +89,7 @@ namespace NetProbe
                 if (!wasActive || xp == null) return;
                 x.Attach(xp);
                 var sp = SelfUpdate.FindChild("sing-box", st.SingBoxPath);
-                if (sp != null) sb.Attach(sp);
+                if (sp != null) { sb.Attach(sp); try { runningTunJson = File.ReadAllText(Path.Combine(Settings.Sub("runtime"), "singbox.json")); } catch { runningTunJson = null; } }
                 ConnectedAt = DateTime.Now; lastCheck = DateTime.Now;
                 var cur = ServerStore.Find(st.ActiveServer);
                 statsId = cur != null ? cur.Id : null; lastStats = DateTime.Now;
@@ -131,17 +132,21 @@ namespace NetProbe
             if (statsDirty && (save || (DateTime.Now - lastStatsSave).TotalSeconds >= 60)) { statsDirty = false; lastStatsSave = DateTime.Now; ServerStore.Save(); }
         }
 
-        // TUN поднимается один раз и указывает на локальный socks xray — при смене сервера его не трогаем
+        // Preserve TUN only when its full generated configuration (including SOCKS port) is unchanged.
         void EnsureTun()
         {
             var st = GetSettings();
-            if (!st.TunMode) { if (sb.Running) { sb.Stop(); Logger.Write(LogLevel.Route, "TUN " + Tx("выключен")); } return; }
-            if (sb.Running) return;
+            if (!st.TunMode) { if (sb.Running) { sb.Stop(); Logger.Write(LogLevel.Route, "TUN " + Tx("выключен")); } runningTunJson = null; return; }
             string why = TunBlocked != null ? TunBlocked() : null;
-            if (why != null) { Detail = why; return; }
+            if (why != null) { sb.Stop(); runningTunJson = null; Detail = why; return; }
             lastTunTry = DateTime.Now;
             var l = GetTunLists();
-            string err = sb.Start(st, SingBoxConfig.Build(st, l));
+            string json = SingBoxConfig.Build(st, l);
+            if (sb.Running && string.Equals(runningTunJson, json, StringComparison.Ordinal)) return;
+            runningTunJson = null;
+            string err = sb.Start(st, json);
+            if (err == null) runningTunJson = json;
+            else Detail = err;
             if (err != null) Logger.Write(LogLevel.Error, err);
             else Logger.Write(LogLevel.Route, "TUN (sing-box) " + Tx("запущен") + " · " + (l.Include.Count == 0 ? Tx("весь трафик через сервер") : Tx("приложений через сервер: ") + l.Include.Count) + (l.Exclude.Count > 0 ? " · " + Tx("исключений: ") + l.Exclude.Count : "") + (l.Domains.Count > 0 ? " · " + Tx("доменов через DPI: ") + l.Domains.Count : ""));
         }
@@ -225,6 +230,7 @@ namespace NetProbe
             st.ActiveServer = s.Id; st.Save();
             if (st.SysProxy && !st.TunMode) SysProxy.Set("127.0.0.1:" + st.HttpPort);
             EnsureTun();
+            if (st.TunMode && !sb.Running) { lastErr = Detail.Length > 0 ? Detail : "TUN failed to start"; x.Stop(); return false; }
             lastCheck = DateTime.Now.AddSeconds(-st.AsInterval + 2); // первая проверка через ~2 с
             Logger.Write(LogLevel.Route, "xray → «" + s.Name + "» (" + s.Transport + ", " + s.Endpoint + ")");
             return true;
@@ -249,6 +255,7 @@ namespace NetProbe
             PollStats(true);
             statsId = null;
             sb.Stop();
+            runningTunJson = null;
             x.Stop();
             SysProxy.Clear(); // снимает только прокси, поставленный NetProbe
             if (dpiOn || dpiApps) { dpiOn = false; dpiApps = false; if (DpiFallback != null) DpiFallback(false); }

@@ -19,6 +19,7 @@ namespace NetProbe
         public List<string> Include = new List<string>(), Exclude = new List<string>();
         // 3.0.4: домены/IP из Include и «Строго VPN» — в TUN (sing-box) идут через сервер (у WireSock такого нет)
         public List<string> IncludeHosts = new List<string>();
+        public bool StrictOnly;
         // все записи списков (приложения + домены/IP): приложения отделяются, домены/IP попадают в IncludeHosts / Exclude
         public static TunLists FromLists(IEnumerable<string> include, IEnumerable<string> exclude)
         {
@@ -55,6 +56,16 @@ namespace NetProbe
             };
             // домены под приложением (Include DPI): это приложение + этот домен → напрямую (winws обработает), остальное как обычно
             var dnsRules = new List<object>();
+            bool primary = st.PrimaryXrayTunnel;
+            bool custom = primary && st.ConfigRulesEnabled && !l.StrictOnly;
+            bool ipv4 = primary && st.TunBlockIpv6;
+            if (ipv4)
+            {
+                rules.Insert(0, new Dictionary<string, object> { { "ip_version", 6 }, { "action", "reject" } });
+                dnsRules.Add(new Dictionary<string, object> { { "query_type", new[] { "AAAA" } }, { "action", "predefined" }, { "rcode", "NOERROR" } });
+            }
+            int safetyRules = rules.Count;
+            int safetyDns = dnsRules.Count;
             foreach (var g in DomainGroups(l.Domains))
             {
                 var r = new Dictionary<string, object> { { "process_path_regex", new[] { Rx(g.Key) } }, { "outbound", "direct" } };
@@ -67,6 +78,11 @@ namespace NetProbe
             if (ex.Processes.Count > 0) rules.Add(new Dictionary<string, object> { { "process_path_regex", ex.Processes.Select(Rx).ToArray() }, { "outbound", "direct" } });
             if (ex.Domains.Count > 0) rules.Add(new Dictionary<string, object> { { "domain_suffix", ex.Domains.ToArray() }, { "outbound", "direct" } });
             if (ex.Ips.Count > 0) rules.Add(new Dictionary<string, object> { { "ip_cidr", ex.Ips.Select(Cidr).ToArray() }, { "outbound", "direct" } });
+            if (primary)
+            {
+                if (ex.Processes.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "process_path_regex", ex.Processes.Select(Rx).ToArray() }, { "server", "local" } });
+                if (ex.Domains.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", ex.Domains.ToArray() }, { "server", "local" } });
+            }
             var ih = ExclusionSet.From(l.IncludeHosts ?? new List<string>());
             if (ih.Domains.Count > 0) rules.Add(new Dictionary<string, object> { { "domain_suffix", ih.Domains.ToArray() }, { "outbound", "proxy" } });
             if (ih.Ips.Count > 0) rules.Add(new Dictionary<string, object> { { "ip_cidr", ih.Ips.Select(Cidr).ToArray() }, { "outbound", "proxy" } });
@@ -76,6 +92,25 @@ namespace NetProbe
                 var inc = include.Concat(new[] { "netprobe-vpn.exe" }).Distinct(StringComparer.OrdinalIgnoreCase).Select(Rx).ToArray();
                 rules.Add(new Dictionary<string, object> { { "process_path_regex", inc }, { "outbound", "proxy" } });
             }
+            string final = all ? "proxy" : "direct";
+            if (custom)
+            {
+                rules.RemoveRange(safetyRules, rules.Count - safetyRules);
+                dnsRules.RemoveRange(safetyDns, dnsRules.Count - safetyDns);
+                // The health probe tests the server, even when the user's fallback is Direct.
+                rules.Add(new Dictionary<string, object> { { "process_name", new[] { "netprobe-vpn.exe" } }, { "outbound", "proxy" } });
+                foreach (var r in ConfigRouting.Read(st.ConfigRulesJson)) ConfigRouting.AddRule(rules, dnsRules, r, st);
+                if (!ConfigRouting.Outbounds.Contains(st.ConfigRulesDefault)) throw new FormatException("Invalid default route.");
+                final = st.ConfigRulesDefault;
+                if (final == "block") { rules.Add(new Dictionary<string, object> { { "action", "reject" } }); final = "direct"; }
+            }
+            if (primary && !custom)
+            {
+                if (ih.Domains.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", ih.Domains.ToArray() }, { "server", st.DnsViaTunnel ? "remote" : "local" } });
+                if (include.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", st.DnsViaTunnel ? "remote" : "local" } });
+            }
+            if (primary && !string.IsNullOrWhiteSpace(st.TunServerDomain))
+                dnsRules.Insert(ipv4 ? 1 : 0, new Dictionary<string, object> { { "domain", new[] { st.TunServerDomain } }, { "server", "local" } });
             var cfg = new Dictionary<string, object>
             {
                 { "log", logFile != null
@@ -86,20 +121,21 @@ namespace NetProbe
                         { "servers", new object[] {
                             new Dictionary<string, object> { { "tag", "remote" }, { "type", "tcp" }, { "server", "1.1.1.1" }, { "detour", "proxy" } },
                             new Dictionary<string, object> { { "tag", "local" }, { "type", "local" } } } },
-                        { "final", all ? "remote" : "local" },
-                        { "rules", dnsRules
+                        { "final", primary ? (st.DnsViaTunnel ? "remote" : "local") : (all ? "remote" : "local") },
+                        { "rules", primary ? dnsRules.ToArray() : dnsRules
                             .Concat(ih.Domains.Count > 0 ? new object[] { new Dictionary<string, object> { { "domain_suffix", ih.Domains.ToArray() }, { "server", "remote" } } } : new object[0])
                             .Concat(include.Count == 0 ? new object[0] : new object[] { new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", "remote" } } }).ToArray() },
-                        { "strategy", "ipv4_only" }
+                        { "strategy", primary && !ipv4 ? "prefer_ipv4" : "ipv4_only" }
                     } },
                 { "inbounds", new object[] { new Dictionary<string, object> {
-                    { "type", "tun" }, { "tag", "tun-in" }, { "interface_name", "NetProbe TUN" }, { "address", new[] { "172.19.0.1/30", "fdfe:dcba:9876::1/126" } },
+                    { "type", "tun" }, { "tag", "tun-in" }, { "interface_name", "NetProbe TUN" }, { "address", ipv4 ? new[] { "172.19.0.1/30" } : new[] { "172.19.0.1/30", "fdfe:dcba:9876::1/126" } },
                     { "mtu", 9000 }, { "auto_route", true }, { "strict_route", true }, { "stack", "mixed" } } } },
                 { "outbounds", new object[] {
                     new Dictionary<string, object> { { "type", "socks" }, { "tag", "proxy" }, { "server", "127.0.0.1" }, { "server_port", st.SocksPort }, { "version", "5" } },
                     new Dictionary<string, object> { { "type", "direct" }, { "tag", "direct" } } } },
-                { "route", new Dictionary<string, object> { { "rules", rules }, { "final", all ? "proxy" : "direct" }, { "auto_detect_interface", true }, { "default_domain_resolver", "local" } } }
+                { "route", new Dictionary<string, object> { { "rules", rules }, { "final", final }, { "auto_detect_interface", true }, { "default_domain_resolver", "local" } } }
             };
+            if (primary) ((Dictionary<string, object>)cfg["dns"])["reverse_mapping"] = true;
             return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Serialize(cfg);
         }
     }
@@ -119,6 +155,9 @@ namespace NetProbe
             if (!File.Exists(exe)) return Tx("Не найден sing-box.exe — установите ядро TUN (кнопка «sing-box»)");
             string cfg = Path.Combine(Settings.Sub("runtime"), cfgName);
             File.WriteAllText(cfg, json, new UTF8Encoding(false));
+            var check = Proc.Run(exe, "check -c \"" + cfg + "\" -D \"" + st.SingBoxPath + "\"", 10000);
+            if (check.Exit != 0 || check.TimedOut || check.StartError != null)
+                return "sing-box config check failed: " + (check.StartError ?? (check.TimedOut ? "timeout" : check.Err.Trim()));
             var psi = new ProcessStartInfo(exe, "run -c \"" + cfg + "\" -D \"" + st.SingBoxPath + "\"") { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = st.SingBoxPath };
             try
             {
@@ -128,6 +167,7 @@ namespace NetProbe
                 pr.Exited += (s, e) => { int c = -1; try { c = pr.ExitCode; } catch { } if (pr == p) { var h = Exited; if (h != null) h(c); } };
                 pr.Start();
                 p = pr;
+                if (pr.WaitForExit(600)) { int code = pr.ExitCode; p = null; pr.Dispose(); return "sing-box stopped during startup (" + code + "). Check the sing-box log."; }
                 return null;
             }
             catch (Exception ex) { return "sing-box: " + ex.Message; }
