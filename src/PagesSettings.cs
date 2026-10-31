@@ -414,14 +414,14 @@ namespace NetProbe
             };
             section("Routing · Configs (VLESS / VMess / Trojan)");
             var rulesButton = new FlatButton("Rule editor…").AutoW(); rulesButton.Click += (s, e) => ShowRoutingRules();
-            row("Ordered routing rules", rulesButton, null);
+            row("Routing rule sets", rulesButton, null);
             var cNoV6 = Ui.Check("IPv4-only TUN (disable IPv6 in Configs)", st.TunBlockIpv6);
             cNoV6.CheckedChanged += (s, e) => { if (loadingSettings || cNoV6.Checked == st.TunBlockIpv6) return; if (!CanEditTunSettings()) { cNoV6.Checked = st.TunBlockIpv6; return; } st.TunBlockIpv6 = cNoV6.Checked; st.Save(); };
             check(cNoV6);
             var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu);
             cRu.CheckedChanged += (s, e) => { if (loadingSettings || cRu.Checked == st.BypassRu) return; if (!CanEditTunSettings()) { cRu.Checked = st.BypassRu; return; } st.BypassRu = cRu.Checked; st.Save(); };
             check(cRu);
-            var routeNote = Ui.Hint("Changes apply on the next connection. RU bypass also applies to subscriptions; when the Configs rule editor is enabled, its table controls RU routing instead. WireGuard uses its own routing configuration.", cw); routeNote.BackColor = Theme.Bg;
+            var routeNote = Ui.Hint("Changes apply on the next connection. RU bypass also applies to subscriptions; when the Configs rule editor is enabled, its active rule set (v2rayN format) controls RU routing instead. WireGuard uses its own routing configuration.", cw); routeNote.BackColor = Theme.Bg;
             routeNote.Location = new Point(lw, y); setBody.Controls.Add(routeNote); y += routeNote.Height + Theme.S(8);
             section(Tx("Подписки"));
             // 3.0.2: настройки прокси xray перенесены сюда с вкладки Subscriptions

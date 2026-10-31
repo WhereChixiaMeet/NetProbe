@@ -67,6 +67,7 @@ namespace NetProbe
         public bool ConfigRulesEnabled = false;
         public string ConfigRulesJson = "[]";
         public string ConfigRulesDefault = "direct";
+        internal RoutingConfig RoutingOverride; // tests: rules without config\routing.json
         internal bool PrimaryXrayTunnel;
         internal string TunServerDomain;
 

@@ -99,10 +99,12 @@ namespace NetProbe
                 dnsRules.RemoveRange(safetyDns, dnsRules.Count - safetyDns);
                 // The health probe tests the server, even when the user's fallback is Direct.
                 rules.Add(new Dictionary<string, object> { { "process_name", new[] { "netprobe-vpn.exe" } }, { "outbound", "proxy" } });
-                foreach (var r in ConfigRouting.Read(st.ConfigRulesJson)) ConfigRouting.AddRule(rules, dnsRules, r, st);
-                if (!ConfigRouting.Outbounds.Contains(st.ConfigRulesDefault)) throw new FormatException("Invalid default route.");
-                final = st.ConfigRulesDefault;
-                if (final == "block") { rules.Add(new Dictionary<string, object> { { "action", "reject" } }); final = "direct"; }
+                // Active rule set of the v2rayN-style editor; unmatched traffic goes to the proxy, as in v2rayN.
+                var rc = st.RoutingOverride ?? RoutingStore.Load(st);
+                var set = rc.Active;
+                if (set == null) throw new FormatException("No routing rule set. Open Settings → Engine → Rule editor.");
+                ConfigRouting.AddSet(rules, dnsRules, rc, set, st, ipv4);
+                final = "proxy";
             }
             if (primary && !custom)
             {
