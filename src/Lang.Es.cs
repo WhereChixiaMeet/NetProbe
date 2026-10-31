@@ -918,6 +918,7 @@ namespace NetProbe
             { "последние ", "últimos " },
             { " опросов  ·  красные отметки = неудачные опросы", " sondeos  ·  marcas rojas = sondeos fallidos" },
             { "красные отметки = неудачные опросы", "marcas rojas = sondeos fallidos" },
+            { "GitHub: не удалось узнать последнюю версию", "GitHub: no se pudo obtener la última versión" },
             { "Пока нет данных — запустите мониторинг", "Aún no hay datos: inicie la monitorización" },
             { "Не найден winws.exe в ", "No se encontró winws.exe en " },
             { ". Укажите папку zapret в Настройках.", ". Indique la carpeta de zapret en Ajustes." },

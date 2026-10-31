@@ -1,7 +1,7 @@
 # RouteX
 *(formerly NetProbe)*
 
-Version 3.4.9: steady ping on one site while the window is open; site rotation and passive VPN checks only in the background. See [release notes](docs/releases/v3.4.9.md).
+Version 3.4.10: update checks fall back to github.com pages when the GitHub API answers 403 (shared VPN IP rate limit). See [release notes](docs/releases/v3.4.10.md).
 
 ### MANUAL RESTART REQUIRED AFTER UPDATE ###
 

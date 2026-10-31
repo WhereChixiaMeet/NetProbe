@@ -29,7 +29,53 @@ namespace NetProbe
             return rq;
         }
 
+        // GitHub API без токена — 60 запросов в час на IP. Через VPN этот IP общий с другими людьми, лимит часто уже
+        // исчерпан, и API отвечает 403 / 429. Тогда — обычные страницы github.com (у них такого лимита нет).
         public static Release Latest(string repo, Func<string, bool> pick)
+        {
+            try { return LatestApi(repo, pick); }
+            catch (WebException ex)
+            {
+                var hr = ex.Response as HttpWebResponse;
+                int code = hr != null ? (int)hr.StatusCode : 0;
+                if (code != 403 && code != 429) throw;
+                Logger.Write(LogLevel.Info, "GitHub API " + code + " (" + repo + ") → github.com/releases");
+                return LatestHtml(repo, pick);
+            }
+        }
+
+        static string Page(string url, out Uri final)
+        {
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | (SecurityProtocolType)12288;
+            var rq = (HttpWebRequest)WebRequest.Create(url);
+            rq.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) RouteX/" + MainForm.Version; rq.Timeout = 20000; rq.ReadWriteTimeout = 20000;
+            rq.Accept = "text/html"; rq.AllowAutoRedirect = true;
+            using (var r = (HttpWebResponse)rq.GetResponse())
+            using (var sr = new StreamReader(r.GetResponseStream(), Encoding.UTF8)) { final = r.ResponseUri; return sr.ReadToEnd(); }
+        }
+
+        // /releases/latest перенаправляет на /releases/tag/<тег>; список файлов — /releases/expanded_assets/<тег>
+        public static Release LatestHtml(string repo, Func<string, bool> pick)
+        {
+            Uri final;
+            Page("https://github.com/" + repo + "/releases/latest", out final);
+            string path = final != null ? final.AbsolutePath : "";
+            int i = path.IndexOf("/releases/tag/", StringComparison.OrdinalIgnoreCase);
+            if (i < 0) throw new Exception(Tx("GitHub: не удалось узнать последнюю версию"));
+            var rel = new Release { Tag = Uri.UnescapeDataString(path.Substring(i + 14).Trim('/')) };
+            string html = Page("https://github.com/" + repo + "/releases/expanded_assets/" + Uri.EscapeDataString(rel.Tag), out final);
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(html, "href=\"(/[^\"]+/releases/download/[^\"]+)\""))
+            {
+                string href = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value);
+                string n = Uri.UnescapeDataString(href.Substring(href.LastIndexOf('/') + 1));
+                if (!pick(n)) continue;
+                rel.AssetName = n; rel.AssetUrl = "https://github.com" + href;
+                break;
+            }
+            return rel;
+        }
+
+        static Release LatestApi(string repo, Func<string, bool> pick)
         {
             using (var r = Req("https://api.github.com/repos/" + repo + "/releases/latest", 20000).GetResponse())
             using (var sr = new StreamReader(r.GetResponseStream(), Encoding.UTF8))
@@ -55,7 +101,7 @@ namespace NetProbe
             string tmp = Path.Combine(Settings.Sub("runtime"), "download-" + Guid.NewGuid().ToString("N").Substring(0, 8)); // всё внутри папки приложения
             Directory.CreateDirectory(tmp);
             string zip = Path.Combine(tmp, rel.AssetName);
-            status(Tx("Загрузка ") + rel.AssetName + " (" + (rel.Size / 1048576.0).ToString("0.0") + Tx(" МБ") + ")…");
+            status(Tx("Загрузка ") + rel.AssetName + (rel.Size > 0 ? " (" + (rel.Size / 1048576.0).ToString("0.0") + Tx(" МБ") + ")" : "") + "…");
             using (var r = Req(rel.AssetUrl, 120000).GetResponse())
             using (var src = r.GetResponseStream())
             using (var dst = File.Create(zip)) src.CopyTo(dst);
