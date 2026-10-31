@@ -413,13 +413,15 @@ namespace NetProbe
                 UpdateModeUi(); UpdateServersUi();
             };
             section("Routing · Configs (VLESS / VMess / Trojan)");
+            var rulesButton = new FlatButton("Rule editor…").AutoW(); rulesButton.Click += (s, e) => ShowRoutingRules();
+            row("Routing rule sets", rulesButton, null);
             var cNoV6 = Ui.Check("IPv4-only TUN (disable IPv6 in Configs)", st.TunBlockIpv6);
             cNoV6.CheckedChanged += (s, e) => { if (loadingSettings || cNoV6.Checked == st.TunBlockIpv6) return; if (!CanEditTunSettings()) { cNoV6.Checked = st.TunBlockIpv6; return; } st.TunBlockIpv6 = cNoV6.Checked; st.Save(); };
             check(cNoV6);
             var cRu = Ui.Check(Tx("RU-сайты напрямую"), st.BypassRu);
             cRu.CheckedChanged += (s, e) => { if (loadingSettings || cRu.Checked == st.BypassRu) return; if (!CanEditTunSettings()) { cRu.Checked = st.BypassRu; return; } st.BypassRu = cRu.Checked; st.Save(); };
             check(cRu);
-            var routeNote = Ui.Hint("Use the standard Include/Exclude lists on Routing. RU sites direct sends recognized Russian domains and IPs outside the VPN; it also applies to subscriptions. Changes apply on the next connection. WireGuard uses its own routing configuration.", cw); routeNote.BackColor = Theme.Bg;
+            var routeNote = Ui.Hint("Use the standard Include/Exclude lists on Routing, or the Rule editor (v2rayN-style rule sets; off by default, replaces Include/Exclude and RU sites direct for Configs while on). RU sites direct sends recognized Russian domains and IPs outside the VPN; it also applies to subscriptions. Changes apply on the next connection. WireGuard uses its own routing configuration.", cw); routeNote.BackColor = Theme.Bg;
             routeNote.Location = new Point(lw, y); setBody.Controls.Add(routeNote); y += routeNote.Height + Theme.S(8);
             section(Tx("Подписки"));
             // 3.0.2: настройки прокси xray перенесены сюда с вкладки Subscriptions

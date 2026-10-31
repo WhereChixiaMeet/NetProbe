@@ -27,7 +27,8 @@ namespace NetProbe
                 { "tunnels", Files(Settings.Sub("tunnels"), "*.conf").Concat(Files(Settings.Sub("tunnels"), "*.json")).ToDictionary(kv => kv.Key, kv => kv.Value) }, // WireGuard + VLESS/VMess/Trojan
                 { "dpi", Files(Settings.Sub("dpi"), "*.txt") },
                 { "servers", File.Exists(Path.Combine(Settings.Dir, "servers.json")) ? File.ReadAllText(Path.Combine(Settings.Dir, "servers.json"), Encoding.UTF8) : "" },
-                { "subscriptions", File.Exists(Path.Combine(Settings.Dir, "subscriptions.json")) ? File.ReadAllText(Path.Combine(Settings.Dir, "subscriptions.json"), Encoding.UTF8) : "" }
+                { "subscriptions", File.Exists(Path.Combine(Settings.Dir, "subscriptions.json")) ? File.ReadAllText(Path.Combine(Settings.Dir, "subscriptions.json"), Encoding.UTF8) : "" },
+                { "routing", File.Exists(RoutingStore.FilePath) ? File.ReadAllText(RoutingStore.FilePath, Encoding.UTF8) : "" }
             };
             return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Serialize(root);
         }
@@ -57,6 +58,7 @@ namespace NetProbe
             if (root.ContainsKey("dpi")) WriteFiles(root["dpi"], Settings.Sub("dpi"));
             if (s("servers") != "") File.WriteAllText(Path.Combine(Settings.Dir, "servers.json"), s("servers"), new UTF8Encoding(false));
             if (s("subscriptions") != "") File.WriteAllText(Path.Combine(Settings.Dir, "subscriptions.json"), s("subscriptions"), new UTF8Encoding(false));
+            if (s("routing") != "") try { RoutingStore.FromJson(s("routing")); File.WriteAllText(RoutingStore.FilePath, s("routing"), new UTF8Encoding(false)); } catch { } // invalid rule sets: keep the current ones
             return null;
         }
     }

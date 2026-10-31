@@ -27,7 +27,7 @@ zapret\      winws.exe, WinDivert, lists\ (bundled from Flowseal/zapret-discord-
 xray\        xray.exe + geo*.dat (installed/updated from inside the app)
 singbox\     sing-box.exe (TUN core, installed from inside the app)
 config\      settings.ini, lists\*.txt, tunnels\*.conf, dpi\*.txt (+ .stock hashes), servers.json,
-             subscriptions.json, icons.txt, iconpaths.txt, recent.txt, runtime\ (generated configs, downloads)
+             subscriptions.json, routing.json (rule sets of the Configs rule editor), icons.txt, iconpaths.txt, recent.txt, runtime\ (generated configs, downloads)
 log\         YYYY-MM-DD.log (folder configurable)
 ```
 Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`netprobe-vpn.exe`, `netprobe-direct.exe`) — ASCII path, and that path is referenced by WireSock rules.
@@ -80,6 +80,12 @@ Exception: curl copies used as probes live in `C:\ProgramData\NetProbe\bin\` (`n
 - Servers page: tabs All / Active (answered last test) / Favorite / Manual / one per subscription (⟳ updates only the open subscription). Columns GEO (flag in name, else exit country via cloudflare trace during the test), PORT, SPEED (curl download through the server, `SpeedUrl`), TOTAL ↓ (xray stats via `api.listen` on `ApiPort`, polled every 10 s with `xray api statsquery -reset`).
 - Delay/speed tests: servers run in chunks in one test xray; if xray refuses the config, the chunk is split in halves until the bad server is isolated (before, one bad server made the whole chunk "none").
 - "+" lists have a clipboard button (Ctrl+V): one app per line / comma / semicolon.
+
+## Rule editor (Configs, v2rayN-style; off by default)
+- 3.4.6 removed the 3.4.3 table editor; it came back in v2rayN form. Switch = `Settings.RuleSetsEnabled` (new name, so an old `ConfigRulesEnabled=1` stays ignored). Off → standard Include/Exclude + RU sites direct, exactly as 3.4.6+.
+- `ConfigRouting.cs` / `PagesRoutingRules.cs`: rule sets in `config\routing.json` (v2rayN JSON keys: remarks, outboundTag, port, network, protocol, inboundTag, domain, ip, process, ruleType, enabled). Only the active set is used; first match wins; unmatched → proxy (as v2rayN). Domain / IP / Process of a rule are separate sing-box rules sharing port/network/protocol; plain domain = keyword. Domain strategy AsIs / IPIfNonMatch / IPOnDemand via sing-box `resolve`.
+- Windows: Routing settings (sets, strategy, built-in sets, RU geodata, RU sites detect) → Rule set (rules, import file/clipboard/URL, export, move) → Rule details.
+- RU geodata (runetfreedom) is stored as `xray\geosite-ru.dat` / `geoip-ru.dat`; `GeoData` looks in the Xray file first, then in these. The 3.4.3 `ConfigRulesJson` table is migrated once into an inactive "My rules (3.4)" set.
 
 ## Behaviour defaults
 Auto-connect on start and Windows autostart (Task Scheduler, highest privileges, `--minimized`; task name per copy) are ON by default. Everything autosaves (no Save buttons). Update checks for zapret/xray/sing-box are configurable (interval, per component) with tray notification and a sidebar badge.

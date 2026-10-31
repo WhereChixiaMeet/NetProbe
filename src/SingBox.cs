@@ -58,11 +58,14 @@ namespace NetProbe
             var dnsRules = new List<object>();
             bool primary = st.PrimaryXrayTunnel;
             bool ipv4 = primary && st.TunBlockIpv6;
+            // Rule editor (v2rayN style): replaces Include/Exclude for Configs while it is switched on
+            bool custom = primary && st.RuleSetsEnabled && !l.StrictOnly;
             if (ipv4)
             {
                 rules.Insert(0, new Dictionary<string, object> { { "ip_version", 6 }, { "action", "reject" } });
                 dnsRules.Add(new Dictionary<string, object> { { "query_type", new[] { "AAAA" } }, { "action", "predefined" }, { "rcode", "NOERROR" } });
             }
+            int safetyRules = rules.Count, safetyDns = dnsRules.Count;
             foreach (var g in DomainGroups(l.Domains))
             {
                 var r = new Dictionary<string, object> { { "process_path_regex", new[] { Rx(g.Key) } }, { "outbound", "direct" } };
@@ -90,7 +93,20 @@ namespace NetProbe
                 rules.Add(new Dictionary<string, object> { { "process_path_regex", inc }, { "outbound", "proxy" } });
             }
             string final = all ? "proxy" : "direct";
-            if (primary)
+            if (custom)
+            {
+                rules.RemoveRange(safetyRules, rules.Count - safetyRules);
+                dnsRules.RemoveRange(safetyDns, dnsRules.Count - safetyDns);
+                // The health probe tests the server, whatever the rules say.
+                rules.Add(new Dictionary<string, object> { { "process_name", new[] { "netprobe-vpn.exe" } }, { "outbound", "proxy" } });
+                // Active rule set; unmatched traffic goes to the proxy, as in v2rayN.
+                var rc = st.RoutingOverride ?? RoutingStore.Load(st);
+                var set = rc.Active;
+                if (set == null) throw new FormatException("No routing rule set. Open Settings → Engine → Rule editor.");
+                ConfigRouting.AddSet(rules, dnsRules, rc, set, st, ipv4);
+                final = "proxy";
+            }
+            if (primary && !custom)
             {
                 if (ih.Domains.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "domain_suffix", ih.Domains.ToArray() }, { "server", st.DnsViaTunnel ? "remote" : "local" } });
                 if (include.Count > 0) dnsRules.Add(new Dictionary<string, object> { { "process_path_regex", include.Select(Rx).ToArray() }, { "server", st.DnsViaTunnel ? "remote" : "local" } });
