@@ -124,6 +124,10 @@ namespace NetProbe
                 { "route", new Dictionary<string, object> { { "rules", rules }, { "final", final }, { "auto_detect_interface", true }, { "default_domain_resolver", "local" } } }
             };
             if (primary) ((Dictionary<string, object>)cfg["dns"])["reverse_mapping"] = true;
+            // Router tunnel: local Clash API with a per-run secret. RouteX reads /connections to see whether data
+            // actually comes back through the proxy outbound (passive VPN health), instead of probing a website.
+            if (primary && st.HttpPort > 0)
+                cfg["experimental"] = new Dictionary<string, object> { { "clash_api", new Dictionary<string, object> { { "external_controller", "127.0.0.1:" + st.HttpPort }, { "secret", TunnelAuth.Pass } } } };
             return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Serialize(cfg);
         }
     }

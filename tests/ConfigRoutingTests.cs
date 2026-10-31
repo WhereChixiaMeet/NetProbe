@@ -71,6 +71,9 @@ static class ConfigRoutingTests
             string authenticatedTunnel = XrayConfig.Build(Tun(st), plain);
             Check(authenticatedTunnel.Contains("\"auth\":\"password\"") && authenticatedTunnel.Contains(TunnelAuth.Pass) && !authenticatedTunnel.Contains("\"protocol\":\"http\""), "3.4.5 fix preserved: Configs SOCKS is authenticated and has no HTTP inbound");
             Check(ConfigRouting.Json().Serialize(Obj(Arr(standard["outbounds"])[0])).Contains(TunnelAuth.Pass), "3.4.5 fix preserved: sing-box uses the matching SOCKS credentials");
+            var clash = Obj(Obj(standard["experimental"])["clash_api"]);
+            Check((string)clash["external_controller"] == "127.0.0.1:" + (Tun(st).SocksPort + 1) && (string)clash["secret"] == TunnelAuth.Pass, "3.4.7: passive VPN check uses a local Clash API with the per-run secret");
+            Check(st.ProbeUrls().Count > 1 && st.ProbeUrls()[0] == st.ProbeUrl, "3.4.7: probe rotation starts with the trace URL");
             Check(TunnelProto.Missing(plain) == null, "VLESS without TLS remains permitted as requested");
             plain.Security = "tls"; plain.Insecure = true;
             Check(ConfigRouting.Json().Serialize(plain.Outbound("proxy")).Contains("\"allowInsecure\":true"), "allowInsecure remains unchanged as requested");

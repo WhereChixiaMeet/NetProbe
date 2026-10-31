@@ -16,7 +16,7 @@ namespace NetProbe
 {
     public partial class MainForm : Form
     {
-        public const string Version = "3.4.6";
+        public const string Version = "3.4.7";
         Settings st;
         readonly ChannelMonitor monVpn = new ChannelMonitor("vpn"), monDir = new ChannelMonitor("direct");
         volatile Prober pVpn, pDir;
@@ -34,7 +34,7 @@ namespace NetProbe
         readonly System.Windows.Forms.Timer updTimer = new System.Windows.Forms.Timer { Interval = 30 * 60 * 1000 };
         readonly System.Windows.Forms.Timer appUpdTimer = new System.Windows.Forms.Timer { Interval = 20000 }; // проверка релизов NetProbe: через 20 с после старта, дальше раз в час
 
-        class ChState { public int FailRun; public DateTime FirstFail; public bool? Ok; public string Ip = ""; public DateTime DownSince; public DateTime LastNotify; public Level Lv = Level.Off; public string Val = "—"; }
+        class ChState { public int FailRun; public DateTime FirstFail; public bool? Ok; public string Ip = "", Loc = "", Colo = ""; public DateTime DownSince; public DateTime LastNotify; public Level Lv = Level.Off; public string Val = "—"; }
         bool sameRoute;
         readonly Dictionary<string, ChState> chs = new Dictionary<string, ChState> { { "vpn", new ChState() }, { "direct", new ChState() } };
 
@@ -96,6 +96,15 @@ namespace NetProbe
             monVpn.GetProber = () => pVpn;
             monDir.GetProber = () => pDir;
             monVpn.Sample += OnSampleBg; monDir.Sample += OnSampleBg;
+            // VLESS / VMess / Trojan туннель в состоянии VPN: пока данные идут через сервер, сайт не опрашивается (Clash API sing-box)
+            monVpn.Passive = () =>
+            {
+                var rs = router.State;
+                if ((rs != RouteState.Vpn && rs != RouteState.Backup) || !router.Wg.IsXray || !router.Wg.Running || router.StrictOnly || router.LastVpnOk == DateTime.MinValue)
+                { TunnelFlow.Reset(); return TunnelFlowState.Unavailable; }
+                return TunnelFlow.Read(st.TunnelSocksPort + 1);
+            };
+            monVpn.PassiveSample += (m, fs) => router.VpnPassive(fs == TunnelFlowState.Flowing, DateTime.Now);
             // вторая проверка перед аварийным переключением: другие адреса через тот же пробник VPN (через туннель)
             router.ConfirmVpn = () =>
             {
@@ -872,6 +881,7 @@ namespace NetProbe
         void OnSampleBg(ChannelMonitor m, ProbeResult r)
         {
             if (m.Key == "vpn") router.VpnSample(r.Ok, r.Time, r.Ok && r.Ip != "" && r.Ip == chs["direct"].Ip); // вышел с IP «Напрямую» = мимо туннеля
+            if (m.Key == "vpn" && r.Ok) TunnelFlow.ProbeOk();
             if (bgProbe)
             {
                 // мониторинг выключен: без интерфейса, но в лог (если включено «Опросы в лог»)
@@ -953,7 +963,7 @@ namespace NetProbe
             if (cs.Ok == null) cs.DownSince = DateTime.Now;
             if (!r.Ok && cs.Ok != false) cs.DownSince = cs.FirstFail;
             cs.Ok = r.Ok;
-            if (r.Ok && r.Ip != "") { bool chg = cs.Ip != r.Ip; cs.Ip = r.Ip; if (chg) UpdateInfo(); }
+            if (r.Ok && r.Ip != "") { bool chg = cs.Ip != r.Ip; cs.Ip = r.Ip; cs.Loc = r.Loc; cs.Colo = r.Colo; if (chg) UpdateInfo(); }
             var other = chs[isVpn ? "direct" : "vpn"];
             bool same = r.Ok && other.Ok == true && cs.Ip != "" && cs.Ip == other.Ip;
             if (same != sameRoute)
@@ -968,7 +978,10 @@ namespace NetProbe
 
             card.Level = lv;
             card.Value = r.Ok ? F0(r.Latency) : "—";
-            card.Line1 = r.Ok ? "IP " + (r.Ip != "" ? r.Ip : r.RemoteIp) + (r.Loc != "" ? "  ·  " + r.Loc : "") + (r.Colo != "" ? Tx("  ·  узел ") + r.Colo : "") + "  ·  HTTP " + r.Code : "✗  " + r.Error;
+            // опросы по кругу: IP и страну даёт только trace — у остальных сайтов показываем последние известные
+            bool known = r.Ip == "" && cs.Ip != "";
+            string ipS = r.Ip != "" ? r.Ip : known ? cs.Ip : r.RemoteIp, locS = r.Ip != "" ? r.Loc : known ? cs.Loc : "", coloS = r.Ip != "" ? r.Colo : known ? cs.Colo : "";
+            card.Line1 = r.Ok ? "IP " + ipS + (locS != "" ? "  ·  " + locS : "") + (coloS != "" ? Tx("  ·  узел ") + coloS : "") + "  ·  HTTP " + r.Code : "✗  " + r.Error;
             card.Line2 = r.Ok ? "DNS " + F0(r.Dns) + "  ·  TCP " + F0(r.Connect) + "  ·  TLS " + F0(r.Tls) + Tx("  ·  всего ") + F0(r.Total) + Tx(" мс")
                               : Tx("Повтор через ") + F1(m.EffectiveIntervalMs / 1000) + Tx(" с (после ") + m.ConsecutiveFails + Tx(" ошибок)");
             card.Line3 = Tx("ср ") + F0(s.Avg) + Tx("  ·  мин ") + F0(s.Min) + Tx("  ·  макс ") + F0(s.Max) + Tx("  ·  джиттер ") + F1(s.Jitter) + Tx("  ·  потери ") + F1(s.LossPct) + Tx("%  ·  аптайм ") + F1(s.Uptime) + Tx("%  ·  обрывы ") + s.Drops;

@@ -128,6 +128,19 @@ namespace NetProbe
         public bool PollDefaults34 = false;  // 3.4.1: один раз перевести старое значение по умолчанию 1.0 на новое
         public int TimeoutSec = 5;
         public string ProbeUrl = "https://www.cloudflare.com/cdn-cgi/trace";
+        // 3.4.7: опросы по кругу — ProbeUrl (даёт IP и страну), затем эти адреса; один сбойный сайт не роняет VPN
+        public bool ProbeRotate = true;
+        public string ProbeSpare = "https://www.gstatic.com/generate_204 http://www.msftconnecttest.com/connecttest.txt https://www.apple.com/library/test/success.html";
+        // 3.4.7: VLESS/VMess/Trojan-туннель — пока данные идут через сервер (Clash API sing-box), сайт не опрашивается;
+        // активный опрос не реже раза в ProbeIdleSec и сразу, если трафик через сервер встал
+        public bool ProbePassive = true;
+        public int ProbeIdleSec = 30;
+        public List<string> ProbeUrls()
+        {
+            var l = new List<string> { ProbeUrl };
+            if (ProbeRotate) l.AddRange((ProbeSpare ?? "").Split(new[] { ' ', ',', ';', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Where(u => u.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || u.StartsWith("https://", StringComparison.OrdinalIgnoreCase)));
+            return l.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
         public string CurlPath = "curl.exe";
         public string VpnProxy = "";
         public int DirectMode = 0;
@@ -332,6 +345,7 @@ namespace NetProbe
             if (DirectMode < 0 || DirectMode > 1) DirectMode = 0;
             if (string.IsNullOrWhiteSpace(CurlPath)) CurlPath = "curl.exe";
             if (string.IsNullOrWhiteSpace(ProbeUrl)) ProbeUrl = "https://www.cloudflare.com/cdn-cgi/trace";
+            ProbeIdleSec = Math.Max(10, Math.Min(600, ProbeIdleSec));
             if (string.IsNullOrWhiteSpace(PingHost)) PingHost = "1.1.1.1";
             if (string.IsNullOrWhiteSpace(DirectInterface)) DirectInterface = "auto";
             if (string.IsNullOrWhiteSpace(WiresockLogLevel)) WiresockLogLevel = "info";

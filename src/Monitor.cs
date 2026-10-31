@@ -68,6 +68,10 @@ namespace NetProbe
         public volatile bool Paused;
         public double EffectiveIntervalMs;
         public int ConsecutiveFails;
+        // VPN-канал: пассивная проверка туннеля (null или Unavailable — обычный опрос сайта)
+        public Func<TunnelFlowState> Passive;
+        public event Action<ChannelMonitor, TunnelFlowState> PassiveSample; // данные через сервер идут / тишина — опрос сайта пропущен
+        DateTime lastActive = DateTime.MinValue; int urlIndex;
 
         Thread th; volatile bool running; readonly AutoResetEvent wake = new AutoResetEvent(false);
         public bool Running { get { return running; } }
@@ -94,8 +98,23 @@ namespace NetProbe
                 double interval = Math.Max(Settings.MinIntervalMs, 1000.0 / rate);
                 if (Paused) { wake.WaitOne(500); continue; }
                 var t0 = DateTime.Now;
+                if (Passive != null && st.ProbePassive && ConsecutiveFails == 0 && (t0 - lastActive).TotalSeconds < st.ProbeIdleSec)
+                {
+                    TunnelFlowState fs = TunnelFlowState.Unavailable;
+                    try { fs = Passive(); } catch { }
+                    if (fs == TunnelFlowState.Flowing || fs == TunnelFlowState.Idle)
+                    {
+                        EffectiveIntervalMs = interval;
+                        var ps = PassiveSample; if (ps != null) try { ps(this, fs); } catch { }
+                        wake.WaitOne((int)Math.Max(200, interval - (DateTime.Now - t0).TotalMilliseconds));
+                        continue;
+                    }
+                }
+                var urls = st.ProbeUrls();
+                string url = urls[(urlIndex++ & int.MaxValue) % urls.Count];
+                lastActive = t0;
                 ProbeResult r;
-                try { r = GetProber().Http(st.ProbeUrl, st.TimeoutSec); }
+                try { r = GetProber().Http(url, st.TimeoutSec); }
                 catch (Exception ex) { r = new ProbeResult { Error = ex.Message }; }
                 if (!running) break;
                 if (Paused) continue; // результат во время теста скорости не учитываем

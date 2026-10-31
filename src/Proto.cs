@@ -270,6 +270,82 @@ namespace NetProbe
         }
     }
 
+    // Пассивная проверка VLESS / VMess / Trojan туннеля: Clash API sing-box (127.0.0.1, секрет на запуск) отдаёт счётчики
+    // соединений. Пришли данные через outbound «proxy» — сервер работает, сайт опрашивать не нужно.
+    // Отправка идёт, а ответа нет несколько секунд — трафик встал, нужен активный опрос сразу.
+    public enum TunnelFlowState { Unavailable, Flowing, Idle, Stalled }
+    public static class TunnelFlow
+    {
+        static readonly object lk = new object();
+        static Dictionary<string, long[]> prev = new Dictionary<string, long[]>();
+        static DateTime sendNoReply = DateTime.MinValue;
+        public const long MinUp = 512;
+
+        public static void Reset() { lock (lk) { prev = new Dictionary<string, long[]>(); sendNoReply = DateTime.MinValue; } }
+        // активный опрос прошёл: «отправили, а ответа нет» больше не считается
+        public static void ProbeOk() { lock (lk) sendNoReply = DateTime.MinValue; }
+
+        public static TunnelFlowState Read(int port)
+        {
+            string json;
+            try
+            {
+                var rq = (System.Net.HttpWebRequest)System.Net.WebRequest.Create("http://127.0.0.1:" + port + "/connections");
+                rq.Proxy = null; rq.Timeout = 1500; rq.ReadWriteTimeout = 1500;
+                rq.Headers[System.Net.HttpRequestHeader.Authorization] = "Bearer " + TunnelAuth.Pass;
+                using (var resp = rq.GetResponse())
+                using (var rd = new StreamReader(resp.GetResponseStream(), Encoding.UTF8)) json = rd.ReadToEnd();
+            }
+            catch { Reset(); return TunnelFlowState.Unavailable; }
+            return Parse(json, DateTime.Now);
+        }
+
+        // отдельно от HTTP — для офлайн-проверок
+        public static TunnelFlowState Parse(string json, DateTime now)
+        {
+            var cur = new Dictionary<string, long[]>();
+            try
+            {
+                var root = new JavaScriptSerializer { MaxJsonLength = 64 * 1024 * 1024 }.DeserializeObject(json) as Dictionary<string, object>;
+                var conns = root != null && root.ContainsKey("connections") ? root["connections"] as object[] : null;
+                if (conns != null)
+                    foreach (var o in conns)
+                    {
+                        var c = o as Dictionary<string, object>; if (c == null || !c.ContainsKey("id")) continue;
+                        var chains = c.ContainsKey("chains") ? c["chains"] as object[] : null;
+                        if (chains == null || !chains.Any(x => string.Equals(Convert.ToString(x), "proxy", StringComparison.OrdinalIgnoreCase))) continue;
+                        var md = c.ContainsKey("metadata") ? c["metadata"] as Dictionary<string, object> : null;
+                        string proc = md != null && md.ContainsKey("processPath") ? Convert.ToString(md["processPath"]) : "";
+                        if (proc.IndexOf("netprobe-", StringComparison.OrdinalIgnoreCase) >= 0) continue; // свои пробники не считаются
+                        cur[Convert.ToString(c["id"])] = new[] { Convert.ToInt64(c.ContainsKey("upload") ? c["upload"] : 0), Convert.ToInt64(c.ContainsKey("download") ? c["download"] : 0) };
+                    }
+            }
+            catch { Reset(); return TunnelFlowState.Unavailable; }
+            lock (lk)
+            {
+                bool first = prev.Count == 0 && cur.Count > 0 && sendNoReply == DateTime.MinValue;
+                long up = 0, down = 0;
+                foreach (var kv in cur)
+                {
+                    long[] p;
+                    if (prev.TryGetValue(kv.Key, out p)) { up += Math.Max(0, kv.Value[0] - p[0]); down += Math.Max(0, kv.Value[1] - p[1]); }
+                    else if (!first) { up += kv.Value[0]; down += kv.Value[1]; } // новое соединение — всё, что оно успело передать
+                }
+                prev = cur;
+                if (first) return TunnelFlowState.Idle; // первое чтение — не с чем сравнить
+                if (down > 0) { sendNoReply = DateTime.MinValue; return TunnelFlowState.Flowing; }
+                if (up >= MinUp && sendNoReply == DateTime.MinValue) sendNoReply = now;
+                if (sendNoReply != DateTime.MinValue)
+                {
+                    double wait = (now - sendNoReply).TotalSeconds;
+                    if (wait > 20) sendNoReply = DateTime.MinValue; // давно и без новых отправок — разговор закончился
+                    else if (wait >= 3) return TunnelFlowState.Stalled;
+                }
+                return TunnelFlowState.Idle;
+            }
+        }
+    }
+
     // То, с чем работает Router: WireSock или xray-туннель — по типу конфига.
     public class TunnelRunner
     {

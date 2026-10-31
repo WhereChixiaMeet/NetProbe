@@ -231,6 +231,15 @@ namespace NetProbe
             else { okSince = DateTime.MinValue; failStreak++; }
         }
 
+        // пассивная проверка VLESS / VMess / Trojan туннеля (вместо опроса сайта): данные пришли через сервер = VPN работает;
+        // тишина (ничего не передаётся) после успешной проверки — VPN не считается молчащим, пока активный опрос не скажет иначе
+        public void VpnPassive(bool flowing, DateTime t)
+        {
+            if (failStreak > 0 || LastVpnOk == DateTime.MinValue) return;
+            if (flowing) VpnSample(true, t);
+            else if (t > LastVpnOk) LastVpnOk = t;
+        }
+
         void SetState(RouteState s, string detail)
         {
             if (State != s) StateSince = DateTime.Now;
