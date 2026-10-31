@@ -1,6 +1,8 @@
 # RouteX
 *(formerly NetProbe)*
 
+Version 3.4.3: see [changes and testing instructions](CHANGES-3.4.3.md).
+
 ### MANUAL RESTART REQUIRED AFTER UPDATE ###
 
 Windows protocol router: WireGuard · VLESS · VMess · Trojan, DPI bypass, MTProxy (TG) per-app split routing with automatic failover and a built-in network monitor.
